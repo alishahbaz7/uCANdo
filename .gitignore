@@ -3,7 +3,12 @@ __pycache__/
 .venv/
 venv/
 data/logs/
+data/uploads/
 *.asc
 *.blf
+*.db
+*.db-wal
+*.db-shm
 build/
 dist/
+.pytest_cache/

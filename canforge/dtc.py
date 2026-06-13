@@ -78,6 +78,9 @@ class DtcMonitor:
         self._lock = threading.Lock()
         # group -> { code -> record }
         self._dtcs: dict[str, dict] = {}
+        # ISO-TP reassembly buffers, keyed by responder arbitration ID, so DTC
+        # lists spanning multiple frames are recombined before decoding.
+        self._isotp: dict[int, dict] = {}
 
     def _put(self, group: str, code: str, rec: dict) -> None:
         with self._lock:
@@ -96,14 +99,30 @@ class DtcMonitor:
         if msg.is_extended_id:
             self._consume_j1939(msg.arbitration_id, data)
         elif msg.arbitration_id in OBD_RESPONSE_IDS:
-            self._consume_obd(data)
+            self._consume_obd(msg.arbitration_id, data)
 
-    def _consume_obd(self, data: bytes) -> None:
-        # Single-frame only for now; >1 frame of DTCs needs ISO-TP reassembly.
-        if (data[0] >> 4) != 0:
-            return
-        length = data[0] & 0x0F
-        payload = data[1:1 + length]
+    def _consume_obd(self, arb_id: int, data: bytes) -> None:
+        """Feed an OBD/UDS responder frame through ISO-TP, decode when complete."""
+        pci = data[0] >> 4
+        if pci == 0x0:                       # Single frame
+            length = data[0] & 0x0F
+            self._isotp.pop(arb_id, None)    # abandon any stale partial
+            self._decode_dtc_service(data[1:1 + length])
+        elif pci == 0x1 and len(data) >= 2:  # First frame
+            total = ((data[0] & 0x0F) << 8) | data[1]
+            self._isotp[arb_id] = {"data": bytearray(data[2:8]), "remaining": total - 6}
+        elif pci == 0x2:                     # Consecutive frame
+            st = self._isotp.get(arb_id)
+            if not st:
+                return
+            take = min(7, st["remaining"])
+            st["data"].extend(data[1:1 + take])
+            st["remaining"] -= take
+            if st["remaining"] <= 0:
+                self._decode_dtc_service(bytes(self._isotp.pop(arb_id)["data"]))
+
+    def _decode_dtc_service(self, payload: bytes) -> None:
+        """Decode a fully-reassembled OBD Mode 03/07/0A or UDS 0x59 response."""
         if not payload:
             return
         sid = payload[0]

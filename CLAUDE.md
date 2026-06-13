@@ -24,7 +24,12 @@ Per-hardware extras are intentionally *not* in `requirements.txt`: `pip install 
 python -m compileall -q canforge main.py
 ```
 
-There is no test suite yet. Smoke-test the capture path without hardware by connecting to the **virtual** bus (in the UI, or via the `BusManager` directly) — `canforge.sim.SyntheticTraffic` feeds it real-looking frames.
+**Tests** (pytest; no hardware needed — integration tests use the in-process virtual bus on a per-test channel):
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+Tests live in `tests/`; `tests/conftest.py` holds the virtual-bus harness (`wait_until`, `sender`, `vchannel`, in-memory `storage`). You can also smoke-test the capture path by connecting to the **virtual** bus — `canforge.sim.SyntheticTraffic` feeds it real-looking frames.
 
 ## Architecture
 
@@ -44,6 +49,14 @@ Hardware keys and their backends (`BACKENDS` in `hal.py`):
 | `microchip` | `slcan` | COM port (str) | analyzer flashed with SLCAN firmware |
 
 Channel type is coerced per-backend (`channel_type` in the table), and `fd` is only forwarded to backends with `supports_fd`. The one exception to "no `can.Bus`": `device_enum.py` and `sim.py` use `can`/vendor libs directly, by necessity (enumeration and traffic generation sit *beside* the HAL, not above it).
+
+### Foundation rails (Phase 0)
+
+Four cross-cutting modules added to keep the app extensible without editing core (see `docs/PRODUCT_PLAN.md`):
+- `registry.py` — generic `Registry` + the named global registries `RE_ENGINES`, `DECODERS`, `EXPORTERS`, `OEM_PACKS`. New engines/decoders/exporters/OEM packs **self-register** at import; `load_plugins()` auto-imports everything under `canforge/plugins/`. `server.py` calls it once and exposes `/api/plugins`. The `Protocol` classes in `registry.py` are the documented plugin contracts.
+- `storage.py` — thread-safe SQLite (`Storage`, WAL, one lock for writes). Schema is a plain list of `CREATE TABLE IF NOT EXISTS` strings — append one to extend. Tables: `oem_profiles` (the India OEM DB + frame `signature` for auto-ID), `vehicles`, `captures`, `jobs`, `settings`.
+- `config.py` — `Config` over the `settings` table with `DEFAULTS`; named profiles are namespaced `profile:<name>` keys. `server.py` exposes `/api/config`.
+- `contracts.py` — `TypedDict` definitions of the `snapshot()` / `/ws/live` payload, the **single source of truth** for the backend↔`web/app.js` coupling. `check_snapshot()` lets tests assert the producer keeps the contract. Update this + `web/app.js` together when the snapshot shape changes.
 
 ### Dependency direction (keep acyclic)
 

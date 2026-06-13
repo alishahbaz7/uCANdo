@@ -67,7 +67,7 @@ class SyntheticTraffic:
             counter = (counter + 1) & 0xFF
             self._emit(0x200, bytes([counter, 0xA5, 0x00, 0x00]))
 
-            # 0x300 — high-entropy "sensor" noise (2 bytes) + steady 0x7F.
+            # 0x301 — high-entropy "sensor" noise (2 bytes) + steady 0x7F.
             rng = (1103515245 * rng + 12345) & 0x7FFF_FFFF
             noise = rng & 0xFFFF
             self._emit(0x301, struct.pack(">HH", noise, 0x007F))

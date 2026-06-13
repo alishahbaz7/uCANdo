@@ -21,15 +21,18 @@ from . import __app_name__, __version__
 from .bus_manager import BusManager
 import can
 
+from .config import Config
 from .dashboard import Dashboard
 from .device_enum import enumerate_all
 from .dbc_builder import DbcModel
 from .dtc import DtcMonitor
 from .protocol import ProtocolDecoder
+from .registry import describe_all, load_plugins
 from .replay import LogReplayer
 from .reverse import analyze_log
 from .scheduler import TxScheduler
 from .signals import SignalViewer
+from .storage import Storage
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -40,6 +43,11 @@ for d in (LOG_DIR, UPLOAD_DIR):
     os.makedirs(d, exist_ok=True)
 
 app = FastAPI(title=f"{__app_name__} API", version=__version__)
+
+# ----- foundation rails (persistence, config, plugins) ---------------------
+storage = Storage()
+config = Config(storage)
+loaded_plugins = load_plugins()   # auto-imports canforge/plugins/* (self-register)
 
 # ----- subsystems ----------------------------------------------------------
 bus = BusManager()
@@ -133,7 +141,30 @@ def _save_upload(file: UploadFile) -> str:
 # ===========================================================================
 @app.get("/api/info")
 def info():
-    return {"app": __app_name__, "version": __version__}
+    return {"app": __app_name__, "version": __version__,
+            "plugins_loaded": len(loaded_plugins)}
+
+
+@app.get("/api/plugins")
+def plugins():
+    """Every registered plugin (RE engines, decoders, exporters, OEM packs)."""
+    return describe_all()
+
+
+@app.get("/api/config")
+def config_get():
+    return config.all()
+
+
+class ConfigSetReq(BaseModel):
+    key: str
+    value: object
+
+
+@app.post("/api/config")
+def config_set(req: ConfigSetReq):
+    config.set(req.key, req.value)
+    return {"ok": True, "config": config.all()}
 
 
 @app.get("/api/devices")
@@ -486,7 +517,10 @@ async def ws_live(ws: WebSocket):
     await ws.accept()
     try:
         while True:
-            payload = bus.logger.snapshot() if bus.logger else {"running": False}
+            # Capture the logger reference once: a concurrent disconnect can swap
+            # bus.logger to None between an `if` check and the deref.
+            logger = bus.logger
+            payload = logger.snapshot() if logger else {"running": False}
             payload["connected"] = bus.connected
             payload["replay"] = replayer.status()
             await ws.send_json(payload)
