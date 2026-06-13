@@ -22,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
     "recent_frames": 250,
     "ui_theme": "dark",
     "auto_identify_vehicle": True,   # fingerprint live bus against the OEM DB on connect
+    "log_dir": "",                   # where recordings are saved ("" = server default data/logs)
 }
 
 

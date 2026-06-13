@@ -74,6 +74,12 @@
 
       <!-- ===== CAN Logger ===== -->
       <section id="view-logger" class="view hidden">
+        <div class="toolbar">
+          <span class="muted-line">Log folder (where recordings are saved)</span>
+          <input id="logDir" placeholder="(default: data/logs)" style="flex:1;min-width:260px" />
+          <button class="btn-mini" id="btnLogDirSave">Save folder</button>
+          <button class="btn-mini" id="btnLogDirReset" title="Reset to default data/logs">Reset</button>
+        </div>
         <div class="cards">
           <div class="card"><div class="card-k">Frames</div><div class="card-v" id="statTotal">0</div></div>
           <div class="card"><div class="card-k">Unique IDs</div><div class="card-v" id="statIds">0</div></div>
@@ -283,6 +289,7 @@
           <input id="txCycle" type="number" value="100" title="cycle ms" style="width:90px" /> <span class="muted-line">ms</span>
           <select id="txMode"><option value="cyclic">cyclic</option><option value="once">once</option></select>
           <button class="btn" id="btnTxAdd">+ Add</button>
+          <button class="btn ghost" id="btnTxObdPreset" title="Add standard OBD-II Mode-01 request rows (RPM/speed/coolant/throttle/load)">+ OBD PIDs</button>
           <span style="flex:1"></span>
           <button class="btn" id="btnTxStart">▶ Start all</button>
           <button class="btn" id="btnTxStop">⏹ Stop</button>
