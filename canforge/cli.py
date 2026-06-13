@@ -67,6 +67,53 @@ def cmd_replay(args) -> int:
     return 0
 
 
+def cmd_drive(args) -> int:
+    """Record while polling standard OBD-II PIDs, for correlation-based labeling."""
+    import can
+    bus = _connect(args)
+    print(f"drive capture {args.seconds}s on {args.hw}:{args.channel} -> {args.out}  (polling OBD)")
+    print("DRIVE NOW: vary speed + throttle; let it warm up. Ctrl+C won't be needed.")
+    bus.logger.start_recording(args.format, args.out)
+    PIDS = [0x05, 0x0C, 0x0D, 0x0F, 0x10, 0x11, 0x04, 0x2F, 0x49]  # coolant,rpm,speed,IAT,MAF,thr,load,fuel,APP
+    t0 = time.time()
+    while time.time() - t0 < args.seconds:
+        for pid in PIDS:
+            try:
+                bus.send(can.Message(arbitration_id=0x7DF, is_extended_id=False,
+                                     data=bytes([0x02, 0x01, pid, 0, 0, 0, 0, 0])))
+            except Exception:
+                pass
+        time.sleep(0.2)
+    res = bus.logger.stop_recording(); snap = bus.logger.snapshot()
+    bus.disconnect()
+    print(f"done: {res.get('frames', 0)} frames, {snap['unique_ids']} IDs -> {res.get('path')}")
+    print("analyze: deep_correlate_log() labels VSS / IAT / MAF / APP / coolant by correlation")
+    return 0
+
+
+def cmd_sniff(args) -> int:
+    """Find a discrete signal (door, indicator, brake...) by toggling its control."""
+    from .re_engines.diff import StateSniffer
+    bus = _connect(args)
+    snf = StateSniffer(); bus.add_tap(snf.consume)
+    snf.arm()
+    print(f"[baseline] keep everything STEADY — do NOT touch '{args.label}' for {args.baseline:.0f}s ...")
+    time.sleep(args.baseline)
+    snf.mark()
+    print(f">>> NOW TOGGLE: {args.label}  (on/off several times) for {args.action:.0f}s <<<")
+    time.sleep(args.action)
+    res = snf.result(); bus.disconnect()
+    changed = res.get("changed", [])
+    if not changed:
+        print("no bit changed — toggle more distinctly (or it's on another bus) and retry")
+        return 0
+    print(f"=== '{args.label}' -> ===")
+    for c in changed:
+        byts = ",".join(str(b["index"]) for b in c["changed_bytes"])
+        print(f"  0x{c['id_hex']}  changed bits {c['changed_bits']}  (byte {byts})")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="canforge.cli", description="CANForge headless CLI")
     p.add_argument("--hw", default="virtual")
@@ -89,6 +136,18 @@ def main(argv=None) -> int:
     rp.add_argument("--file", required=True)
     rp.add_argument("--speed", type=float, default=1.0)
     rp.set_defaults(func=cmd_replay)
+
+    dr = sub.add_parser("drive", help="record + poll OBD PIDs (for correlation labeling)")
+    dr.add_argument("--seconds", type=float, default=120.0)
+    dr.add_argument("--out", default="data/logs/drive")
+    dr.add_argument("--format", default="asc")
+    dr.set_defaults(func=cmd_drive)
+
+    sn = sub.add_parser("sniff", help="find a discrete signal by toggling its control")
+    sn.add_argument("--label", required=True, help="name of the control, e.g. 'Left indicator'")
+    sn.add_argument("--baseline", type=float, default=4.0)
+    sn.add_argument("--action", type=float, default=6.0)
+    sn.set_defaults(func=cmd_sniff)
 
     args = p.parse_args(argv)
     return args.func(args)
