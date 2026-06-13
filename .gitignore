@@ -4,6 +4,7 @@ __pycache__/
 venv/
 data/logs/
 data/uploads/
+data/drivers/
 *.asc
 *.blf
 *.db

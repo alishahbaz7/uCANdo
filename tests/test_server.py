@@ -25,6 +25,16 @@ def test_devices_lists_virtual():
     assert any(d["hw"] == "virtual" for d in devs)
 
 
+def test_drivers_status():
+    backends = client.get("/api/drivers/status").json()["backends"]
+    by_hw = {b["hw"]: b for b in backends}
+    assert by_hw["virtual"]["ready"] is True
+    # neovi (if its driver/lib isn't ready) should expose an installer remedy.
+    nv = by_hw["neovi"]
+    if not nv["ready"]:
+        assert nv["remedy"]["type"] in ("installer", "pip")
+
+
 def test_config_get_and_set():
     assert "default_bitrate" in client.get("/api/config").json()
     r = client.post("/api/config", json={"key": "ui_theme", "value": "light"}).json()

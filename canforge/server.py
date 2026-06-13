@@ -26,8 +26,10 @@ from .config import Config
 from .dashboard import Dashboard
 from .device_enum import enumerate_all
 from .dbc_builder import DbcModel
+from .drivers import DriverAssistant
 from .dtc import DtcMonitor
 from .jobs import JobRunner
+from . import preflight
 from .oem_db import TARGET_OEMS, OemDatabase, fingerprint_from_id_stats
 from .protocol import ProtocolDecoder
 from .rules import RulesEngine
@@ -47,7 +49,8 @@ WEB_DIR = os.path.join(ROOT, "web")
 DATA_DIR = os.path.join(ROOT, "data")
 LOG_DIR = os.path.join(DATA_DIR, "logs")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
-for d in (LOG_DIR, UPLOAD_DIR):
+DRIVER_DIR = os.path.join(DATA_DIR, "drivers")
+for d in (LOG_DIR, UPLOAD_DIR, DRIVER_DIR):
     os.makedirs(d, exist_ok=True)
 
 app = FastAPI(title=f"{__app_name__} API", version=__version__)
@@ -57,6 +60,7 @@ storage = Storage()
 config = Config(storage)
 oem = OemDatabase(storage)
 oem.seed_builtins()               # demo profile + OEM placeholders (idempotent)
+driver_assistant = DriverAssistant(DRIVER_DIR)
 loaded_plugins = load_plugins()   # auto-imports canforge/plugins/* (self-register)
 
 # ----- subsystems ----------------------------------------------------------
@@ -224,6 +228,39 @@ def config_set(req: ConfigSetReq):
 @app.get("/api/devices")
 def devices():
     return {"devices": enumerate_all()}
+
+
+# ----- hardware preflight & driver assistant -------------------------------
+@app.get("/api/drivers/status")
+def drivers_status():
+    """Per-adapter readiness; attaches live download progress where relevant."""
+    backends = preflight.check_all()
+    for b in backends:
+        if b.get("remedy", {}).get("type") == "installer":
+            b["download"] = driver_assistant.status(b["hw"])
+    return {"backends": backends}
+
+
+@app.post("/api/drivers/download")
+def drivers_download(hw: str):
+    try:
+        return {"ok": True, **driver_assistant.start_download(hw)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/drivers/download/status")
+def drivers_download_status(hw: str):
+    return driver_assistant.status(hw)
+
+
+@app.post("/api/drivers/launch")
+def drivers_launch(hw: str):
+    """Extract (if a zip) and launch the vendor installer for an elevated install."""
+    try:
+        return driver_assistant.prepare_and_launch(hw)
+    except Exception as exc:
+        return _err(str(exc))
 
 
 @app.post("/api/connect")
