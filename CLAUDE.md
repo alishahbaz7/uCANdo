@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Roadmap status
+
+Full plan & benchmark: `docs/PRODUCT_PLAN.md`. Target: India-first, fleet/telematics-focused CAN workbench. Working **phase-by-phase, one git branch + one merge to `main` per phase**.
+
+| Phase | Theme | Status | Key deliverables |
+|---|---|---|---|
+| 0 | Foundation rails | ✅ done | `registry.py`, `storage.py`, `config.py`, `contracts.py`, pytest harness, gap fixes |
+| 1 | RE supercharge (Pillar B) | ✅ done | `re_engines/read.py` (READ/BFR), `re_engines/diff.py` (sniffer+compare), RE UI, promote-to-DBC |
+| 2 | OEM CAN Database (Pillar A) | 🚧 in progress | `oem_db.py` (profiles on `oem_profiles`), fingerprint + CANMatch auto-identify, seed packs, OEM UI |
+| 3 | OEM-aware visualization | ⬜ todo | OEM-DB dashboard (zero-DBC decode), configurable charts, alarms, LibreCAN correlation |
+| 4 | Automation & simulation (Pillar C) | ⬜ todo | rules engine, job scheduler, scripting API, restbus/node sim |
+| 5 | Fleet / telematics | ⬜ todo | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
+| 6 | Polish & package | ⬜ todo | workspace UX, full UDS client, packaging |
+
+Update this table at the end of each phase. Tests: `python -m pytest -q`.
+
 ## Commands
 
 **Run the app** (serves the UI at `http://127.0.0.1:8765` and opens the browser):
