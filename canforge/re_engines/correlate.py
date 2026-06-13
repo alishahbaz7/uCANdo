@@ -93,6 +93,77 @@ def _pearson_fit(xs: list, ys: list):
     return r, slope, my - slope * mx
 
 
+def _subsample(seq, cap=2000):
+    """Stride a sequence down to <= cap points (keeps correlation cheap)."""
+    n = len(seq)
+    if n <= cap:
+        return list(range(n))
+    step = n // cap + 1
+    return list(range(0, n, step))
+
+
+def correlate_windows(frames: dict, gt: dict, widths=(8, 12, 16), step: int = 4,
+                      r_threshold: float = 0.9, min_unique: int = 8) -> list[dict]:
+    """Sliding-window correlation: for every candidate field in every frame, find
+    the best match to each ground-truth series — recovers *full* signals (not
+    just READ's fragments) with true scale/offset.
+
+    Returns one best record per (frame, ground-truth label) above threshold.
+    """
+    out = []
+    for (arb, ext), data in frames.items():
+        if arb in OBD_RESPONSE_IDS or arb == 0x7DF:
+            continue
+        payloads, ts = data["payloads"], data["timestamps"]
+        if len(payloads) < MIN_PAIRS:
+            continue
+        idx = _subsample(payloads)
+        sp = [payloads[i] for i in idx]
+        sts = [ts[i] for i in idx]
+        nbits = max((len(p) for p in sp), default=0) * 8
+        best: dict[str, dict] = {}
+        for w in widths:
+            for start in range(0, nbits - w + 1, step):
+                be = [value_be(p, start, w) for p in sp]
+                if len(set(be)) < min_unique:
+                    continue
+                cands = [("big_endian", be)]
+                if start % 8 == 0 and w % 8 == 0:
+                    le = [value_le(p, start, w) for p in sp]
+                    if len(set(le)) >= min_unique:
+                        cands.append(("little_endian", le))
+                for order, vals in cands:
+                    for gname, (gts, gvals) in gt.items():
+                        xs, ys = _align(sts, vals, gts, gvals)
+                        fit = _pearson_fit(xs, ys)
+                        if not fit or abs(fit[0]) < r_threshold:
+                            continue
+                        r, slope, intercept = fit
+                        cur = best.get(gname)
+                        better = (cur is None or abs(r) > abs(cur["r"]) + 1e-9 or
+                                  (abs(abs(r) - abs(cur["r"])) < 0.02 and w > cur["length"]))
+                        if better:
+                            best[gname] = {"start_bit": start, "length": w,
+                                           "byte_order": order, "r": round(r, 3),
+                                           "scale": round(slope, 6), "offset": round(intercept, 3),
+                                           "label": gname, "name": gname.replace(" ", "")}
+        for rec in best.values():
+            out.append({"id": arb, "id_hex": f"{arb:0{8 if ext else 3}X}", "ext": ext, **rec})
+    out.sort(key=lambda d: -abs(d["r"]))
+    return out
+
+
+def deep_correlate_log(path: str, r_threshold: float = 0.9,
+                       max_frames_per_id: int = 20000) -> dict:
+    """Full sliding-window correlation against OBD ground truth (richer than
+    :func:`correlate_log`, which is limited to READ's candidate boundaries)."""
+    from ..reverse import load_log_frames
+    frames = load_log_frames(path, max_frames_per_id)
+    gt = _obd_ground_truth(frames)
+    return {"path": path, "ground_truth": sorted(gt.keys()),
+            "signals": correlate_windows(frames, gt, r_threshold=r_threshold)}
+
+
 def correlate_log(path: str, r_threshold: float = 0.9, max_frames_per_id: int = 20000) -> dict:
     from ..reverse import load_log_frames
     frames = load_log_frames(path, max_frames_per_id)
