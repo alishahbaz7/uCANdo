@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from collections import deque
 
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
@@ -26,8 +27,12 @@ from .dashboard import Dashboard
 from .device_enum import enumerate_all
 from .dbc_builder import DbcModel
 from .dtc import DtcMonitor
+from .jobs import JobRunner
 from .oem_db import TARGET_OEMS, OemDatabase, fingerprint_from_id_stats
 from .protocol import ProtocolDecoder
+from .rules import RulesEngine
+from .scripting import ScriptContext, run_script
+from .simulation import RestbusSimulator
 from .registry import RE_ENGINES, describe_all, load_plugins
 from .replay import LogReplayer
 from .re_engines.diff import StateSniffer, compare_logs
@@ -64,6 +69,12 @@ dashboard = Dashboard()
 dtc = DtcMonitor()
 sniffer = StateSniffer()
 
+# ----- automation & simulation (Phase 4, Pillar C) -------------------------
+restbus = RestbusSimulator(bus.send)
+jobs_runner = JobRunner(storage)
+rules = RulesEngine(storage, send=bus.send, trigger_job=jobs_runner.run_now)
+viewer.add_value_subscriber(rules.on_values)   # rules see decoded signal values
+
 # Protocol monitor: a decoder + bounded buffer fed by a live tap.
 proto_decoder = ProtocolDecoder()
 proto_recent: deque = deque(maxlen=300)
@@ -82,6 +93,42 @@ bus.add_tap(_proto_tap)
 bus.add_tap(dashboard.consume)
 bus.add_tap(dtc.consume)
 bus.add_tap(sniffer.consume)
+
+
+# ----- job handlers (dispatched by JobRunner by `kind`) --------------------
+def _dtc_scan_send() -> dict:
+    """Transmit the standard DTC requests (shared by /api/dtc/scan and the job)."""
+    bus.send(can.Message(arbitration_id=0x7DF, is_extended_id=False,
+                         data=bytes([0x01, 0x03, 0, 0, 0, 0, 0, 0])))
+    bus.send(can.Message(arbitration_id=0x7DF, is_extended_id=False,
+                         data=bytes([0x01, 0x07, 0, 0, 0, 0, 0, 0])))
+    req_id = (6 << 26) | (0xEA << 16) | (0xFF << 8) | 0xF9
+    bus.send(can.Message(arbitration_id=req_id, is_extended_id=True,
+                         data=bytes([0xCA, 0xFE, 0x00])))
+    return {"ok": True, "sent": 3}
+
+
+def _job_scan(spec):
+    if not bus.connected:
+        return {"ok": False, "error": "not connected"}
+    return _dtc_scan_send()
+
+
+def _job_record(spec):
+    """Pulse a recording for spec['duration_s'] seconds (non-blocking)."""
+    if not bus.logger:
+        return {"ok": False, "error": "not connected"}
+    name = spec.get("name", "job-capture")
+    fmt = spec.get("format", "asc")
+    dur = float(spec.get("duration_s", 5))
+    bus.logger.start_recording(fmt, os.path.join(LOG_DIR, name))
+    threading.Timer(dur, lambda: bus.logger and bus.logger.stop_recording()).start()
+    return {"ok": True, "recording_s": dur}
+
+
+jobs_runner.register_handler("scan", _job_scan)
+jobs_runner.register_handler("record", _job_record)
+jobs_runner.start()
 
 
 # ----- request models ------------------------------------------------------
@@ -675,6 +722,135 @@ def tx_send_once(uid: int):
         return {"ok": True, **scheduler.send_once(uid, bus.send)}
     except Exception as exc:
         return _err(str(exc))
+
+
+# ===========================================================================
+# Automation: rules, jobs, restbus simulation, scripting (Pillar C)
+# ===========================================================================
+class RuleReq(BaseModel):
+    name: str = ""
+    when: str
+    action: dict
+    cooldown_s: float = 0.0
+
+
+@app.get("/api/rules")
+def rules_table():
+    return rules.table()
+
+
+@app.post("/api/rules/add")
+def rules_add(req: RuleReq):
+    try:
+        return {"ok": True, "rule": rules.add(req.name, req.when, req.action,
+                                              cooldown_s=req.cooldown_s)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/rules/remove")
+def rules_remove(uid: int):
+    rules.remove(uid); return {"ok": True}
+
+
+@app.post("/api/rules/enable")
+def rules_enable(uid: int, enabled: bool = True):
+    rules.set_enabled(uid, enabled); return {"ok": True}
+
+
+class JobReq(BaseModel):
+    name: str
+    kind: str                 # scan | record
+    schedule: str = ""        # "every:<seconds>" or "" for manual
+    spec: dict = {}
+
+
+@app.get("/api/jobs")
+def jobs_list():
+    return {"jobs": jobs_runner.list_jobs()}
+
+
+@app.post("/api/jobs/add")
+def jobs_add(req: JobReq):
+    return {"ok": True, "job": jobs_runner.add_job(req.name, req.kind,
+                                                   schedule=req.schedule, spec=req.spec)}
+
+
+@app.post("/api/jobs/remove")
+def jobs_remove(jid: int):
+    jobs_runner.remove_job(jid); return {"ok": True}
+
+
+@app.post("/api/jobs/enable")
+def jobs_enable(jid: int, enabled: bool = True):
+    jobs_runner.set_enabled(jid, enabled); return {"ok": True}
+
+
+@app.post("/api/jobs/run")
+def jobs_run(jid: int):
+    try:
+        return {"ok": True, "result": jobs_runner.run_now(jid)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+# ----- restbus simulation --------------------------------------------------
+@app.post("/api/restbus/load-builder")
+def restbus_load_builder():
+    """Build the restbus plan from the current DBC Builder model."""
+    try:
+        import cantools
+        db = cantools.database.load_string(dbc.to_dbc_string(), database_format="dbc")
+        return {"ok": True, **restbus.load_db(db)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+class RestbusProfileReq(BaseModel):
+    profile_id: int
+
+
+@app.post("/api/restbus/load-profile")
+def restbus_load_profile(req: RestbusProfileReq):
+    p = oem.get_profile(req.profile_id)
+    if not p or not p.get("dbc"):
+        return _err("Profile has no DBC")
+    try:
+        import cantools
+        db = cantools.database.load_string(p["dbc"], database_format="dbc")
+        return {"ok": True, **restbus.load_db(db)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/restbus/start")
+def restbus_start():
+    if not bus.connected:
+        return _err("Connect a bus first")
+    return {"ok": True, **restbus.start()}
+
+
+@app.post("/api/restbus/stop")
+def restbus_stop():
+    return {"ok": True, **restbus.stop()}
+
+
+@app.get("/api/restbus/status")
+def restbus_status():
+    return restbus.status()
+
+
+# ----- scripting -----------------------------------------------------------
+class ScriptReq(BaseModel):
+    code: str
+    timeout: float = 5.0
+
+
+@app.post("/api/script/run")
+def script_run(req: ScriptReq):
+    send = bus.send if bus.connected else None
+    ctx = ScriptContext(send=send, latest=lambda k, d=None: viewer._latest.get(k, d))
+    return {"ok": True, **run_script(req.code, ctx, timeout=min(req.timeout, 15.0))}
 
 
 # ===========================================================================

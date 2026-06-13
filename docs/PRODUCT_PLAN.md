@@ -225,11 +225,12 @@ early, because that's the differentiator for the fleet/telematics user.
 - ✅ LibreCAN correlation engine (OBD ground-truth auto-labeling with recovered scale/offset) — `re_engines/correlate.py`
 - _Deferred:_ fully drag-and-drop gauge workspace + IMU correlation source (charts exist; richer layout is Phase 6 polish)
 
-### Phase 4 — Automation & simulation *(Pillar C)*
-- Rules engine + job scheduler + report generation
-- Python scripting API (sandboxed) — CAPL equivalent
-- Restbus + node/ECU simulation; interactive physical-value transmit
-- Headless/CLI mode
+### Phase 4 — Automation & simulation *(Pillar C)* — ✅ DONE
+- ✅ Rules engine (`rules.py`) + job scheduler (`jobs.py`, on the `jobs` table)
+- ✅ Python scripting API (`scripting.py`, sandboxed) — CAPL equivalent
+- ✅ Restbus simulation (`simulation.py`) from a DBC/profile, with per-message overrides
+- ✅ Headless/CLI mode (`cli.py`: log/identify/replay)
+- _Deferred:_ reactive node/ECU sim (request→response), report generation (Phase 6)
 
 ### Phase 5 — Fleet / telematics
 - Multi-vehicle registry + per-vehicle profiles/history
