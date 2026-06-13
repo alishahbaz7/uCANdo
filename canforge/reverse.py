@@ -111,37 +111,59 @@ def analyze_id(payloads: list[bytes]) -> dict:
     }
 
 
-def analyze_log(path: str, max_frames_per_id: int = 20000) -> dict:
-    """Group a log by arbitration ID and analyze each."""
-    by_id: dict[tuple[int, bool], list[bytes]] = defaultdict(list)
-    timestamps: dict[tuple[int, bool], list[float]] = defaultdict(list)
+def load_log_frames(path: str, max_frames_per_id: int = 20000) -> dict:
+    """Read a log and group it into the engine input shape (frames-by-id).
 
+    Returns ``{ (arb_id, ext): {"timestamps": [...], "payloads": [...]} }``.
+    This is the single point of log I/O; engines stay pure and bus-free.
+    """
+    frames: dict[tuple[int, bool], dict] = defaultdict(
+        lambda: {"timestamps": [], "payloads": []})
     with can.LogReader(path) as reader:
         for msg in reader:
             key = (msg.arbitration_id, bool(msg.is_extended_id))
-            if len(by_id[key]) < max_frames_per_id:
-                by_id[key].append(bytes(msg.data))
-                timestamps[key].append(msg.timestamp)
+            bucket = frames[key]
+            if len(bucket["payloads"]) < max_frames_per_id:
+                bucket["payloads"].append(bytes(msg.data))
+                bucket["timestamps"].append(msg.timestamp)
+    return dict(frames)
 
-    results = []
-    for (arb_id, ext), payloads in by_id.items():
-        ts = timestamps[(arb_id, ext)]
-        period_ms = 0.0
-        if len(ts) > 1:
-            period_ms = (ts[-1] - ts[0]) / (len(ts) - 1) * 1000.0
-        info = analyze_id(payloads)
-        info.update({
-            "id": arb_id,
-            "id_hex": f"{arb_id:0{8 if ext else 3}X}",
-            "ext": ext,
-            "period_ms": round(period_ms, 2),
-        })
-        results.append(info)
 
-    results.sort(key=lambda r: r["id"])
-    return {
-        "path": path,
-        "id_count": len(results),
-        "total_frames": sum(r["frames"] for r in results),
-        "ids": results,
-    }
+class BasicEngine:
+    """The original toggle-count analysis, kept as the ``basic`` RE engine."""
+
+    name = "basic"
+
+    def analyze(self, frames_by_id: dict, **opts) -> dict:
+        results = []
+        for (arb_id, ext), data in frames_by_id.items():
+            ts = data.get("timestamps", [])
+            period_ms = 0.0
+            if len(ts) > 1:
+                period_ms = (ts[-1] - ts[0]) / (len(ts) - 1) * 1000.0
+            info = analyze_id(data["payloads"])
+            info.update({
+                "id": arb_id,
+                "id_hex": f"{arb_id:0{8 if ext else 3}X}",
+                "ext": ext,
+                "period_ms": round(period_ms, 2),
+            })
+            results.append(info)
+        results.sort(key=lambda r: r["id"])
+        return {
+            "engine": "basic",
+            "id_count": len(results),
+            "total_frames": sum(r["frames"] for r in results),
+            "ids": results,
+        }
+
+
+def analyze_log(path: str, engine: str = "read", max_frames_per_id: int = 20000) -> dict:
+    """Group a log by arbitration ID and analyze it with the chosen RE engine."""
+    from .registry import RE_ENGINES
+    from .plugins import builtin_engines  # noqa: F401 — ensure engines registered
+
+    frames = load_log_frames(path, max_frames_per_id)
+    result = RE_ENGINES.require(engine).analyze(frames)
+    result["path"] = path
+    return result

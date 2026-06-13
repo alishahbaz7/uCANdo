@@ -205,11 +205,12 @@ early, because that's the differentiator for the fleet/telematics user.
 - Fix known gaps: ISO-TP multi-frame DTC reassembly; WS `bus.logger` race; stale comment in `sim.py`
 - Formalize the `snapshot()`/WS contract in one schema module
 
-### Phase 1 — Reverse-engineering supercharge *(Pillar B core)*
-- READ engine (proper BFR tokenization, endianness, counter/CRC/physical classification, mux detect)
-- State-change sniffer + capture diff/compare
-- Guided RE wizard → one-click promote candidates to DBC
-- Checksum/counter auto-detect
+### Phase 1 — Reverse-engineering supercharge *(Pillar B core)* — ✅ DONE
+- ✅ READ engine (BFR tokenization, endianness, counter/CRC/physical classification, mux detect) — `re_engines/read.py`
+- ✅ State-change sniffer + capture diff/compare — `re_engines/diff.py`
+- ✅ Guided RE wizard → one-click promote candidates to DBC (`/api/re/sniff/*`, `/api/re/promote`) + RE UI (engine selector, sniffer, compare, confidence chips)
+- ✅ Counter/CRC auto-detect (in READ classification)
+- _Deferred to later:_ LibreCAN OBD/IMU correlation engine moved to Phase 3; CANMatch frame-matching is Phase 2.
 
 ### Phase 2 — OEM CAN Database framework *(Pillar A core)*
 - Versioned DB schema + storage; import/export; review/merge queue

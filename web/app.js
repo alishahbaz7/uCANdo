@@ -135,7 +135,17 @@ async function refreshLogs() {
   const opts = logs.length
     ? logs.map((l) => `<option value="${l.path}">${l.name} (${(l.size / 1024).toFixed(0)} KB)</option>`).join("")
     : `<option value="">— no logs yet (record one first) —</option>`;
-  ["replaySelect", "reSelect"].forEach((id) => { if ($(id)) $(id).innerHTML = opts; });
+  ["replaySelect", "reSelect", "cmpA", "cmpB"].forEach((id) => { if ($(id)) $(id).innerHTML = opts; });
+  loadReEngines();
+}
+let reEnginesLoaded = false;
+async function loadReEngines() {
+  if (reEnginesLoaded || !$("reEngine")) return;
+  const { engines } = await api("/api/re/engines");
+  if (!engines) return;
+  $("reEngine").innerHTML = engines
+    .map((e) => `<option value="${e.name}" title="${e.description || ""}">${e.name}</option>`).join("");
+  reEnginesLoaded = true;
 }
 $("btnReplayRescan").addEventListener("click", refreshLogs);
 $("btnReRescan").addEventListener("click", refreshLogs);
@@ -176,19 +186,34 @@ function entropyColor(h) {  // 0 (blue, constant) → 8 (red, noisy)
   const r = Math.round(40 + 200 * t), g = Math.round(120 * (1 - Math.abs(t - 0.5) * 2)), b = Math.round(220 * (1 - t));
   return `rgb(${r},${g + 60},${b})`;
 }
+const KIND_COLOR = {
+  counter: "#7bd88f", crc: "#e06c75", physical: "#61afef",
+  "multi-state": "#e5c07b", constant: "#6b7280", event: "#c678dd",
+};
+function candChip(c) {
+  const col = KIND_COLOR[c.kind] || "#9aa0a6";
+  const conf = c.confidence != null ? ` ${Math.round(c.confidence * 100)}%` : "";
+  const order = c.byte_order === "little_endian" ? " LE" : "";
+  const step = c.step != null ? ` +${c.step}` : "";
+  return `<span class="cand-chip" title="${c.kind}${order} · bit ${c.start_bit} len ${c.length}${step}"
+    style="border-color:${col};color:${col}">${c.kind}${order} @${c.start_bit}/${c.length}${step}${conf}</span>`;
+}
+
 $("btnAnalyze").addEventListener("click", async () => {
   const path = $("reSelect").value; if (!path) return;
-  setStatus("Analyzing " + path + " …");
-  const r = await POST("/api/re/analyze", { path });
+  const engine = $("reEngine") ? $("reEngine").value || "read" : "read";
+  setStatus(`Analyzing ${path} (${engine}) …`);
+  const r = await POST("/api/re/analyze", { path, engine });
   if (!r.ok) return void setStatus("RE error: " + r.error);
   lastRe = r.result; setStatus("Analysis complete");
-  $("reSummary").textContent = `${r.result.id_count} IDs · ${r.result.total_frames} frames`;
+  $("reSummary").textContent = `${r.result.id_count} IDs · ${r.result.total_frames} frames · ${r.result.engine || engine}`;
   $("reTable").querySelector("tbody").innerHTML = r.result.ids.map((id, i) => {
     const ent = id.bytes.map((b) =>
       `<div class="ebyte" title="byte ${b.index}: ${b.kind}, H=${b.entropy}" style="background:${entropyColor(b.entropy)}">${b.entropy.toFixed(1)}</div>`).join("");
-    const cands = id.candidates.map((c) => `${c.name}(${c.length}b)`).join(", ") || "—";
+    const cands = id.candidates.map(candChip).join(" ") || "—";
+    const mux = id.multiplexor ? ` <span class="cand-chip" style="border-color:#c678dd;color:#c678dd" title="multiplexor">mux@byte${id.multiplexor.selector_byte}</span>` : "";
     return `<tr><td class="mono">0x${id.id_hex}</td><td>${id.frames}</td><td>${id.period_ms} ms</td>
-      <td>${id.length}</td><td><div class="entropy-row">${ent}</div></td><td>${cands}</td>
+      <td>${id.length}</td><td><div class="entropy-row">${ent}</div></td><td>${cands}${mux}</td>
       <td><button class="btn-mini" onclick="seedDbc(${i})">→ DBC</button></td></tr>`;
   }).join("");
 });
@@ -197,6 +222,58 @@ window.seedDbc = async (i) => {
   await POST("/api/dbc/seed", lastRe.ids[i]);
   setStatus(`Sent 0x${lastRe.ids[i].id_hex} to DBC Builder`);
 };
+
+// ----- shared "changed IDs" renderer for sniffer + compare -----------------
+const changedStore = {};   // ns -> {id_hex -> id_result} for promote
+function renderChanged(wrapId, ns, result) {
+  changedStore[ns] = {};
+  const rows = (result.changed || []).map((c) => {
+    changedStore[ns][c.id_hex] = c;
+    const bits = c.candidates.map((cd) => `<span class="cand-chip" style="border-color:#c678dd;color:#c678dd">@${cd.start_bit}/${cd.length}</span>`).join(" ");
+    const bytes = c.changed_bytes.map((b) => `byte${b.index}: ${b.baseline.join("/")}→${b.after.join("/")}`).join("; ");
+    return `<tr><td class="mono">0x${c.id_hex}</td><td>${bits}</td><td class="muted-line">${bytes}</td>
+      <td><button class="btn-mini" onclick="promoteChanged('${ns}','${c.id_hex}')">→ DBC</button></td></tr>`;
+  }).join("");
+  const extra = [];
+  if (result.new_ids && result.new_ids.length) extra.push(`new IDs: ${result.new_ids.map((x) => "0x" + x).join(", ")}`);
+  if (result.removed_ids && result.removed_ids.length) extra.push(`gone: ${result.removed_ids.map((x) => "0x" + x).join(", ")}`);
+  $(wrapId).innerHTML = `<table class="data-table"><thead><tr><th>ID</th><th>Changed bits</th><th>Bytes (before→after)</th><th></th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="4" class="muted-line" style="padding:14px">No bit changes detected.</td></tr>`}</tbody></table>
+    ${extra.length ? `<div class="muted-line" style="padding:8px 14px">${extra.join(" · ")}</div>` : ""}`;
+}
+window.promoteChanged = async (ns, idHex) => {
+  const id_result = changedStore[ns] && changedStore[ns][idHex];
+  if (!id_result) return;
+  await POST("/api/re/promote", { id_result });
+  setStatus(`Promoted 0x${idHex} changes to DBC Builder`);
+};
+
+// ----- state-change sniffer -------------------------------------------------
+function setSniffStatus(s) {
+  $("sniffStatus").textContent = `${s.phase} · baseline ${s.baseline_frames}f/${s.baseline_ids}id · after ${s.after_frames}f/${s.after_ids}id`;
+}
+$("btnSniffArm").addEventListener("click", async () => {
+  const r = await POST("/api/re/sniff/arm");
+  if (!r.ok) return void setStatus("Sniffer: " + r.error);
+  setSniffStatus(r); setStatus("Sniffer armed — perform the action now, then click step 2.");
+});
+$("btnSniffMark").addEventListener("click", async () => { setSniffStatus(await POST("/api/re/sniff/mark")); });
+$("btnSniffStop").addEventListener("click", async () => { setSniffStatus(await POST("/api/re/sniff/stop")); });
+$("btnSniffResult").addEventListener("click", async () => {
+  const r = await api("/api/re/sniff/result");
+  if (r && r.result) { renderChanged("sniffResultWrap", "sniff", r.result); setSniffStatus(r.result.status); }
+});
+
+// ----- compare two logs -----------------------------------------------------
+$("btnCompare").addEventListener("click", async () => {
+  const a = $("cmpA").value, b = $("cmpB").value;
+  if (!a || !b) return void setStatus("Pick two logs to compare");
+  setStatus("Comparing …");
+  const r = await POST("/api/re/compare", { path_a: a, path_b: b });
+  if (!r.ok) return void setStatus("Compare error: " + r.error);
+  renderChanged("cmpResultWrap", "cmp", r.result);
+  setStatus(`Compared · ${r.result.changed_id_count} IDs changed`);
+});
 
 // -------------------------------------------------------------- DBC Builder
 let dbcModel = { messages: [] };

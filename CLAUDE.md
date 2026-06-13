@@ -58,6 +58,14 @@ Four cross-cutting modules added to keep the app extensible without editing core
 - `config.py` — `Config` over the `settings` table with `DEFAULTS`; named profiles are namespaced `profile:<name>` keys. `server.py` exposes `/api/config`.
 - `contracts.py` — `TypedDict` definitions of the `snapshot()` / `/ws/live` payload, the **single source of truth** for the backend↔`web/app.js` coupling. `check_snapshot()` lets tests assert the producer keeps the contract. Update this + `web/app.js` together when the snapshot shape changes.
 
+### Reverse-engineering engines (Phase 1)
+
+RE is pluggable. `reverse.py` now only does log I/O (`load_log_frames` → the *frames-by-id* shape `{(id,ext): {timestamps, payloads}}`) and dispatches `analyze_log(path, engine=...)` through `RE_ENGINES`. Engines are pure/bus-free and self-register via `canforge/plugins/builtin_engines.py`:
+- **`read`** (`re_engines/read.py`) — the default. Bit-flip-rate (BFR) tokenization: finds signal boundaries where BFR drops (one signal's LSB abutting the next's MSB), infers endianness (big-endian from contiguous MSB-first bits; little-endian by counter-fit or smoothness), and classifies each span constant/counter/crc/multi-state/physical. Also `detect_multiplexor`. Output is a **superset** of the legacy shape (keeps `bytes[].{index,kind,entropy}` and `candidates[].{start_bit,length,name,byte_order}` that `web/app.js` reads) plus `kind`/`bfr`/`confidence`/`step`.
+- **`basic`** — the original toggle-count finder (`reverse.BasicEngine`), kept for comparison.
+
+`re_engines/diff.py` adds the **state-change sniffer** + **log compare**: `diff_frames(baseline, after)` reports per-ID which bits were constant before but changed after (→ contiguous `event` candidates). `StateSniffer` is the live, guided version — a bus tap registered in `server.py` (`bus.add_tap(sniffer.consume)`), driven by `arm`→`mark`→`result`. RE endpoints: `/api/re/engines`, `/api/re/analyze` (takes `engine`), `/api/re/sniff/{arm,mark,stop,status,result}`, `/api/re/compare`, `/api/re/promote` (seed DBC from any RE id-result, with a `min_confidence` filter).
+
 ### Dependency direction (keep acyclic)
 
 ```

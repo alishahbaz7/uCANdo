@@ -135,14 +135,39 @@
           <div class="panel-head"><span>Analyze a log</span><button class="btn-mini" id="btnReRescan">Logs ↻</button></div>
           <div style="padding:12px 16px;display:flex;gap:10px;align-items:center">
             <select id="reSelect" style="flex:1"></select>
+            <select id="reEngine" title="RE engine"></select>
             <button class="btn" id="btnAnalyze">Analyze</button>
           </div>
         </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Live state-change sniffer</span><span id="sniffStatus" class="muted-line">idle</span></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn" id="btnSniffArm">1 · Record baseline</button>
+            <button class="btn" id="btnSniffMark">2 · I did the action</button>
+            <button class="btn" id="btnSniffResult">3 · Show changes</button>
+            <button class="btn ghost" id="btnSniffStop">Stop</button>
+            <span class="muted-line">Arm, perform a physical action (press a button, open a door…), then show which bits changed.</span>
+          </div>
+          <div class="table-wrap" id="sniffResultWrap" style="max-height:32vh"></div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Compare two logs</span></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center">
+            <select id="cmpA" style="flex:1" title="baseline"></select>
+            <span class="muted-line">vs</span>
+            <select id="cmpB" style="flex:1" title="after"></select>
+            <button class="btn" id="btnCompare">Compare</button>
+          </div>
+          <div class="table-wrap" id="cmpResultWrap" style="max-height:32vh"></div>
+        </div>
+
         <div class="panel">
           <div class="panel-head"><span>Findings</span><span id="reSummary" class="muted-line"></span></div>
-          <div class="table-wrap" style="max-height:60vh">
+          <div class="table-wrap" style="max-height:50vh">
             <table class="data-table" id="reTable">
-              <thead><tr><th>ID</th><th>Frames</th><th>Period</th><th>Len</th><th>Byte entropy (0–8)</th><th>Candidates</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>Frames</th><th>Period</th><th>Len</th><th>Byte entropy (0–8)</th><th>Candidate signals</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>

@@ -27,8 +27,9 @@ from .device_enum import enumerate_all
 from .dbc_builder import DbcModel
 from .dtc import DtcMonitor
 from .protocol import ProtocolDecoder
-from .registry import describe_all, load_plugins
+from .registry import RE_ENGINES, describe_all, load_plugins
 from .replay import LogReplayer
+from .re_engines.diff import StateSniffer, compare_logs
 from .reverse import analyze_log
 from .scheduler import TxScheduler
 from .signals import SignalViewer
@@ -57,6 +58,7 @@ dbc = DbcModel()
 viewer = SignalViewer()
 dashboard = Dashboard()
 dtc = DtcMonitor()
+sniffer = StateSniffer()
 
 # Protocol monitor: a decoder + bounded buffer fed by a live tap.
 proto_decoder = ProtocolDecoder()
@@ -75,6 +77,7 @@ bus.add_tap(viewer.consume)
 bus.add_tap(_proto_tap)
 bus.add_tap(dashboard.consume)
 bus.add_tap(dtc.consume)
+bus.add_tap(sniffer.consume)
 
 
 # ----- request models ------------------------------------------------------
@@ -290,10 +293,84 @@ def replay_status():
 # ===========================================================================
 # Reverse Engineering
 # ===========================================================================
+class ReAnalyzeReq(BaseModel):
+    path: str
+    engine: str = "read"
+
+
+@app.get("/api/re/engines")
+def re_engines():
+    return {"engines": RE_ENGINES.describe()}
+
+
 @app.post("/api/re/analyze")
-def re_analyze(req: PathReq):
+def re_analyze(req: ReAnalyzeReq):
     try:
-        return {"ok": True, "result": analyze_log(req.path)}
+        return {"ok": True, "result": analyze_log(req.path, engine=req.engine)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+# ----- state-change sniffer (guided RE) ------------------------------------
+@app.post("/api/re/sniff/arm")
+def sniff_arm():
+    if not bus.connected:
+        return _err("Connect a bus first")
+    return {"ok": True, **sniffer.arm()}
+
+
+@app.post("/api/re/sniff/mark")
+def sniff_mark():
+    return {"ok": True, **sniffer.mark()}
+
+
+@app.post("/api/re/sniff/stop")
+def sniff_stop():
+    return {"ok": True, **sniffer.stop()}
+
+
+@app.get("/api/re/sniff/status")
+def sniff_status():
+    return sniffer.status()
+
+
+@app.get("/api/re/sniff/result")
+def sniff_result():
+    return {"ok": True, "result": sniffer.result()}
+
+
+# ----- compare two logs ----------------------------------------------------
+class CompareReq(BaseModel):
+    path_a: str        # baseline
+    path_b: str        # after
+
+
+@app.post("/api/re/compare")
+def re_compare(req: CompareReq):
+    try:
+        return {"ok": True, "result": compare_logs(req.path_a, req.path_b)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+# ----- promote an analysed ID straight into the DBC Builder ----------------
+class PromoteReq(BaseModel):
+    id_result: dict            # one entry from an analyze/compare/sniff result
+    min_confidence: float = 0.0
+
+
+@app.post("/api/re/promote")
+def re_promote(req: PromoteReq):
+    """Seed the DBC Builder from an RE result, keeping candidates above a
+    confidence floor (candidates without a confidence are always kept)."""
+    try:
+        re_id = dict(req.id_result)
+        re_id["candidates"] = [
+            c for c in re_id.get("candidates", [])
+            if c.get("confidence", 1.0) >= req.min_confidence
+        ]
+        dbc.seed_from_re(re_id)
+        return {"ok": True, **dbc.to_json()}
     except Exception as exc:
         return _err(str(exc))
 
