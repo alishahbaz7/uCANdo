@@ -10,8 +10,8 @@ Full plan & benchmark: `docs/PRODUCT_PLAN.md`. Target: India-first, fleet/telema
 |---|---|---|---|
 | 0 | Foundation rails | ✅ done | `registry.py`, `storage.py`, `config.py`, `contracts.py`, pytest harness, gap fixes |
 | 1 | RE supercharge (Pillar B) | ✅ done | `re_engines/read.py` (READ/BFR), `re_engines/diff.py` (sniffer+compare), RE UI, promote-to-DBC |
-| 2 | OEM CAN Database (Pillar A) | 🚧 in progress | `oem_db.py` (profiles on `oem_profiles`), fingerprint + CANMatch auto-identify, seed packs, OEM UI |
-| 3 | OEM-aware visualization | ⬜ todo | OEM-DB dashboard (zero-DBC decode), configurable charts, alarms, LibreCAN correlation |
+| 2 | OEM CAN Database (Pillar A) | ✅ done | `oem_db.py` (profiles on `oem_profiles`), fingerprint + CANMatch auto-identify, seed packs, OEM UI, apply-to-viewer |
+| 3 | OEM-aware visualization | 🚧 next | OEM-DB dashboard (zero-DBC decode), configurable charts, alarms, LibreCAN correlation |
 | 4 | Automation & simulation (Pillar C) | ⬜ todo | rules engine, job scheduler, scripting API, restbus/node sim |
 | 5 | Fleet / telematics | ⬜ todo | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
 | 6 | Polish & package | ⬜ todo | workspace UX, full UDS client, packaging |
@@ -81,6 +81,10 @@ RE is pluggable. `reverse.py` now only does log I/O (`load_log_frames` → the *
 - **`basic`** — the original toggle-count finder (`reverse.BasicEngine`), kept for comparison.
 
 `re_engines/diff.py` adds the **state-change sniffer** + **log compare**: `diff_frames(baseline, after)` reports per-ID which bits were constant before but changed after (→ contiguous `event` candidates). `StateSniffer` is the live, guided version — a bus tap registered in `server.py` (`bus.add_tap(sniffer.consume)`), driven by `arm`→`mark`→`result`. RE endpoints: `/api/re/engines`, `/api/re/analyze` (takes `engine`), `/api/re/sniff/{arm,mark,stop,status,result}`, `/api/re/compare`, `/api/re/promote` (seed DBC from any RE id-result, with a `min_confidence` filter).
+
+### OEM CAN Database (Phase 2, Pillar A)
+
+`oem_db.py` — `OemDatabase` over the `oem_profiles` table: CRUD, DBC import/export, and **save-from-DBC-builder** (the RE flywheel). Each profile carries a `dbc` + a frame **signature** (`{id_set, ids[{id,ext,dlc,period_ms}]}`). `fingerprint_frames`/`fingerprint_from_id_stats` build a signature from a log or a live `snapshot()`; `identify_from_signature` scores it against every profile (Jaccard of ID sets + DLC bonus → ranked **CANMatch-style** matches). `seed_builtins()` (called once in `server.py`, idempotent) inserts a decodable **"Sim Vehicle"** profile matching the simulator + draft placeholders for the `TARGET_OEMS`. Endpoints: `/api/oem/profiles`, `/api/oem/profile{,/update,/delete}`, `/api/oem/import`, `/api/oem/from-builder`, `/api/oem/identify` (live), `/api/oem/identify-log`, `/api/oem/apply` (loads a profile's DBC into the Signal Viewer → decode a known vehicle with zero RE). UI: "OEM Database" view (identify, profile list, save-from-builder, apply).
 
 ### Dependency direction (keep acyclic)
 

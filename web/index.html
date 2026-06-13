@@ -32,6 +32,7 @@
       <div class="nav-group-label">Analysis</div>
       <button class="nav" data-view="re">∿ Reverse Eng.</button>
       <button class="nav" data-view="dbc">▦ DBC Builder</button>
+      <button class="nav" data-view="oem">🗄 OEM Database</button>
 
       <div class="nav-group-label">Visualization</div>
       <button class="nav" data-view="signals">📈 Signal Viewer</button>
@@ -185,6 +186,38 @@
           <button class="btn" id="btnDbcToViewer">→ Signal Viewer</button>
         </div>
         <div id="dbcMessages"></div>
+      </section>
+
+      <!-- ===== OEM Database ===== -->
+      <section id="view-oem" class="view hidden">
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Auto-identify vehicle</span><span id="oemIdentStatus" class="muted-line"></span></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn" id="btnOemIdentify">Identify from live bus</button>
+            <span class="muted-line">Fingerprints the connected vehicle's IDs against the database and ranks matching profiles.</span>
+          </div>
+          <div class="table-wrap" id="oemIdentWrap" style="max-height:28vh"></div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Save current DBC Builder model as a profile</span></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <input id="oemSaveOem" placeholder="OEM (e.g. Tata)" style="width:160px" />
+            <input id="oemSaveName" placeholder="Profile name (e.g. Nexon 2024)" style="flex:1" />
+            <button class="btn" id="btnOemFromBuilder">Save profile</button>
+            <span class="muted-line">Closes the RE flywheel: reverse-engineer → DBC → save here → reuse on the next vehicle.</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span>Profiles</span><button class="btn-mini" id="btnOemRefresh">↻</button></div>
+          <div class="table-wrap" style="max-height:46vh">
+            <table class="data-table" id="oemTable">
+              <thead><tr><th>OEM</th><th>Profile</th><th>Model</th><th>IDs</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ===== Signal Viewer ===== -->

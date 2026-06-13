@@ -67,6 +67,34 @@ def test_connect_status_disconnect_virtual():
         assert d["connected"] is False
 
 
+def test_oem_profiles_seeded_and_identify_live():
+    data = client.get("/api/oem/profiles").json()
+    assert "Tata" in data["targets"]
+    assert any(p["name"] == "Sim Vehicle" for p in data["profiles"])
+
+    chan = f"oem-{uuid.uuid4().hex[:6]}"
+    assert client.post("/api/connect", json={"hw": "virtual", "channel": chan,
+                                             "simulate": True}).json()["ok"]
+    try:
+        assert wait_until(lambda: client.get("/api/oem/identify").json().get("observed_ids", 0) >= 2,
+                          timeout=4.0)
+        ident = client.get("/api/oem/identify").json()
+        assert any(m["name"] == "Sim Vehicle" for m in ident["matches"])
+        pid = next(m["profile_id"] for m in ident["matches"] if m["name"] == "Sim Vehicle")
+        assert client.post(f"/api/oem/apply?pid={pid}").json()["ok"]
+    finally:
+        client.post("/api/disconnect")
+
+
+def test_oem_from_builder_and_delete():
+    client.post("/api/dbc/set", json={"messages": [
+        {"frame_id": 0x321, "name": "M", "length": 8, "is_extended": False,
+         "signals": [{"name": "s", "start_bit": 0, "length": 8, "byte_order": "little_endian"}]}]})
+    r = client.post("/api/oem/from-builder", json={"oem": "Test", "name": "Prof321"}).json()
+    assert r["ok"] and r["profile"]["oem"] == "Test"
+    assert client.post(f"/api/oem/profile/delete?pid={r['id']}").json()["ok"]
+
+
 def test_sniffer_live_through_bus():
     chan = f"sniff-{uuid.uuid4().hex[:6]}"
     assert client.post("/api/connect", json={"hw": "virtual", "channel": chan,

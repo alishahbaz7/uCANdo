@@ -212,11 +212,12 @@ early, because that's the differentiator for the fleet/telematics user.
 - ✅ Counter/CRC auto-detect (in READ classification)
 - _Deferred to later:_ LibreCAN OBD/IMU correlation engine moved to Phase 3; CANMatch frame-matching is Phase 2.
 
-### Phase 2 — OEM CAN Database framework *(Pillar A core)*
-- Versioned DB schema + storage; import/export; review/merge queue
-- Vehicle auto-identify (fingerprint) + CANMatch-style frame matching
-- Seed: standards always-on; begin Tata/Mahindra/Maruti/MG/Nissan/VW/Honda packs from RE
-- Flywheel: RE session → proposed DB entry → reviewed → shipped
+### Phase 2 — OEM CAN Database framework *(Pillar A core)* — ✅ DONE
+- ✅ DB schema + storage (`oem_profiles`); import/export; status field (draft/reviewed/shipped) as the review queue
+- ✅ Vehicle auto-identify (fingerprint) + CANMatch-style frame matching (`oem_db.identify`)
+- ✅ Seed: decodable "Sim Vehicle" demo + Tata/Mahindra/Maruti/MG/Nissan/VW/Honda placeholders
+- ✅ Flywheel: DBC Builder model → `/api/oem/from-builder` → profile; `/api/oem/apply` decodes a known vehicle with zero RE
+- _Deferred:_ richer merge/dedup tooling + real proprietary packs (need real logs — contribute via RE)
 
 ### Phase 3 — OEM-aware visualization *(the demo that sells it)*
 - OEM-DB-driven dashboard (decode a known vehicle with **zero** DBC/RE)

@@ -26,6 +26,7 @@ from .dashboard import Dashboard
 from .device_enum import enumerate_all
 from .dbc_builder import DbcModel
 from .dtc import DtcMonitor
+from .oem_db import TARGET_OEMS, OemDatabase, fingerprint_from_id_stats
 from .protocol import ProtocolDecoder
 from .registry import RE_ENGINES, describe_all, load_plugins
 from .replay import LogReplayer
@@ -48,6 +49,8 @@ app = FastAPI(title=f"{__app_name__} API", version=__version__)
 # ----- foundation rails (persistence, config, plugins) ---------------------
 storage = Storage()
 config = Config(storage)
+oem = OemDatabase(storage)
+oem.seed_builtins()               # demo profile + OEM placeholders (idempotent)
 loaded_plugins = load_plugins()   # auto-imports canforge/plugins/* (self-register)
 
 # ----- subsystems ----------------------------------------------------------
@@ -371,6 +374,119 @@ def re_promote(req: PromoteReq):
         ]
         dbc.seed_from_re(re_id)
         return {"ok": True, **dbc.to_json()}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+# ===========================================================================
+# OEM CAN Database (Pillar A)
+# ===========================================================================
+class OemProfileReq(BaseModel):
+    oem: str
+    name: str
+    model: str = ""
+    dbc: str = ""
+    status: str = "draft"
+
+
+class OemUpdateReq(BaseModel):
+    id: int
+    patch: dict
+
+
+class OemFromBuilderReq(BaseModel):
+    oem: str
+    name: str
+    model: str = ""
+
+
+@app.get("/api/oem/profiles")
+def oem_profiles(oem_filter: str | None = None):
+    return {"targets": TARGET_OEMS, "profiles": oem.list_profiles(oem_filter)}
+
+
+@app.get("/api/oem/profile/{pid}")
+def oem_profile_get(pid: int):
+    p = oem.get_profile(pid)
+    return p or _err("No such profile", 404)
+
+
+@app.post("/api/oem/profile")
+def oem_profile_create(req: OemProfileReq):
+    try:
+        pid = oem.add_profile(req.oem, req.name, model=req.model, dbc=req.dbc, status=req.status)
+        return {"ok": True, "id": pid, "profile": oem.get_profile(pid)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/oem/profile/update")
+def oem_profile_update(req: OemUpdateReq):
+    return {"ok": True, "profile": oem.update_profile(req.id, req.patch)}
+
+
+@app.post("/api/oem/profile/delete")
+def oem_profile_delete(pid: int):
+    oem.delete_profile(pid)
+    return {"ok": True}
+
+
+@app.post("/api/oem/import")
+async def oem_import(file: UploadFile = File(...), oem_name: str = "Unknown",
+                     name: str | None = None):
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        pid = oem.import_dbc(oem_name, name or file.filename, text)
+        return {"ok": True, "id": pid, "profile": oem.get_profile(pid)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/oem/from-builder")
+def oem_from_builder(req: OemFromBuilderReq):
+    """Save the current DBC Builder model as an OEM profile (the RE flywheel)."""
+    try:
+        pid = oem.save_from_dbc_model(dbc, req.oem, req.name, model=req.model)
+        return {"ok": True, "id": pid, "profile": oem.get_profile(pid)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/oem/identify")
+def oem_identify():
+    """Auto-identify the currently-connected vehicle from live traffic."""
+    if not bus.logger:
+        return _err("Connect a bus first")
+    snap = bus.logger.snapshot()
+    cap_sig = fingerprint_from_id_stats(snap.get("ids", []))
+    return {"ok": True, "observed_ids": len(cap_sig["id_set"]),
+            "matches": oem.identify_from_signature(cap_sig)}
+
+
+class OemIdentifyLogReq(BaseModel):
+    path: str
+
+
+@app.post("/api/oem/identify-log")
+def oem_identify_log(req: OemIdentifyLogReq):
+    from .reverse import load_log_frames
+    try:
+        return {"ok": True, "matches": oem.identify(load_log_frames(req.path))}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/oem/apply")
+def oem_apply(pid: int):
+    """Load a profile's DBC into the Signal Viewer — decode a known vehicle, no RE."""
+    p = oem.get_profile(pid)
+    if not p:
+        return _err("No such profile", 404)
+    if not p.get("dbc"):
+        return _err("Profile has no DBC yet (contribute via RE)")
+    try:
+        viewer.load_dbc_string(p["dbc"], f"{p['oem']} · {p['name']}")
+        return {"ok": True, **viewer.info()}
     except Exception as exc:
         return _err(str(exc))
 
