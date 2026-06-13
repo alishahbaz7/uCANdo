@@ -622,5 +622,42 @@ async function pollDtc() {
     </div>`).join("");
 }
 
+// ----------------------------------------------------- Hardware setup panel
+async function checkDrivers() {
+  const { backends } = await api("/api/drivers/status");
+  const need = (backends || []).filter((b) => !b.ready && b.remedy);
+  const panel = $("driverPanel");
+  if (!need.length) { panel.classList.add("hidden"); return; }
+  panel.classList.remove("hidden");
+  $("driverList").innerHTML = need.map((b) => {
+    const r = b.remedy;
+    let action = "";
+    if (r.type === "pip") action = `<code>${r.command}</code>`;
+    else if (r.type === "installer") {
+      const dl = b.download || {};
+      const pct = dl.total ? Math.round((dl.downloaded / dl.total) * 100) : 0;
+      if (dl.state === "downloading") action = `downloading… ${pct}% <button class="btn-mini" onclick="driverPoll('${b.hw}')">refresh</button>`;
+      else if (dl.state === "done" || dl.cached) action = `<button class="btn-mini" onclick="driverLaunch('${b.hw}')">Install now</button>`;
+      else action = `<button class="btn-mini" onclick="driverDownload('${b.hw}')">Download & install (${r.approx_mb || "?"} MB)</button>`;
+    }
+    return `<div style="margin:4px 0"><b>${b.label}</b> — <span class="muted-line">${b.detail}</span><br>
+      <span class="muted-line">${(r.note || "")}</span> ${action}</div>`;
+  }).join("");
+}
+window.driverDownload = async (hw) => {
+  const r = await POST("/api/drivers/download?hw=" + hw);
+  if (r.state === "page" && r.url) { window.open(r.url, "_blank"); return; }
+  setStatus(r.reused ? "Installer already downloaded — click Install now" : "Downloading driver kit…");
+  checkDrivers();
+};
+window.driverPoll = checkDrivers;
+window.driverLaunch = async (hw) => {
+  const r = await POST("/api/drivers/launch?hw=" + hw);
+  if (r.open_url) window.open(r.open_url, "_blank");
+  setStatus(r.ok ? (r.note || "Installer launched — approve the UAC prompt") : ("Install: " + (r.error || "?")));
+};
+$("btnDriverRecheck").addEventListener("click", checkDrivers);
+checkDrivers();
+
 // Kick off polling for the initial (Dashboard) view.
 startPolling(state.view);
