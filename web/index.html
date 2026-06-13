@@ -138,7 +138,9 @@
             <select id="reSelect" style="flex:1"></select>
             <select id="reEngine" title="RE engine"></select>
             <button class="btn" id="btnAnalyze">Analyze</button>
+            <button class="btn" id="btnCorrelate" title="Auto-label signals vs OBD ground truth in the same log">Correlate vs OBD</button>
           </div>
+          <div class="table-wrap" id="corrResultWrap" style="max-height:30vh"></div>
         </div>
 
         <div class="panel" style="margin-bottom:16px">
@@ -194,7 +196,8 @@
           <div class="panel-head"><span>Auto-identify vehicle</span><span id="oemIdentStatus" class="muted-line"></span></div>
           <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <button class="btn" id="btnOemIdentify">Identify from live bus</button>
-            <span class="muted-line">Fingerprints the connected vehicle's IDs against the database and ranks matching profiles.</span>
+            <button class="btn" id="btnOemAutoApply">Identify &amp; apply</button>
+            <span class="muted-line">Fingerprints the connected vehicle's IDs against the database; "Identify &amp; apply" decodes a confident match instantly (zero DBC).</span>
           </div>
           <div class="table-wrap" id="oemIdentWrap" style="max-height:28vh"></div>
         </div>
@@ -228,7 +231,32 @@
           <button class="btn ghost" id="btnSigImport">Import .dbc</button>
           <button class="btn ghost" id="btnSigClear">Clear charts</button>
           <span style="flex:1"></span>
+          <span id="sigAlarmBanner"></span>
           <span id="sigStatus" class="muted-line"></span>
+        </div>
+        <div class="panel" style="margin-bottom:12px">
+          <div class="panel-head"><span>Computed signals &amp; alarms</span></div>
+          <div style="padding:10px 14px;display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+            <div style="flex:1;min-width:280px">
+              <div class="muted-line" style="margin-bottom:6px">Math channel — use <code>sig('MSG.SIGNAL')</code></div>
+              <div style="display:flex;gap:6px">
+                <input id="compName" placeholder="name e.g. Power" style="width:120px" />
+                <input id="compExpr" placeholder="expr e.g. sig('BATT.V')*sig('BATT.I')" style="flex:1" />
+                <button class="btn-mini" id="btnCompAdd">Add</button>
+              </div>
+              <div id="compList" class="muted-line" style="margin-top:6px"></div>
+            </div>
+            <div style="flex:1;min-width:280px">
+              <div class="muted-line" style="margin-bottom:6px">Alarm — trips outside [min, max]</div>
+              <div style="display:flex;gap:6px">
+                <input id="almKey" placeholder="signal key e.g. ENGINE.EngineRPM" style="flex:1" />
+                <input id="almMin" placeholder="min" style="width:64px" />
+                <input id="almMax" placeholder="max" style="width:64px" />
+                <button class="btn-mini" id="btnAlmAdd">Add</button>
+              </div>
+              <div id="almList" class="muted-line" style="margin-top:6px"></div>
+            </div>
+          </div>
         </div>
         <div class="signals-grid">
           <div class="panel">

@@ -86,6 +86,31 @@ def test_oem_profiles_seeded_and_identify_live():
         client.post("/api/disconnect")
 
 
+def test_signals_computed_and_alarms():
+    assert client.post("/api/signals/computed",
+                       json={"defs": [{"name": "Dbl", "expr": "sig('M.A') * 2"}]}).json()["ok"]
+    r = client.post("/api/signals/alarms",
+                    json={"defs": [{"name": "Hot", "key": "M.Temp", "max": 90}]}).json()
+    assert r["ok"]
+    d = client.get("/api/signals/derived").json()
+    assert any(c["name"] == "Dbl" for c in d["computed"])
+    assert any(a["name"] == "Hot" for a in d["alarms"])
+
+
+def test_oem_auto_apply_on_sim():
+    chan = f"auto-{uuid.uuid4().hex[:6]}"
+    assert client.post("/api/connect", json={"hw": "virtual", "channel": chan,
+                                             "simulate": True}).json()["ok"]
+    try:
+        assert wait_until(lambda: client.get("/api/oem/identify").json().get("observed_ids", 0) >= 2,
+                          timeout=4.0)
+        r = client.post("/api/oem/auto-apply").json()
+        assert r.get("ok") and r["applied"]["name"] == "Sim Vehicle"
+        assert r["loaded"] is True            # DBC now loaded in the Signal Viewer
+    finally:
+        client.post("/api/disconnect")
+
+
 def test_oem_from_builder_and_delete():
     client.post("/api/dbc/set", json={"messages": [
         {"frame_id": 0x321, "name": "M", "length": 8, "is_extended": False,

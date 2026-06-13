@@ -31,6 +31,7 @@ from .protocol import ProtocolDecoder
 from .registry import RE_ENGINES, describe_all, load_plugins
 from .replay import LogReplayer
 from .re_engines.diff import StateSniffer, compare_logs
+from .re_engines.correlate import correlate_log
 from .reverse import analyze_log
 from .scheduler import TxScheduler
 from .signals import SignalViewer
@@ -356,6 +357,20 @@ def re_compare(req: CompareReq):
         return _err(str(exc))
 
 
+# ----- LibreCAN correlation: label unknown signals vs OBD ground truth -----
+class CorrelateReq(BaseModel):
+    path: str
+    r_threshold: float = 0.9
+
+
+@app.post("/api/re/correlate")
+def re_correlate(req: CorrelateReq):
+    try:
+        return {"ok": True, "result": correlate_log(req.path, r_threshold=req.r_threshold)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
 # ----- promote an analysed ID straight into the DBC Builder ----------------
 class PromoteReq(BaseModel):
     id_result: dict            # one entry from an analyze/compare/sniff result
@@ -476,19 +491,42 @@ def oem_identify_log(req: OemIdentifyLogReq):
         return _err(str(exc))
 
 
-@app.post("/api/oem/apply")
-def oem_apply(pid: int):
-    """Load a profile's DBC into the Signal Viewer — decode a known vehicle, no RE."""
+def _apply_profile(pid: int) -> dict:
     p = oem.get_profile(pid)
     if not p:
         return _err("No such profile", 404)
     if not p.get("dbc"):
         return _err("Profile has no DBC yet (contribute via RE)")
+    viewer.load_dbc_string(p["dbc"], f"{p['oem']} · {p['name']}")
+    return {"ok": True, "applied": {"id": pid, "name": p["name"], "oem": p["oem"]}, **viewer.info()}
+
+
+@app.post("/api/oem/apply")
+def oem_apply(pid: int):
+    """Load a profile's DBC into the Signal Viewer — decode a known vehicle, no RE."""
     try:
-        viewer.load_dbc_string(p["dbc"], f"{p['oem']} · {p['name']}")
-        return {"ok": True, **viewer.info()}
+        return _apply_profile(pid)
     except Exception as exc:
         return _err(str(exc))
+
+
+@app.post("/api/oem/auto-apply")
+def oem_auto_apply(min_score: float = 0.5):
+    """Identify the live vehicle and, if a confident decodable match exists,
+    apply its profile to the Signal Viewer in one step (zero-DBC decode)."""
+    if not bus.logger:
+        return _err("Connect a bus first")
+    cap_sig = fingerprint_from_id_stats(bus.logger.snapshot().get("ids", []))
+    matches = oem.identify_from_signature(cap_sig)
+    for m in matches:
+        if m["score"] >= min_score:
+            prof = oem.get_profile(m["profile_id"])
+            if prof and prof.get("dbc"):
+                try:
+                    return {**_apply_profile(m["profile_id"]), "match": m}
+                except Exception as exc:
+                    return _err(str(exc))
+    return {"ok": False, "reason": "no confident decodable match", "matches": matches}
 
 
 # ===========================================================================
@@ -563,6 +601,28 @@ def signals_series(keys: str | None = None):
 @app.post("/api/signals/clear")
 def signals_clear():
     viewer.clear(); return {"ok": True}
+
+
+class DefsReq(BaseModel):
+    defs: list = []
+
+
+@app.get("/api/signals/derived")
+def signals_derived():
+    """Computed-signal definitions + current alarm states."""
+    return viewer.derived()
+
+
+@app.post("/api/signals/computed")
+def signals_computed(req: DefsReq):
+    """Set math-channel definitions, e.g. {name, expr: \"sig('M.A')*2\"}."""
+    return {"ok": True, **viewer.set_computed(req.defs)}
+
+
+@app.post("/api/signals/alarms")
+def signals_alarms(req: DefsReq):
+    """Set threshold alarms, e.g. {name, key: \"M.Speed\", max: 120}."""
+    return {"ok": True, **viewer.set_alarms(req.defs)}
 
 
 # ===========================================================================

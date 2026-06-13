@@ -11,8 +11,8 @@ Full plan & benchmark: `docs/PRODUCT_PLAN.md`. Target: India-first, fleet/telema
 | 0 | Foundation rails | ✅ done | `registry.py`, `storage.py`, `config.py`, `contracts.py`, pytest harness, gap fixes |
 | 1 | RE supercharge (Pillar B) | ✅ done | `re_engines/read.py` (READ/BFR), `re_engines/diff.py` (sniffer+compare), RE UI, promote-to-DBC |
 | 2 | OEM CAN Database (Pillar A) | ✅ done | `oem_db.py` (profiles on `oem_profiles`), fingerprint + CANMatch auto-identify, seed packs, OEM UI, apply-to-viewer |
-| 3 | OEM-aware visualization | 🚧 next | OEM-DB dashboard (zero-DBC decode), configurable charts, alarms, LibreCAN correlation |
-| 4 | Automation & simulation (Pillar C) | ⬜ todo | rules engine, job scheduler, scripting API, restbus/node sim |
+| 3 | OEM-aware visualization | ✅ done | computed signals + alarms (`derived.py`), LibreCAN correlation (`re_engines/correlate.py`), one-click auto-identify-&-apply (zero-DBC decode) |
+| 4 | Automation & simulation (Pillar C) | 🚧 next | rules engine, job scheduler, scripting API, restbus/node sim |
 | 5 | Fleet / telematics | ⬜ todo | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
 | 6 | Polish & package | ⬜ todo | workspace UX, full UDS client, packaging |
 
@@ -85,6 +85,12 @@ RE is pluggable. `reverse.py` now only does log I/O (`load_log_frames` → the *
 ### OEM CAN Database (Phase 2, Pillar A)
 
 `oem_db.py` — `OemDatabase` over the `oem_profiles` table: CRUD, DBC import/export, and **save-from-DBC-builder** (the RE flywheel). Each profile carries a `dbc` + a frame **signature** (`{id_set, ids[{id,ext,dlc,period_ms}]}`). `fingerprint_frames`/`fingerprint_from_id_stats` build a signature from a log or a live `snapshot()`; `identify_from_signature` scores it against every profile (Jaccard of ID sets + DLC bonus → ranked **CANMatch-style** matches). `seed_builtins()` (called once in `server.py`, idempotent) inserts a decodable **"Sim Vehicle"** profile matching the simulator + draft placeholders for the `TARGET_OEMS`. Endpoints: `/api/oem/profiles`, `/api/oem/profile{,/update,/delete}`, `/api/oem/import`, `/api/oem/from-builder`, `/api/oem/identify` (live), `/api/oem/identify-log`, `/api/oem/apply` (loads a profile's DBC into the Signal Viewer → decode a known vehicle with zero RE). UI: "OEM Database" view (identify, profile list, save-from-builder, apply).
+
+### OEM-aware visualization (Phase 3)
+
+- `derived.py` — `ComputedSignals` (math channels: `sig('MSG.SIGNAL')` + whitelisted math, evaluated in a no-builtins namespace) and `AlarmMonitor` (per-signal min/max with trip/clear state + count). `SignalViewer` owns both: `consume` updates `_latest`, evaluates computed (stored under `COMPUTED.<name>` series), then alarms. Endpoints `/api/signals/{computed,alarms,derived}`; UI panel in the Signal Viewer.
+- `re_engines/correlate.py` — **LibreCAN-style** auto-labeling: decodes OBD-II PID ground truth from a log, reconstructs READ candidates, and Pearson-correlates + linear-regresses each candidate against the ground truth to recover **label + scale + offset**. `/api/re/correlate`; UI "Correlate vs OBD" in the RE view; promote carries scale/offset (`seed_from_re` now passes through `scale/offset/unit/byte_order`).
+- `/api/oem/auto-apply` — identify the live vehicle and apply the top confident decodable profile to the Signal Viewer in one call (zero-DBC decode); UI "Identify & apply".
 
 ### Dependency direction (keep acyclic)
 
