@@ -184,7 +184,6 @@ def classify_span(payloads: list[bytes], start: int, length: int,
                 if _smoothness(le_vals, length) < _smoothness(be_vals, length):
                     order, values = "little_endian", le_vals
             distinct = len(set(values))
-            ent = _entropy(values)
             if length >= 7 and 0.35 <= mean_bfr <= 0.65 and distinct > len(values) * 0.5:
                 kind, confidence = "crc", 0.7
             elif distinct <= 8:
