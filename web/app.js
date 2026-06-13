@@ -34,6 +34,7 @@ document.querySelectorAll(".nav").forEach((btn) => {
     startPolling(view);
     if (view === "replay" || view === "re") refreshLogs();
     if (view === "dbc") renderDbc();
+    if (view === "logger") loadLogDir();
     if (view === "oem") renderOem();
     if (view === "automation") renderAutomation();
     if (view === "scheduler") pollTx();
@@ -535,6 +536,33 @@ $("btnTxAdd").addEventListener("click", async () => {
   if (isNaN(id)) return void setStatus("Invalid TX ID");
   await POST("/api/tx/add", { id, data: $("txData").value, cycle_ms: +$("txCycle").value, mode: $("txMode").value });
   pollTx();
+});
+// One-click standard OBD-II Mode-01 request rows (added idle; press Start to transmit).
+const OBD_PRESET = [
+  ["02 01 0C 00 00 00 00 00", "OBD RPM"], ["02 01 0D 00 00 00 00 00", "OBD Speed"],
+  ["02 01 05 00 00 00 00 00", "OBD Coolant"], ["02 01 11 00 00 00 00 00", "OBD Throttle"],
+  ["02 01 04 00 00 00 00 00", "OBD Load"],
+];
+$("btnTxObdPreset").addEventListener("click", async () => {
+  for (const [data, name] of OBD_PRESET)
+    await POST("/api/tx/add", { id: 0x7DF, data, cycle_ms: 300, mode: "cyclic", name });
+  pollTx();
+  setStatus("Added 5 OBD-II PID request rows — press ▶ Start all to begin polling.");
+});
+
+// ----- log folder -----
+async function loadLogDir() {
+  const r = await api("/api/logger/log-dir");
+  if ($("logDir")) $("logDir").value = r.custom ? r.dir : "";
+}
+$("btnLogDirSave").addEventListener("click", async () => {
+  const r = await POST("/api/logger/log-dir", { dir: $("logDir").value.trim() });
+  setStatus(r.ok ? "Log folder set → " + r.dir : "Log folder: " + (r.error || "?"));
+});
+$("btnLogDirReset").addEventListener("click", async () => {
+  $("logDir").value = "";
+  const r = await POST("/api/logger/log-dir", { dir: "" });
+  setStatus("Log folder reset → " + r.dir);
 });
 $("btnTxStart").addEventListener("click", () => POST("/api/tx/start").then((r) => !r.ok && setStatus(r.error)));
 $("btnTxStop").addEventListener("click", () => POST("/api/tx/stop"));

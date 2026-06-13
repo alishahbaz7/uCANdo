@@ -28,19 +28,19 @@ def _connect(args) -> BusManager:
 
 def cmd_log(args) -> int:
     bus = _connect(args)
-    print(f"capturing {args.seconds}s on {args.hw}:{args.channel} → {args.out}")
+    print(f"capturing {args.seconds}s on {args.hw}:{args.channel} -> {args.out}")
     bus.logger.start_recording(args.format, args.out)
     time.sleep(args.seconds)
     res = bus.logger.stop_recording()
     snap = bus.logger.snapshot()
     bus.disconnect()
-    print(f"done: {res.get('frames', 0)} frames, {snap['unique_ids']} IDs → {res.get('path')}")
+    print(f"done: {res.get('frames', 0)} frames, {snap['unique_ids']} IDs -> {res.get('path')}")
     return 0
 
 
 def cmd_identify(args) -> int:
     bus = _connect(args)
-    print(f"observing {args.seconds}s …")
+    print(f"observing {args.seconds}s ...")
     time.sleep(args.seconds)
     snap = bus.logger.snapshot()
     bus.disconnect()
@@ -58,7 +58,7 @@ def cmd_replay(args) -> int:
     bus = _connect(args)
     rep = LogReplayer()
     meta = rep.load(args.file)
-    print(f"replaying {meta['frames']} frames ({meta['duration_s']}s) at {args.speed}×")
+    print(f"replaying {meta['frames']} frames ({meta['duration_s']}s) at {args.speed}x")
     rep.play(bus.send, speed=args.speed)
     while rep.status()["state"] == "playing":
         time.sleep(0.2)

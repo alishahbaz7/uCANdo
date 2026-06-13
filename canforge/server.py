@@ -292,11 +292,18 @@ def logger_clear():
     return {"ok": True}
 
 
+def _active_log_dir() -> str:
+    """Configured log folder, or the default data/logs."""
+    d = config.get("log_dir") or LOG_DIR
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 @app.post("/api/logger/record/start")
 def record_start(req: RecordReq):
     if not bus.logger:
         return _err("Not connected")
-    path = os.path.join(LOG_DIR, req.name or "capture")
+    path = os.path.join(_active_log_dir(), req.name or "capture")
     try:
         return {"ok": True, **bus.logger.start_recording(req.format, path)}
     except Exception as exc:
@@ -310,10 +317,39 @@ def record_stop():
     return {"ok": True, **bus.logger.stop_recording()}
 
 
+@app.get("/api/logger/log-dir")
+def get_log_dir():
+    return {"dir": _active_log_dir(), "default": LOG_DIR,
+            "custom": bool(config.get("log_dir"))}
+
+
+class LogDirReq(BaseModel):
+    dir: str = ""        # absolute folder; "" resets to the default data/logs
+
+
+@app.post("/api/logger/log-dir")
+def set_log_dir(req: LogDirReq):
+    d = req.dir.strip()
+    if d:
+        try:
+            os.makedirs(d, exist_ok=True)
+            if not os.path.isdir(d):
+                return _err("not a folder")
+        except Exception as exc:
+            return _err(f"cannot use folder: {exc}")
+    config.set("log_dir", d)
+    return {"ok": True, "dir": _active_log_dir()}
+
+
 @app.get("/api/logs")
 def list_logs():
     out = []
-    for base in (LOG_DIR, UPLOAD_DIR):
+    dirs = [UPLOAD_DIR, _active_log_dir()]
+    seen = set()
+    for base in dirs:
+        if base in seen or not os.path.isdir(base):
+            continue
+        seen.add(base)
         for name in sorted(os.listdir(base)):
             p = os.path.join(base, name)
             if os.path.isfile(p) and name.lower().endswith((".asc", ".blf", ".csv", ".log")):

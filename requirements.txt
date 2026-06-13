@@ -11,6 +11,9 @@ cantools
 # Microchip / SLCAN device enumeration over USB-serial
 pyserial
 
+# Quiets a warning from python-can's neoVI backend; harmless elsewhere.
+filelock
+
 # Optional, install per hardware target:
 #   python-ics      # Neo VI (Intrepid) — required for the 'neovi' backend
 #   (PCAN needs the PEAK PCAN-Basic driver installed at the OS level)
