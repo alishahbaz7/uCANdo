@@ -12,8 +12,8 @@ Full plan & benchmark: `docs/PRODUCT_PLAN.md`. Target: India-first, fleet/telema
 | 1 | RE supercharge (Pillar B) | ✅ done | `re_engines/read.py` (READ/BFR), `re_engines/diff.py` (sniffer+compare), RE UI, promote-to-DBC |
 | 2 | OEM CAN Database (Pillar A) | ✅ done | `oem_db.py` (profiles on `oem_profiles`), fingerprint + CANMatch auto-identify, seed packs, OEM UI, apply-to-viewer |
 | 3 | OEM-aware visualization | ✅ done | computed signals + alarms (`derived.py`), LibreCAN correlation (`re_engines/correlate.py`), one-click auto-identify-&-apply (zero-DBC decode) |
-| 4 | Automation & simulation (Pillar C) | 🚧 next | rules engine, job scheduler, scripting API, restbus/node sim |
-| 5 | Fleet / telematics | ⬜ todo | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
+| 4 | Automation & simulation (Pillar C) | ✅ done | `rules.py`, `jobs.py`, `simulation.py` (restbus), `scripting.py`, `cli.py` (headless), Automation UI |
+| 5 | Fleet / telematics | 🚧 next | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
 | 6 | Polish & package | ⬜ todo | workspace UX, full UDS client, packaging |
 
 Update this table at the end of each phase. Tests: `python -m pytest -q`.
@@ -91,6 +91,14 @@ RE is pluggable. `reverse.py` now only does log I/O (`load_log_frames` → the *
 - `derived.py` — `ComputedSignals` (math channels: `sig('MSG.SIGNAL')` + whitelisted math, evaluated in a no-builtins namespace) and `AlarmMonitor` (per-signal min/max with trip/clear state + count). `SignalViewer` owns both: `consume` updates `_latest`, evaluates computed (stored under `COMPUTED.<name>` series), then alarms. Endpoints `/api/signals/{computed,alarms,derived}`; UI panel in the Signal Viewer.
 - `re_engines/correlate.py` — **LibreCAN-style** auto-labeling: decodes OBD-II PID ground truth from a log, reconstructs READ candidates, and Pearson-correlates + linear-regresses each candidate against the ground truth to recover **label + scale + offset**. `/api/re/correlate`; UI "Correlate vs OBD" in the RE view; promote carries scale/offset (`seed_from_re` now passes through `scale/offset/unit/byte_order`).
 - `/api/oem/auto-apply` — identify the live vehicle and apply the top confident decodable profile to the Signal Viewer in one call (zero-DBC decode); UI "Identify & apply".
+
+### Automation & simulation (Phase 4, Pillar C)
+
+- `rules.py` — `RulesEngine`: edge-triggered `when` expressions (`sig('MSG.SIGNAL')` syntax) → actions (`log`/`transmit`/`job`), with cooldown. Subscribes to `SignalViewer.add_value_subscriber` (called per frame outside the lock); rules persist via the `settings` table. `/api/rules*`.
+- `jobs.py` — `JobRunner` over the `jobs` table: `"every:<seconds>"` periodic or manual jobs dispatched by `kind` to **handlers** registered in `server.py` (`scan`, `record`). One daemon loop; `run_now` for manual. `/api/jobs*`.
+- `simulation.py` — `RestbusSimulator`: cyclically transmits every message of a cantools DB (from the DBC Builder or an OEM profile) via `bus.send` so an ECU under test sees a full vehicle; per-message overrides via `set_value`. `/api/restbus/*`.
+- `scripting.py` — `run_script` executes a snippet in a no-builtins namespace exposing `ctx` (`send`/`latest`/`log`/`sleep`) on a worker thread with a timeout. Internal-tool hardening, not a security boundary. `/api/script/run`.
+- `cli.py` — headless `python -m canforge.cli {log,identify,replay}` for fleet agents/CI; routes through the same HAL + subsystems.
 
 ### Dependency direction (keep acyclic)
 

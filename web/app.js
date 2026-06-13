@@ -17,7 +17,8 @@ const VIEW_TITLES = {
   dashboard: "Dashboard — Standard Decoded Values",
   logger: "CAN Logger — Live Capture", replay: "TX Replay — Log Playback",
   re: "Reverse Engineering", dbc: "DBC Builder", oem: "OEM CAN Database", signals: "Signal Viewer",
-  scheduler: "TX Scheduler", dtc: "DTC — Diagnostic Trouble Codes", decoder: "Protocol Decoder",
+  scheduler: "TX Scheduler", automation: "Automation — Rules, Jobs, Restbus & Scripting",
+  dtc: "DTC — Diagnostic Trouble Codes", decoder: "Protocol Decoder",
 };
 
 // ---------------------------------------------------------------- navigation
@@ -34,6 +35,7 @@ document.querySelectorAll(".nav").forEach((btn) => {
     if (view === "replay" || view === "re") refreshLogs();
     if (view === "dbc") renderDbc();
     if (view === "oem") renderOem();
+    if (view === "automation") renderAutomation();
     if (view === "scheduler") pollTx();
   });
 });
@@ -337,6 +339,62 @@ $("btnOemFromBuilder").addEventListener("click", async () => {
   const r = await POST("/api/oem/from-builder", { oem, name });
   if (r.ok) { setStatus(`Saved profile "${name}"`); renderOem(); }
   else setStatus("Save: " + r.error);
+});
+
+// --------------------------------------------------------------- Automation
+function renderAutomation() { renderRules(); renderJobs(); pollRestbus(); }
+async function renderRules() {
+  const t = await api("/api/rules");
+  $("rulesWrap").innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>When</th><th>Action</th><th>Fired</th><th></th></tr></thead>
+    <tbody>${(t.rules || []).map((r) => `<tr><td>${r.name}</td><td class="mono">${r.when}</td>
+      <td>${r.action.type}</td><td>${r.fired}</td>
+      <td><button class="btn-mini" onclick="delRule(${r.uid})">✕</button></td></tr>`).join("")
+      || `<tr><td colspan="5" class="muted-line" style="padding:12px">No rules.</td></tr>`}</tbody></table>`;
+  $("ruleEventsWrap").innerHTML = `<table class="data-table mono"><tbody>${(t.events || []).slice(0, 30).map((e) =>
+    `<tr><td>${e.ts}</td><td>${e.rule}</td><td>${e.action}</td><td>${e.detail}</td></tr>`).join("")
+    || `<tr><td class="muted-line" style="padding:12px">No events yet.</td></tr>`}</tbody></table>`;
+}
+$("btnRuleAdd").addEventListener("click", async () => {
+  const when = $("ruleWhen").value.trim(); if (!when) return;
+  const type = $("ruleActType").value, arg = $("ruleActArg").value.trim();
+  let action = { type: "log", message: arg };
+  if (type === "transmit") {
+    const m = arg.match(/id\s*=\s*(\w+)\s+data\s*=\s*(.+)/i);
+    action = m ? { type: "transmit", id: parseInt(m[1], 16), data: m[2] } : { type: "transmit", id: 0, data: "" };
+  }
+  const r = await POST("/api/rules/add", { name: $("ruleName").value.trim(), when, action });
+  if (r.ok) { $("ruleName").value = $("ruleWhen").value = $("ruleActArg").value = ""; renderRules(); }
+  else setStatus("Rule: " + r.error);
+});
+window.delRule = async (uid) => { await POST("/api/rules/remove?uid=" + uid); renderRules(); };
+
+async function renderJobs() {
+  const { jobs } = await api("/api/jobs");
+  $("jobsWrap").innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Kind</th><th>Schedule</th><th>Last run</th><th></th></tr></thead>
+    <tbody>${(jobs || []).map((j) => `<tr><td>${j.name}</td><td>${j.kind}</td><td class="mono">${j.schedule || "manual"}</td>
+      <td>${j.last_run ? new Date(j.last_run * 1000).toLocaleTimeString() : "—"}</td>
+      <td><button class="btn-mini" onclick="runJob(${j.id})">Run</button> <button class="btn-mini" onclick="delJob(${j.id})">✕</button></td></tr>`).join("")
+      || `<tr><td colspan="5" class="muted-line" style="padding:12px">No jobs.</td></tr>`}</tbody></table>`;
+}
+$("btnJobAdd").addEventListener("click", async () => {
+  const name = $("jobName").value.trim() || "job"; const every = $("jobEvery").value.trim();
+  await POST("/api/jobs/add", { name, kind: $("jobKind").value, schedule: every ? "every:" + every : "", spec: { duration_s: 5 } });
+  $("jobName").value = $("jobEvery").value = ""; renderJobs();
+});
+window.runJob = async (id) => { const r = await POST("/api/jobs/run?jid=" + id); setStatus("Job: " + JSON.stringify(r.result || r)); renderJobs(); };
+window.delJob = async (id) => { await POST("/api/jobs/remove?jid=" + id); renderJobs(); };
+
+async function pollRestbus() {
+  const s = await api("/api/restbus/status");
+  $("restbusStatus").textContent = `${s.running ? "running" : "stopped"} · ${s.messages} msgs · ${s.sent} sent`;
+}
+$("btnRestbusBuilder").addEventListener("click", async () => { const r = await POST("/api/restbus/load-builder"); setStatus(r.ok ? `Restbus: ${r.messages} messages loaded` : "Restbus: " + r.error); pollRestbus(); });
+$("btnRestbusStart").addEventListener("click", async () => { const r = await POST("/api/restbus/start"); if (!r.ok) setStatus("Restbus: " + r.error); pollRestbus(); });
+$("btnRestbusStop").addEventListener("click", async () => { await POST("/api/restbus/stop"); pollRestbus(); });
+
+$("btnScriptRun").addEventListener("click", async () => {
+  const r = await POST("/api/script/run", { code: $("scriptCode").value });
+  $("scriptOut").textContent = (r.error ? "ERROR: " + r.error + "\n" : "") + (r.logs || []).join("\n");
 });
 
 // -------------------------------------------------------------- DBC Builder

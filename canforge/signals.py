@@ -38,6 +38,9 @@ class SignalViewer:
         self._latest: dict[str, float] = {}
         self.computed = ComputedSignals()
         self.alarms = AlarmMonitor()
+        # Callables invoked with a copy of the latest values each frame, OUTSIDE
+        # the lock (e.g. the rules engine). Like logger taps, kept cheap.
+        self._value_subscribers: list = []
 
     # ----- DBC management --------------------------------------------------
     def load_dbc_string(self, text: str, name: str = "inline.dbc") -> dict:
@@ -109,6 +112,18 @@ class SignalViewer:
                 self._latest[ckey] = cval
             self.alarms.evaluate(self._latest)
             self._frames_decoded += 1
+            latest_copy = dict(self._latest) if self._value_subscribers else None
+        # Notify subscribers (rules engine) outside the lock.
+        if latest_copy is not None:
+            for fn in self._value_subscribers:
+                try:
+                    fn(latest_copy)
+                except Exception:
+                    pass
+
+    def add_value_subscriber(self, fn) -> None:
+        if fn not in self._value_subscribers:
+            self._value_subscribers.append(fn)
 
     def _append(self, key: str, t: float, value: float) -> None:
         buf = self._series.get(key)

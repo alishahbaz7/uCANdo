@@ -39,6 +39,7 @@
 
       <div class="nav-group-label">Transmit</div>
       <button class="nav" data-view="scheduler">⇆ TX Scheduler</button>
+      <button class="nav" data-view="automation">⚙ Automation</button>
 
       <div class="nav-group-label">Diagnostics</div>
       <button class="nav" data-view="dtc">⚠ DTC Codes</button>
@@ -289,6 +290,54 @@
               <thead><tr><th>On</th><th>Name</th><th>ID</th><th>Data</th><th>Cycle</th><th>Mode</th><th>Sent</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Automation ===== -->
+      <section id="view-automation" class="view hidden">
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Rules — when a condition holds, do an action</span></div>
+          <div style="padding:10px 14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <input id="ruleName" placeholder="name" style="width:120px" />
+            <input id="ruleWhen" placeholder="when e.g. sig('ENGINE.EngineRPM') > 5000" style="flex:1;min-width:240px" />
+            <select id="ruleActType"><option value="log">log</option><option value="transmit">transmit</option></select>
+            <input id="ruleActArg" placeholder="message, or id=100 data=11 22" style="width:200px" />
+            <button class="btn-mini" id="btnRuleAdd">Add rule</button>
+          </div>
+          <div class="table-wrap" id="rulesWrap" style="max-height:24vh"></div>
+          <div class="panel-head"><span>Recent rule events</span></div>
+          <div class="table-wrap" id="ruleEventsWrap" style="max-height:18vh"></div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Scheduled jobs</span></div>
+          <div style="padding:10px 14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <input id="jobName" placeholder="name" style="width:120px" />
+            <select id="jobKind"><option value="scan">scan (DTCs)</option><option value="record">record</option></select>
+            <input id="jobEvery" placeholder="every seconds (blank = manual)" style="width:170px" />
+            <button class="btn-mini" id="btnJobAdd">Add job</button>
+          </div>
+          <div class="table-wrap" id="jobsWrap" style="max-height:24vh"></div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Restbus simulation</span><span id="restbusStatus" class="muted-line"></span></div>
+          <div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn" id="btnRestbusBuilder">Load DBC Builder</button>
+            <button class="btn" id="btnRestbusStart">▶ Start</button>
+            <button class="btn ghost" id="btnRestbusStop">⏹ Stop</button>
+            <span class="muted-line">Transmits every message in the database cyclically so an ECU under test sees a full vehicle.</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span>Script — ctx.send(id,data) · ctx.latest(key) · ctx.log(...)</span></div>
+          <div style="padding:10px 14px">
+            <textarea id="scriptCode" spellcheck="false" style="width:100%;height:120px;font-family:var(--mono);font-size:12px"
+              placeholder="for i in range(3):&#10;    ctx.send(0x100, '11 22 33')&#10;    ctx.log('rpm', ctx.latest('ENGINE.EngineRPM'))"></textarea>
+            <div style="margin-top:6px"><button class="btn" id="btnScriptRun">▶ Run script</button></div>
+            <pre id="scriptOut" class="muted-line" style="white-space:pre-wrap;margin-top:8px"></pre>
           </div>
         </div>
       </section>
