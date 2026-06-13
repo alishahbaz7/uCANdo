@@ -276,6 +276,29 @@ $("btnCompare").addEventListener("click", async () => {
   setStatus(`Compared · ${r.result.changed_id_count} IDs changed`);
 });
 
+// ----- LibreCAN correlation: auto-label vs OBD ground truth -----
+const corrStore = {};
+$("btnCorrelate").addEventListener("click", async () => {
+  const path = $("reSelect").value; if (!path) return;
+  setStatus("Correlating signals vs OBD ground truth …");
+  const r = await POST("/api/re/correlate", { path });
+  if (!r.ok) return void setStatus("Correlate error: " + r.error);
+  const res = r.result;
+  res.labeled_ids.forEach((d) => (corrStore[d.id_hex] = d));
+  const rows = res.labeled_ids.map((d) => d.labeled.map((L) =>
+    `<tr><td class="mono">0x${d.id_hex}</td><td>${L.label}</td><td>@${L.start_bit}/${L.length} ${L.byte_order === "little_endian" ? "LE" : "BE"}</td>
+      <td>r=${L.r}</td><td>×${L.scale} ${L.offset >= 0 ? "+" : ""}${L.offset}</td>
+      <td><button class="btn-mini" onclick="promoteCorr('${d.id_hex}')">→ DBC</button></td></tr>`).join("")).join("");
+  $("corrResultWrap").innerHTML = `<table class="data-table"><thead><tr><th>ID</th><th>Label (OBD)</th><th>Bits</th><th>Fit</th><th>Scale/offset</th><th></th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="6" class="muted-line" style="padding:14px">No signals correlated above threshold. Capture must include OBD-II PID responses.</td></tr>`}</tbody></table>`;
+  setStatus(`Correlated · ground truth: ${res.ground_truth.join(", ") || "none found"}`);
+});
+window.promoteCorr = async (idHex) => {
+  const d = corrStore[idHex]; if (!d) return;
+  await POST("/api/re/promote", { id_result: { ...d, candidates: d.labeled } });
+  setStatus(`Promoted labelled signals for 0x${idHex} → DBC (with recovered scale/offset)`);
+};
+
 // ----------------------------------------------------------- OEM CAN Database
 async function renderOem() {
   const { profiles } = await api("/api/oem/profiles");
@@ -301,6 +324,12 @@ $("btnOemIdentify").addEventListener("click", async () => {
       <td>${(m.score * 100).toFixed(0)}%</td><td>${m.matched}/${m.profile_ids}</td>
       <td><button class="btn-mini" onclick="oemApply(${m.profile_id})">Apply</button></td></tr>`).join("")
       || `<tr><td colspan="5" class="muted-line" style="padding:14px">No confident match — reverse-engineer it and save a new profile.</td></tr>`}</tbody></table>`;
+});
+$("btnOemAutoApply").addEventListener("click", async () => {
+  const r = await POST("/api/oem/auto-apply");
+  if (r.ok && r.applied) setStatus(`Auto-applied "${r.applied.name}" (${(r.match.score * 100).toFixed(0)}%) → Signal Viewer`);
+  else setStatus(r.reason ? "No confident decodable match" : ("Auto-apply: " + (r.error || "?")));
+  $("btnOemIdentify").click();
 });
 $("btnOemFromBuilder").addEventListener("click", async () => {
   const oem = $("oemSaveOem").value.trim(), name = $("oemSaveName").value.trim();
@@ -388,10 +417,44 @@ function renderChartShells() {
 }
 const cssId = (k) => k.replace(/[^a-zA-Z0-9]/g, "_");
 async function pollSignals() {
+  pollDerived();
   if (!sigSelected.size) return;
   const res = await api("/api/signals/series?keys=" + encodeURIComponent([...sigSelected].join(",")));
   for (const key of sigSelected) drawChart(key, res.series[key] || []);
 }
+
+// ----- computed signals & alarms -----
+let computedDefs = [], alarmDefs = [];
+async function pollDerived() {
+  const d = await api("/api/signals/derived");
+  const active = (d.alarms || []).filter((a) => a.active);
+  $("sigAlarmBanner").innerHTML = active.length
+    ? `<span class="cand-chip" style="border-color:#e25555;color:#e25555">⚠ ${active.map((a) => a.name).join(", ")}</span>` : "";
+  $("almList").innerHTML = (d.alarms || []).map((a, i) =>
+    `<span class="cand-chip" style="border-color:${a.active ? "#e25555" : "#6b7280"};color:${a.active ? "#e25555" : "#9aa0a6"}">
+      ${a.name} [${a.min ?? "−∞"},${a.max ?? "∞"}]${a.active ? " ⚠" : ""} <a href="#" onclick="delAlarm(${i});return false">✕</a></span>`).join("") || "none";
+}
+$("btnCompAdd").addEventListener("click", async () => {
+  const name = $("compName").value.trim(), expr = $("compExpr").value.trim();
+  if (!name || !expr) return;
+  computedDefs.push({ name, expr });
+  await POST("/api/signals/computed", { defs: computedDefs });
+  $("compName").value = ""; $("compExpr").value = ""; renderCompList();
+});
+function renderCompList() {
+  $("compList").innerHTML = computedDefs.map((c, i) =>
+    `<span class="cand-chip" style="border-color:#61afef;color:#61afef">${c.name} = ${c.expr} <a href="#" onclick="delComp(${i});return false">✕</a></span>`).join("") || "none";
+}
+window.delComp = async (i) => { computedDefs.splice(i, 1); await POST("/api/signals/computed", { defs: computedDefs }); renderCompList(); refreshSigList(); };
+$("btnAlmAdd").addEventListener("click", async () => {
+  const key = $("almKey").value.trim();
+  if (!key) return;
+  const min = $("almMin").value.trim(), max = $("almMax").value.trim();
+  alarmDefs.push({ name: key, key, min: min === "" ? null : +min, max: max === "" ? null : +max });
+  await POST("/api/signals/alarms", { defs: alarmDefs });
+  $("almKey").value = ""; $("almMin").value = ""; $("almMax").value = ""; pollDerived();
+});
+window.delAlarm = async (i) => { alarmDefs.splice(i, 1); await POST("/api/signals/alarms", { defs: alarmDefs }); pollDerived(); };
 function drawChart(key, pts) {
   const cv = $("cv-" + cssId(key)); if (!cv) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;

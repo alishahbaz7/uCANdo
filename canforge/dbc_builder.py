@@ -92,8 +92,13 @@ class DbcModel:
                                length=re_id.get("length", 8), is_extended=re_id.get("ext", False))
         msg["name"] = f"MSG_{re_id['id_hex']}"
         for cand in re_id.get("candidates", []):
-            msg["signals"].append(
-                re_candidate_to_signal(cand["start_bit"], cand["length"], cand["name"]))
+            sig = re_candidate_to_signal(cand["start_bit"], cand["length"], cand["name"])
+            # Carry through any recovered metadata (e.g. LibreCAN scale/offset/unit,
+            # detected byte order) so correlation/promote results aren't flattened.
+            for k in ("scale", "offset", "unit", "byte_order", "is_signed", "comment"):
+                if cand.get(k) is not None:
+                    sig[k] = cand[k]
+            msg["signals"].append(sig)
         return msg
 
     # ----- (de)serialization ----------------------------------------------

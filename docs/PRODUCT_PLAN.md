@@ -219,10 +219,11 @@ early, because that's the differentiator for the fleet/telematics user.
 - ✅ Flywheel: DBC Builder model → `/api/oem/from-builder` → profile; `/api/oem/apply` decodes a known vehicle with zero RE
 - _Deferred:_ richer merge/dedup tooling + real proprietary packs (need real logs — contribute via RE)
 
-### Phase 3 — OEM-aware visualization *(the demo that sells it)*
-- OEM-DB-driven dashboard (decode a known vehicle with **zero** DBC/RE)
-- Configurable gauge/chart workspace, computed signals, alarms/thresholds
-- LibreCAN correlation engine (OBD/IMU ground-truth auto-labeling with scale/offset)
+### Phase 3 — OEM-aware visualization *(the demo that sells it)* — ✅ DONE
+- ✅ Zero-DBC decode of a known vehicle: `/api/oem/auto-apply` (identify → apply profile → live decode)
+- ✅ Computed signals (math channels) + alarms/thresholds — `derived.py`, Signal Viewer UI
+- ✅ LibreCAN correlation engine (OBD ground-truth auto-labeling with recovered scale/offset) — `re_engines/correlate.py`
+- _Deferred:_ fully drag-and-drop gauge workspace + IMU correlation source (charts exist; richer layout is Phase 6 polish)
 
 ### Phase 4 — Automation & simulation *(Pillar C)*
 - Rules engine + job scheduler + report generation
