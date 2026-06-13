@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CANForge — Unified CAN Workbench</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">◇</div>
+        <div>
+          <div class="brand-title">CANForge</div>
+          <div class="brand-sub">Unified CAN Workbench</div>
+        </div>
+      </div>
+
+      <div class="nav-group-label">Hardware</div>
+      <button id="hwChip" class="hw-chip" data-state="off">
+        <span class="dot"></span><span id="hwChipText">Not connected</span>
+      </button>
+
+      <div class="nav-group-label">Overview</div>
+      <button class="nav active" data-view="dashboard">▩ Dashboard</button>
+
+      <div class="nav-group-label">Capture</div>
+      <button class="nav" data-view="logger">▤ CAN Logger</button>
+      <button class="nav" data-view="replay">▶ TX Replay</button>
+
+      <div class="nav-group-label">Analysis</div>
+      <button class="nav" data-view="re">∿ Reverse Eng.</button>
+      <button class="nav" data-view="dbc">▦ DBC Builder</button>
+
+      <div class="nav-group-label">Visualization</div>
+      <button class="nav" data-view="signals">📈 Signal Viewer</button>
+
+      <div class="nav-group-label">Transmit</div>
+      <button class="nav" data-view="scheduler">⇆ TX Scheduler</button>
+
+      <div class="nav-group-label">Diagnostics</div>
+      <button class="nav" data-view="dtc">⚠ DTC Codes</button>
+      <button class="nav" data-view="decoder">⌗ Protocol Dec.</button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1 id="viewTitle">Dashboard — Standard Decoded Values</h1>
+        <div class="topbar-actions">
+          <button id="btnConnect" class="btn">⏻ Connect</button>
+          <button id="btnRecord" class="btn btn-rec" disabled>● Record</button>
+        </div>
+      </header>
+
+      <!-- ===== Dashboard ===== -->
+      <section id="view-dashboard" class="view">
+        <div class="toolbar">
+          <span class="muted-line">Live values decoded from standard protocols (OBD-II, J1939) — no DBC required.</span>
+          <span style="flex:1"></span>
+          <button class="btn ghost" id="btnDashClear">Clear</button>
+        </div>
+        <div id="dashGroups"></div>
+        <div id="dashEmpty" class="placeholder" style="padding:40px">
+          Waiting for standard frames… connect a bus (the virtual bus emits OBD-II + J1939 demo frames).
+        </div>
+      </section>
+
+      <!-- ===== CAN Logger ===== -->
+      <section id="view-logger" class="view hidden">
+        <div class="cards">
+          <div class="card"><div class="card-k">Frames</div><div class="card-v" id="statTotal">0</div></div>
+          <div class="card"><div class="card-k">Unique IDs</div><div class="card-v" id="statIds">0</div></div>
+          <div class="card"><div class="card-k">Frames / s</div><div class="card-v" id="statFps">0</div></div>
+          <div class="card"><div class="card-k">Bus load</div><div class="card-v" id="statLoad">0%</div></div>
+          <div class="card"><div class="card-k">Elapsed</div><div class="card-v" id="statElapsed">0.0s</div></div>
+        </div>
+        <div class="logger-grid">
+          <div class="panel">
+            <div class="panel-head"><span>Arbitration IDs</span><button id="btnClear" class="btn-mini">Clear</button></div>
+            <div class="table-wrap">
+              <table class="data-table" id="idTable">
+                <thead><tr><th>ID</th><th>Type</th><th>DLC</th><th>Count</th><th>Period</th><th>Last data</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><span>Live frames</span><span id="recBadge" class="rec-badge hidden">REC</span></div>
+            <div class="table-wrap">
+              <table class="data-table mono" id="feedTable">
+                <thead><tr><th>Time</th><th>ID</th><th>DLC</th><th>Data</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== TX Replay ===== -->
+      <section id="view-replay" class="view hidden">
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Log file</span>
+            <span><input type="file" id="replayFile" accept=".asc,.blf,.csv,.log" hidden />
+              <button class="btn-mini" id="btnReplayUpload">Load .asc / .blf</button>
+              <button class="btn-mini" id="btnReplayRescan">Logs ↻</button></span>
+          </div>
+          <div style="padding:12px 16px">
+            <select id="replaySelect" style="width:100%"></select>
+            <div id="replayMeta" class="muted-line"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>Playback</span><span id="replayState" class="tag">ready</span></div>
+          <div style="padding:16px">
+            <div class="progress"><div id="replayBar" class="progress-bar"></div></div>
+            <div class="muted-line" id="replayCursor">0.000 s</div>
+            <div class="controls">
+              <button class="btn" id="btnPlay">▶ Play</button>
+              <button class="btn" id="btnPause">⏸ Pause</button>
+              <button class="btn" id="btnStop">⏹ Stop</button>
+              <button class="btn" id="btnStep">⏭ Step</button>
+              <label class="check"><input type="checkbox" id="replayLoop" /> Loop</label>
+              <span style="flex:1"></span>
+              <label>Speed <span id="speedLabel">1.0×</span></label>
+              <input type="range" id="speedRange" min="0.1" max="10" step="0.1" value="1" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Reverse Engineering ===== -->
+      <section id="view-re" class="view hidden">
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Analyze a log</span><button class="btn-mini" id="btnReRescan">Logs ↻</button></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center">
+            <select id="reSelect" style="flex:1"></select>
+            <button class="btn" id="btnAnalyze">Analyze</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>Findings</span><span id="reSummary" class="muted-line"></span></div>
+          <div class="table-wrap" style="max-height:60vh">
+            <table class="data-table" id="reTable">
+              <thead><tr><th>ID</th><th>Frames</th><th>Period</th><th>Len</th><th>Byte entropy (0–8)</th><th>Candidates</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== DBC Builder ===== -->
+      <section id="view-dbc" class="view hidden">
+        <div class="toolbar">
+          <button class="btn" id="btnDbcAddMsg">+ Message</button>
+          <input type="file" id="dbcFile" accept=".dbc" hidden />
+          <button class="btn ghost" id="btnDbcImport">Import .dbc</button>
+          <button class="btn ghost" id="btnDbcExport">Export .dbc</button>
+          <span style="flex:1"></span>
+          <button class="btn" id="btnDbcToViewer">→ Signal Viewer</button>
+        </div>
+        <div id="dbcMessages"></div>
+      </section>
+
+      <!-- ===== Signal Viewer ===== -->
+      <section id="view-signals" class="view hidden">
+        <div class="toolbar">
+          <button class="btn" id="btnSigUseBuilder">Use DBC Builder model</button>
+          <input type="file" id="sigDbcFile" accept=".dbc" hidden />
+          <button class="btn ghost" id="btnSigImport">Import .dbc</button>
+          <button class="btn ghost" id="btnSigClear">Clear charts</button>
+          <span style="flex:1"></span>
+          <span id="sigStatus" class="muted-line"></span>
+        </div>
+        <div class="signals-grid">
+          <div class="panel">
+            <div class="panel-head"><span>Signals</span></div>
+            <div class="table-wrap" id="sigList" style="padding:8px"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><span>Strip charts</span></div>
+            <div id="charts" style="padding:12px;overflow:auto"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== TX Scheduler ===== -->
+      <section id="view-scheduler" class="view hidden">
+        <div class="toolbar">
+          <input id="txId" placeholder="ID (hex) e.g. 100" style="width:130px" />
+          <input id="txData" placeholder="Data e.g. 11 22 AA" style="width:200px" />
+          <input id="txCycle" type="number" value="100" title="cycle ms" style="width:90px" /> <span class="muted-line">ms</span>
+          <select id="txMode"><option value="cyclic">cyclic</option><option value="once">once</option></select>
+          <button class="btn" id="btnTxAdd">+ Add</button>
+          <span style="flex:1"></span>
+          <button class="btn" id="btnTxStart">▶ Start all</button>
+          <button class="btn" id="btnTxStop">⏹ Stop</button>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>TX table</span><span id="txState" class="tag">stopped</span></div>
+          <div class="table-wrap">
+            <table class="data-table" id="txTable">
+              <thead><tr><th>On</th><th>Name</th><th>ID</th><th>Data</th><th>Cycle</th><th>Mode</th><th>Sent</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== DTC Codes ===== -->
+      <section id="view-dtc" class="view hidden">
+        <div class="toolbar">
+          <button class="btn" id="btnDtcScan">⟳ Scan (request DTCs)</button>
+          <span id="dtcCount" class="tag">0 codes</span>
+          <span style="flex:1"></span>
+          <button class="btn ghost" id="btnDtcClearList">Clear list</button>
+          <button class="btn btn-rec" id="btnDtcClearEcu">Clear vehicle DTCs (Mode 04)</button>
+        </div>
+        <div id="dtcGroups"></div>
+        <div id="dtcEmpty" class="placeholder" style="padding:40px">
+          No trouble codes. Connect a bus and Scan — J1939 DM1 codes also appear passively.
+        </div>
+      </section>
+
+      <!-- ===== Protocol Decoder ===== -->
+      <section id="view-decoder" class="view hidden">
+        <div class="toolbar">
+          <span class="muted-line">Manual decode:</span>
+          <input id="decId" placeholder="ID hex" style="width:100px" />
+          <input id="decData" placeholder="Data hex" style="width:220px" />
+          <label class="check"><input type="checkbox" id="decExt" /> 29-bit</label>
+          <button class="btn" id="btnDecode">Decode</button>
+          <span id="decResult" class="muted-line"></span>
+          <span style="flex:1"></span>
+          <select id="protoFilter"><option value="">All protocols</option>
+            <option>OBD-II</option><option>UDS</option><option>J1939</option><option>ISO-TP</option><option>raw</option></select>
+          <button class="btn ghost" id="btnDecClear">Clear</button>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>Live decoded frames</span></div>
+          <div class="table-wrap" style="max-height:65vh">
+            <table class="data-table mono" id="decTable">
+              <thead><tr><th>Time</th><th>ID</th><th>Protocol</th><th>Interpretation</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <footer class="statusbar">
+        <span id="statusText">Ready</span>
+        <span id="recInfo"></span>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Connect dialog -->
+  <div id="connectModal" class="modal-bg hidden">
+    <div class="modal">
+      <h2>Connect to CAN hardware</h2>
+      <label>Device<select id="devSelect"></select></label>
+      <label>Bitrate
+        <select id="bitrateSelect">
+          <option value="125000">125 kbit/s</option><option value="250000">250 kbit/s</option>
+          <option value="500000" selected>500 kbit/s</option><option value="1000000">1 Mbit/s</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="simCheck" checked /> Generate synthetic traffic (virtual bus)</label>
+      <div id="connectError" class="err hidden"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="btnRefreshDevs">↻ Rescan</button>
+        <div style="flex:1"></div>
+        <button class="btn ghost" id="btnCancelConnect">Cancel</button>
+        <button class="btn" id="btnDoConnect">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Record dialog -->
+  <div id="recordModal" class="modal-bg hidden">
+    <div class="modal">
+      <h2>Start recording</h2>
+      <label>Filename<input type="text" id="recName" value="capture" /></label>
+      <label>Format
+        <select id="recFormat">
+          <option value="asc">Vector ASCII (.asc)</option>
+          <option value="blf">Vector binary (.blf)</option>
+          <option value="csv">CSV (.csv)</option>
+        </select>
+      </label>
+      <div class="modal-actions">
+        <button class="btn ghost" id="btnCancelRecord">Cancel</button>
+        <button class="btn" id="btnDoRecord">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

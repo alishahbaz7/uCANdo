@@ -1,0 +1,16 @@
+# Core
+python-can>=4.3
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.0
+python-multipart>=0.0.9   # file uploads (Load log / Import DBC)
+
+# DBC build / decode (used by later modules)
+cantools
+
+# Microchip / SLCAN device enumeration over USB-serial
+pyserial
+
+# Optional, install per hardware target:
+#   python-ics      # Neo VI (Intrepid) — required for the 'neovi' backend
+#   (PCAN needs the PEAK PCAN-Basic driver installed at the OS level)
