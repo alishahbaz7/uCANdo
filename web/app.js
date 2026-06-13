@@ -16,7 +16,7 @@ let pollTimer = null;
 const VIEW_TITLES = {
   dashboard: "Dashboard — Standard Decoded Values",
   logger: "CAN Logger — Live Capture", replay: "TX Replay — Log Playback",
-  re: "Reverse Engineering", dbc: "DBC Builder", signals: "Signal Viewer",
+  re: "Reverse Engineering", dbc: "DBC Builder", oem: "OEM CAN Database", signals: "Signal Viewer",
   scheduler: "TX Scheduler", dtc: "DTC — Diagnostic Trouble Codes", decoder: "Protocol Decoder",
 };
 
@@ -33,6 +33,7 @@ document.querySelectorAll(".nav").forEach((btn) => {
     startPolling(view);
     if (view === "replay" || view === "re") refreshLogs();
     if (view === "dbc") renderDbc();
+    if (view === "oem") renderOem();
     if (view === "scheduler") pollTx();
   });
 });
@@ -273,6 +274,40 @@ $("btnCompare").addEventListener("click", async () => {
   if (!r.ok) return void setStatus("Compare error: " + r.error);
   renderChanged("cmpResultWrap", "cmp", r.result);
   setStatus(`Compared · ${r.result.changed_id_count} IDs changed`);
+});
+
+// ----------------------------------------------------------- OEM CAN Database
+async function renderOem() {
+  const { profiles } = await api("/api/oem/profiles");
+  $("oemTable").querySelector("tbody").innerHTML = (profiles || []).map((p) => {
+    const apply = p.id_count ? `<button class="btn-mini" onclick="oemApply(${p.id})">Apply</button>` : "";
+    return `<tr><td>${p.oem}</td><td>${p.name}</td><td class="muted-line">${p.model || "—"}</td>
+      <td>${p.id_count}</td><td><span class="tag">${p.status}</span></td>
+      <td>${apply} <button class="btn-mini" onclick="oemDelete(${p.id})">✕</button></td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="muted-line" style="padding:14px">No profiles.</td></tr>`;
+}
+window.oemApply = async (id) => {
+  const r = await POST("/api/oem/apply?pid=" + id);
+  setStatus(r.ok ? `Applied profile → Signal Viewer (${r.signals ? r.signals.length : 0} signals)` : "Apply: " + r.error);
+};
+window.oemDelete = async (id) => { await POST("/api/oem/profile/delete?pid=" + id); renderOem(); };
+$("btnOemRefresh").addEventListener("click", renderOem);
+$("btnOemIdentify").addEventListener("click", async () => {
+  const r = await api("/api/oem/identify");
+  if (!r.ok) return void ($("oemIdentStatus").textContent = r.error);
+  $("oemIdentStatus").textContent = `${r.observed_ids} IDs observed`;
+  $("oemIdentWrap").innerHTML = `<table class="data-table"><thead><tr><th>Match</th><th>OEM</th><th>Score</th><th>IDs matched</th><th></th></tr></thead>
+    <tbody>${(r.matches || []).map((m) => `<tr><td>${m.name}</td><td>${m.oem}</td>
+      <td>${(m.score * 100).toFixed(0)}%</td><td>${m.matched}/${m.profile_ids}</td>
+      <td><button class="btn-mini" onclick="oemApply(${m.profile_id})">Apply</button></td></tr>`).join("")
+      || `<tr><td colspan="5" class="muted-line" style="padding:14px">No confident match — reverse-engineer it and save a new profile.</td></tr>`}</tbody></table>`;
+});
+$("btnOemFromBuilder").addEventListener("click", async () => {
+  const oem = $("oemSaveOem").value.trim(), name = $("oemSaveName").value.trim();
+  if (!oem || !name) return void setStatus("Enter OEM and profile name");
+  const r = await POST("/api/oem/from-builder", { oem, name });
+  if (r.ok) { setStatus(`Saved profile "${name}"`); renderOem(); }
+  else setStatus("Save: " + r.error);
 });
 
 // -------------------------------------------------------------- DBC Builder
