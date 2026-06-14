@@ -13,7 +13,6 @@ agnostic like everything above the HAL.
 from __future__ import annotations
 
 import threading
-import time
 from typing import Callable, Optional
 
 import can

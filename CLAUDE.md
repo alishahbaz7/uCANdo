@@ -4,19 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Roadmap status
 
-Full plan & benchmark: `docs/PRODUCT_PLAN.md`. Target: India-first, fleet/telematics-focused CAN workbench. Working **phase-by-phase, one git branch + one merge to `main` per phase**.
+Full plan & benchmark: `docs/PRODUCT_PLAN.md`. **Auto-ID/RE design (current focus): `docs/AUTO_RE_PLAN.md`.** Target: India-first, fleet/telematics-focused CAN workbench. Worked **phase-by-phase, one branch + one merge to `main` per phase**; now on **feature branches per release** (`v0.1`, `v0.2`).
+
+**🚗 Hardware-validated (2026-06-13):** real Intrepid neoVI FIRE → live Hyundai Aura 2023 capture (HSCAN1 @ 500k). Built the **first real OEM profile**: EngineRPM (`0x316`/`0x556`, LE ×0.25, confirmed vs OBD) + Odometer (`0x5B0`, 24-bit LE ×0.1 km, confirmed vs dash). Two RE techniques proven on real data: **OBD correlation** (dynamic signals) + **known-value matching** (static). Field tools `cli drive` / `cli sniff`. See `canforge-neovi-hardware` memory + `oem_packs/`.
 
 | Phase | Theme | Status | Key deliverables |
 |---|---|---|---|
-| 0 | Foundation rails | ✅ done | `registry.py`, `storage.py`, `config.py`, `contracts.py`, pytest harness, gap fixes |
-| 1 | RE supercharge (Pillar B) | ✅ done | `re_engines/read.py` (READ/BFR), `re_engines/diff.py` (sniffer+compare), RE UI, promote-to-DBC |
-| 2 | OEM CAN Database (Pillar A) | ✅ done | `oem_db.py` (profiles on `oem_profiles`), fingerprint + CANMatch auto-identify, seed packs, OEM UI, apply-to-viewer |
-| 3 | OEM-aware visualization | ✅ done | computed signals + alarms (`derived.py`), LibreCAN correlation (`re_engines/correlate.py`), one-click auto-identify-&-apply (zero-DBC decode) |
-| 4 | Automation & simulation (Pillar C) | ✅ done | `rules.py`, `jobs.py`, `simulation.py` (restbus), `scripting.py`, `cli.py` (headless), Automation UI |
-| 5 | Fleet / telematics | 🚧 next | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
+| 0 | Foundation rails | ✅ done | `registry.py`, `storage.py`, `config.py`, `contracts.py`, pytest harness |
+| 1 | RE supercharge (Pillar B) | ✅ done | `re_engines/read.py` (READ/BFR), `re_engines/diff.py` (sniffer+compare), RE UI |
+| 2 | OEM CAN Database (Pillar A) | ✅ done | `oem_db.py`, fingerprint + CANMatch auto-identify, seed packs, OEM UI |
+| 3 | OEM-aware visualization | ✅ done | computed signals + alarms (`derived.py`), LibreCAN correlation (`re_engines/correlate.py`) |
+| 4 | Automation & simulation (Pillar C) | ✅ done | `rules.py`, `jobs.py`, `simulation.py` (restbus), `scripting.py`, `cli.py` |
+| — | **Hardware bring-up + v0.1/v0.2** | ✅ done | neoVI driver-assistant (`preflight.py`/`drivers.py`), sliding-window correlator, `cli drive`/`sniff`, first real Aura profile |
+| **AR** | **Auto-ID / guided RE (`docs/AUTO_RE_PLAN.md`)** | ✅ done | `confidence.py` (A/B/C) + `resession.py` (evidence/confirm/export); Mode 1 `populate_from_log`; Mode 2 `guided.py` + `protocols/*.json` + `cli guided`; Auto-RE UI (`/api/autore/*`). Remaining: field validation + provenance polish |
+| 5 | Fleet / telematics | ⬜ todo | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
 | 6 | Polish & package | ⬜ todo | workspace UX, full UDS client, packaging |
 
-Update this table at the end of each phase. Tests: `python -m pytest -q`.
+Update this table at the end of each phase. Tests: `python -m pytest -q`. Use the project **venv** (`.venv`, Python 3.12 with `python-ics`); there are 3.12/3.13/3.14 on this machine — only `.venv` has the hardware lib.
 
 ## Commands
 

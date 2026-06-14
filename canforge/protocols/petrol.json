@@ -1,0 +1,20 @@
+{
+  "fuel": "petrol",
+  "title": "Petrol vehicle — guided RE",
+  "steps": [
+    {"key": "baseline", "kind": "baseline", "instruction": "IGN ON, engine OFF. Keep everything steady (no pedals, lights, doors).", "capture_s": 5},
+    {"key": "engine", "kind": "ramp", "instruction": "Start the engine and blip the throttle (idle -> ~2500-3000 -> idle) several times.", "capture_s": 30, "obd": true, "targets": ["Engine RPM", "Coolant temp"]},
+    {"key": "drive", "kind": "ramp", "instruction": "Drive 0 -> 20-30 km/h and back a couple of times (safe area).", "capture_s": 40, "obd": true, "targets": ["Vehicle speed", "Intake air temp", "MAF rate", "Throttle pos"]},
+    {"key": "ac", "kind": "stimulus", "instruction": "Turn the AC ON, wait, then OFF.", "label": "AC Status", "baseline_s": 4, "action_s": 6},
+    {"key": "door", "kind": "stimulus", "instruction": "Open the driver door, then close it.", "label": "Door Status", "baseline_s": 4, "action_s": 6},
+    {"key": "headlight", "kind": "stimulus", "instruction": "Headlights ON, then OFF.", "label": "Headlight Status", "baseline_s": 4, "action_s": 6},
+    {"key": "indicator", "kind": "stimulus", "instruction": "Left indicator ON for a few blinks, then OFF.", "label": "Indicator Status", "baseline_s": 4, "action_s": 6},
+    {"key": "hazard", "kind": "stimulus", "instruction": "Hazard lights ON, then OFF.", "label": "Hazard Status", "baseline_s": 4, "action_s": 6},
+    {"key": "brake", "kind": "stimulus", "instruction": "Press and release the brake pedal several times.", "label": "Brake Switch", "baseline_s": 4, "action_s": 6},
+    {"key": "clutch", "kind": "stimulus", "instruction": "Press and release the clutch pedal several times.", "label": "Clutch Switch", "baseline_s": 4, "action_s": 6, "optional": true},
+    {"key": "seatbelt", "kind": "stimulus", "instruction": "Unbuckle, then buckle the driver seatbelt.", "label": "Seatbelt Status", "baseline_s": 4, "action_s": 6},
+    {"key": "gear", "kind": "stimulus", "instruction": "Shift P -> R -> N -> D and back to P.", "label": "Gear State", "baseline_s": 4, "action_s": 8},
+    {"key": "odo", "kind": "known_value", "instruction": "Read the ODOMETER (km) from the dash and enter it.", "label": "Odometer", "unit": "km", "capture_s": 3},
+    {"key": "fuel", "kind": "known_value", "instruction": "Estimate FUEL level (litres) and enter it.", "label": "Fuel Level", "unit": "L", "capture_s": 3}
+  ]
+}

@@ -160,8 +160,9 @@ class BasicEngine:
 
 def analyze_log(path: str, engine: str = "read", max_frames_per_id: int = 20000) -> dict:
     """Group a log by arbitration ID and analyze it with the chosen RE engine."""
+    import importlib
     from .registry import RE_ENGINES
-    from .plugins import builtin_engines  # noqa: F401 — ensure engines registered
+    importlib.import_module("canforge.plugins.builtin_engines")  # self-registers built-in engines
 
     frames = load_log_frames(path, max_frames_per_id)
     result = RE_ENGINES.require(engine).analyze(frames)

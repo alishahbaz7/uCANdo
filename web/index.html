@@ -31,6 +31,7 @@
 
       <div class="nav-group-label">Analysis</div>
       <button class="nav" data-view="re">∿ Reverse Eng.</button>
+      <button class="nav" data-view="autore">🧠 Auto-RE</button>
       <button class="nav" data-view="dbc">▦ DBC Builder</button>
       <button class="nav" data-view="oem">🗄 OEM Database</button>
 
@@ -184,6 +185,47 @@
               <thead><tr><th>ID</th><th>Frames</th><th>Period</th><th>Len</th><th>Byte entropy (0–8)</th><th>Candidate signals</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Auto-RE (confidence-tiered identification) ===== -->
+      <section id="view-autore" class="view hidden">
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Analyze a log → identify signals with confidence</span><button class="btn-mini" id="btnAutoReRescan">Logs ↻</button></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <select id="autoreSelect" style="flex:1;min-width:220px"></select>
+            <input id="autoreOdo" placeholder="odometer km (optional)" style="width:160px" />
+            <input id="autoreFuel" placeholder="fuel litres (optional)" style="width:150px" />
+            <button class="btn" id="btnAutoReAnalyze">Analyze</button>
+            <span id="autoreStatus" class="muted-line"></span>
+          </div>
+          <div style="padding:0 16px 12px;display:flex;gap:8px;align-items:center">
+            <span class="muted-line">Guided mode (field):</span>
+            <span id="autoreProtocols" class="muted-line"></span>
+            <span class="muted-line">— run <code>python -m canforge.cli guided --fuel petrol --save "Name" --oem Hyundai</code></span>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>🟢 A · Confirmed</span><span id="autoreACount" class="muted-line"></span></div>
+          <div class="table-wrap" id="autoreA" style="max-height:30vh"></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>🟡 B · Suspected — confirm or reject</span><span id="autoreBCount" class="muted-line"></span></div>
+          <div class="table-wrap" id="autoreB" style="max-height:30vh"></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>⚪ C · Unknown fields</span><span id="autoreCCount" class="muted-line"></span></div>
+          <div class="table-wrap" id="autoreC" style="max-height:24vh"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span>Save confirmed signals as an OEM profile</span></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <input id="autoreOem" placeholder="OEM (e.g. Hyundai)" style="width:160px" />
+            <input id="autoreName" placeholder="profile name (e.g. Aura 2023)" style="flex:1" />
+            <button class="btn" id="btnAutoReSave">Save profile (tier A)</button>
           </div>
         </div>
       </section>

@@ -93,6 +93,117 @@ def _pearson_fit(xs: list, ys: list):
     return r, slope, my - slope * mx
 
 
+def known_value_matches(frames: dict, target: float, *, tol_frac: float = 0.003,
+                        scales=(1, 0.1, 10, 0.01, 100), widths=(8, 16, 24, 32),
+                        max_distinct: int = 3) -> list[dict]:
+    """Find near-constant fields whose value (× a common scale) equals ``target``.
+
+    This is the *known-value matching* technique: the user reads a static value
+    off the dash (odometer, fuel %, VIN-derived…) and we locate the field that
+    carries it. Returns matches sorted by closeness then widest field.
+    """
+    tol = max(1.0, abs(target) * tol_frac)
+    found = []
+    for (arb, ext), data in frames.items():
+        if arb == 0x7DF or 0x7E0 <= arb <= 0x7EF:
+            continue
+        ps = data["payloads"]
+        if not ps:
+            continue
+        nbits = max(len(p) for p in ps) * 8
+        for w in widths:
+            for s in range(0, nbits - w + 1, 8):
+                for order in ("big_endian", "little_endian"):
+                    fn = value_be if order == "big_endian" else value_le
+                    seq = [fn(p, s, w) for p in ps]
+                    vals = set(seq)
+                    if len(vals) > max_distinct:
+                        continue                       # not (near-)constant
+                    v = max(vals, key=seq.count)
+                    if v == 0:
+                        continue
+                    for sc in scales:
+                        if abs(v * sc - target) <= tol:
+                            found.append({
+                                "id": arb, "id_hex": f"{arb:0{8 if ext else 3}X}", "ext": ext,
+                                "start_bit": s, "length": w, "byte_order": order,
+                                "scale": sc, "raw": v, "decoded": round(v * sc, 3),
+                                "error": abs(v * sc - target)})
+    found.sort(key=lambda m: (m["error"], -m["length"]))
+    return found
+
+
+def _subsample(seq, cap=2000):
+    """Stride a sequence down to <= cap points (keeps correlation cheap)."""
+    n = len(seq)
+    if n <= cap:
+        return list(range(n))
+    step = n // cap + 1
+    return list(range(0, n, step))
+
+
+def correlate_windows(frames: dict, gt: dict, widths=(8, 12, 16), step: int = 4,
+                      r_threshold: float = 0.9, min_unique: int = 8) -> list[dict]:
+    """Sliding-window correlation: for every candidate field in every frame, find
+    the best match to each ground-truth series — recovers *full* signals (not
+    just READ's fragments) with true scale/offset.
+
+    Returns one best record per (frame, ground-truth label) above threshold.
+    """
+    out = []
+    for (arb, ext), data in frames.items():
+        if arb in OBD_RESPONSE_IDS or arb == 0x7DF:
+            continue
+        payloads, ts = data["payloads"], data["timestamps"]
+        if len(payloads) < MIN_PAIRS:
+            continue
+        idx = _subsample(payloads)
+        sp = [payloads[i] for i in idx]
+        sts = [ts[i] for i in idx]
+        nbits = max((len(p) for p in sp), default=0) * 8
+        best: dict[str, dict] = {}
+        for w in widths:
+            for start in range(0, nbits - w + 1, step):
+                be = [value_be(p, start, w) for p in sp]
+                if len(set(be)) < min_unique:
+                    continue
+                cands = [("big_endian", be)]
+                if start % 8 == 0 and w % 8 == 0:
+                    le = [value_le(p, start, w) for p in sp]
+                    if len(set(le)) >= min_unique:
+                        cands.append(("little_endian", le))
+                for order, vals in cands:
+                    for gname, (gts, gvals) in gt.items():
+                        xs, ys = _align(sts, vals, gts, gvals)
+                        fit = _pearson_fit(xs, ys)
+                        if not fit or abs(fit[0]) < r_threshold:
+                            continue
+                        r, slope, intercept = fit
+                        cur = best.get(gname)
+                        better = (cur is None or abs(r) > abs(cur["r"]) + 1e-9 or
+                                  (abs(abs(r) - abs(cur["r"])) < 0.02 and w > cur["length"]))
+                        if better:
+                            best[gname] = {"start_bit": start, "length": w,
+                                           "byte_order": order, "r": round(r, 3),
+                                           "scale": round(slope, 6), "offset": round(intercept, 3),
+                                           "label": gname, "name": gname.replace(" ", "")}
+        for rec in best.values():
+            out.append({"id": arb, "id_hex": f"{arb:0{8 if ext else 3}X}", "ext": ext, **rec})
+    out.sort(key=lambda d: -abs(d["r"]))
+    return out
+
+
+def deep_correlate_log(path: str, r_threshold: float = 0.9,
+                       max_frames_per_id: int = 20000) -> dict:
+    """Full sliding-window correlation against OBD ground truth (richer than
+    :func:`correlate_log`, which is limited to READ's candidate boundaries)."""
+    from ..reverse import load_log_frames
+    frames = load_log_frames(path, max_frames_per_id)
+    gt = _obd_ground_truth(frames)
+    return {"path": path, "ground_truth": sorted(gt.keys()),
+            "signals": correlate_windows(frames, gt, r_threshold=r_threshold)}
+
+
 def correlate_log(path: str, r_threshold: float = 0.9, max_frames_per_id: int = 20000) -> dict:
     from ..reverse import load_log_frames
     frames = load_log_frames(path, max_frames_per_id)
