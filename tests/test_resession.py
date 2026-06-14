@@ -72,6 +72,24 @@ def test_known_value_matches():
     assert m[0]["scale"] == 0.1 and m[0]["byte_order"] == "little_endian"
 
 
+def test_db_match_recognises_known_vehicle(storage):
+    """CANMatch: a known profile decodes a passive log with no ground truth."""
+    from canforge.oem_db import OemDatabase
+    from canforge.dbc_builder import DbcModel
+    from canforge.resession import RESession, apply_db_match
+    db = OemDatabase(storage)
+    m = DbcModel(); m.add_message(0x100, "ENG", length=8)
+    m.add_signal(0x100, {"name": "EngineRPM", "start_bit": 16, "length": 16,
+                         "byte_order": "little_endian", "scale": 0.25, "offset": 0})
+    db.add_profile("Hyundai", "Test", dbc=m.to_dbc_string(), status="shipped")
+
+    frames = {(0x100, False): {"payloads": [b"12345678"], "timestamps": [0.0, 0.01]}}
+    s = RESession()
+    info = apply_db_match(s, frames, db)
+    assert info and info["oem"] == "Hyundai"
+    assert any(x["label"] == "EngineRPM" and "db_match" in x["sources"] for x in s.report()["A"])
+
+
 def test_populate_from_log(tmp_path):
     # Synthetic drive: 0x100 carries RPM (LE bytes0-1) + OBD RPM response on 0x7E8.
     p = str(tmp_path / "drive.asc")

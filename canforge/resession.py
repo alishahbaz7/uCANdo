@@ -81,12 +81,16 @@ class RESession:
 
     def _signal(self, cand: dict) -> dict:
         sc = score(cand["evidence"])
+        # Surface the READ "kind" (counter/crc/physical/...) so even unknown
+        # fields carry intelligence about what they *do*.
+        kind = next((e["detail"].get("kind") for e in cand["evidence"]
+                     if e.get("source") == "structural" and (e.get("detail") or {}).get("kind")), None)
         return {
             "frame_id": cand["frame_id"], "id_hex": _id_hex(cand["frame_id"], cand["ext"]),
             "ext": cand["ext"], "start_bit": cand["start_bit"], "length": cand["length"],
             "byte_order": cand["byte_order"],
             "label": sc["label"], "tier": sc["tier"], "confidence": sc["score"],
-            "sources": sc["sources"],
+            "sources": sc["sources"], "kind": kind,
             "scale": self._pick(cand, "scale"), "offset": self._pick(cand, "offset"),
             "unit": self._pick(cand, "unit"),
         }
@@ -114,8 +118,14 @@ class RESession:
         for fid, sigs in by_msg.items():
             ext = sigs[0]["ext"]
             model.add_message(fid, f"MSG_{_id_hex(fid, ext)}", length=8, is_extended=ext)
-            used = set()
-            for s in sigs:
+            used, occupied = set(), set()
+            for s in sigs:                                # sigs arrive in confidence order
+                # Skip a signal overlapping a higher-confidence one already kept,
+                # so the exported DBC is always valid (no overlapping signals).
+                span = set(range(s["start_bit"] // 8, (s["start_bit"] + s["length"] + 7) // 8))
+                if span & occupied:
+                    continue
+                occupied |= span
                 name = (s["label"] or f"sig_{s['start_bit']}_{s['length']}").replace(" ", "")
                 while name in used:                      # avoid duplicate signal names
                     name += "_"
@@ -130,19 +140,61 @@ class RESession:
         return model
 
 
-def populate_from_log(session: RESession, path: str, r_threshold: float = 0.70,
-                      known_values: dict | None = None) -> RESession:
-    """Mode 1: feed a recorded log through READ + OBD correlation into ``session``.
+def apply_db_match(session: RESession, frames: dict, oem_db, min_present: float = 0.5) -> dict | None:
+    """CANMatch: recognise the vehicle from the OEM DB and apply its known signals.
 
-    ``known_values`` maps a label to a static reading from the dash (e.g.
-    ``{"Odometer": 19335, "Fuel level": 25}``) and is resolved by known-value
-    matching — landing those signals in the high-confidence tier.
+    Picks the profile whose message IDs are most present on this bus (≥
+    ``min_present`` fraction) and adds each of its signals as **db_match**
+    evidence (tier A) — so a previously-RE'd vehicle decodes with no ground
+    truth at all. Returns ``{profile, oem, present, of}`` or None.
+    """
+    import cantools
+    log_ids = set(frames.keys())
+    best = None
+    for row in oem_db.list_profiles():
+        prof = oem_db.get_profile(row["id"])
+        if not prof.get("dbc"):
+            continue
+        try:
+            db = cantools.database.load_string(prof["dbc"], database_format="dbc")
+        except Exception:
+            continue
+        keys = [(m.frame_id, bool(m.is_extended_frame)) for m in db.messages]
+        if not keys:
+            continue
+        present = sum(1 for k in keys if k in log_ids)
+        if present / len(keys) >= min_present and (best is None or present > best[1]):
+            best = (prof, present, db)
+    if not best:
+        return None
+    prof, present, db = best
+    for m in db.messages:
+        if (m.frame_id, bool(m.is_extended_frame)) not in log_ids:
+            continue
+        for s in m.signals:
+            session.add_evidence(m.frame_id, s.start, s.length, byte_order=s.byte_order,
+                                 ext=bool(m.is_extended_frame), source="db_match", label=s.name,
+                                 scale=s.scale, offset=s.offset, unit=s.unit, profile=prof["name"])
+    return {"profile": prof["name"], "oem": prof["oem"], "present": present, "of": len(db.messages)}
+
+
+def populate_from_log(session: RESession, path: str, r_threshold: float = 0.70,
+                      known_values: dict | None = None, oem_db=None) -> RESession:
+    """Mode 1: feed a recorded log through DB-match + READ + OBD correlation.
+
+    * ``oem_db`` — if given, recognise the vehicle and apply known signals (CANMatch).
+    * ``known_values`` maps a label to a static dash reading (e.g.
+      ``{"Odometer": 19335}``), resolved by known-value matching.
     """
     from .reverse import load_log_frames
     from .re_engines.read import analyze_id_read
     from .re_engines.correlate import _obd_ground_truth, correlate_windows, known_value_matches
 
     frames = load_log_frames(path)
+
+    # DB-match first (High) — recognise a known vehicle even with no ground truth.
+    if oem_db is not None:
+        apply_db_match(session, frames, oem_db)
 
     # Structural evidence (Low) — every READ candidate, so unknown fields still surface.
     for (arb, ext), data in frames.items():

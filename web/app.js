@@ -439,8 +439,8 @@ function renderAutoRE(rep) {
       <td><button class="btn-mini" onclick="autoreConfirm('${_ref(s)}',${i})">✓ Confirm</button>
           <button class="btn-mini" onclick="autoreReject('${_ref(s)}')">✕ Reject</button></td></tr>`).join("") +
     `</tbody></table>`;
-  $("autoreC").innerHTML = `<table class="data-table"><tbody>` +
-    (rep.C || []).slice(0, 40).map((s) => `<tr><td class="mono">${autoreLoc(s)}</td><td class="muted-line">${s.sources.join(",")}</td></tr>`).join("") +
+  $("autoreC").innerHTML = `<table class="data-table"><thead><tr><th>Location</th><th>Behaviour</th></tr></thead><tbody>` +
+    (rep.C || []).slice(0, 40).map((s) => `<tr><td class="mono">${autoreLoc(s)}</td><td class="muted-line">${s.kind || s.sources.join(",")}</td></tr>`).join("") +
     `</tbody></table>` + ((rep.C || []).length > 40 ? `<div class="muted-line" style="padding:6px">+${rep.C.length - 40} more</div>` : "");
 }
 window.autoreConfirm = async (ref, i) => {

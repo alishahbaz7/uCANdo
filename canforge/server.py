@@ -683,7 +683,7 @@ def autore_analyze_log(req: AutoReAnalyzeReq):
         # numeric known-values only
         knowns = {k: float(v) for k, v in (req.known_values or {}).items()
                   if str(v).strip() not in ("", "None")}
-        populate_from_log(auto_session, req.path, known_values=knowns)
+        populate_from_log(auto_session, req.path, known_values=knowns, oem_db=oem)
         return {"ok": True, "report": auto_session.report()}
     except Exception as exc:
         return _err(str(exc))

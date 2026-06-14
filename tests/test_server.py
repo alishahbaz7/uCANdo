@@ -138,7 +138,9 @@ def test_autore_analyze_confirm_save(tmp_path):
     rep = client.post("/api/autore/analyze-log", json={"path": p, "known_values": {}}).json()
     assert rep["ok"] is True
     a = rep["report"]["A"]
-    assert any(s["label"] == "Engine RPM" for s in a)
+    # RPM lands in the high tier (label "Engine RPM" from correlation or
+    # "EngineRPM" if a saved profile also matched via DB-match — either is fine).
+    assert any("RPM" in (s["label"] or "") for s in a)
 
     assert {"petrol", "ev"} <= set(client.get("/api/autore/protocols").json()["protocols"])
 
