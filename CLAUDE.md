@@ -16,7 +16,7 @@ Full plan & benchmark: `docs/PRODUCT_PLAN.md`. **Auto-ID/RE design (current focu
 | 3 | OEM-aware visualization | ✅ done | computed signals + alarms (`derived.py`), LibreCAN correlation (`re_engines/correlate.py`) |
 | 4 | Automation & simulation (Pillar C) | ✅ done | `rules.py`, `jobs.py`, `simulation.py` (restbus), `scripting.py`, `cli.py` |
 | — | **Hardware bring-up + v0.1/v0.2** | ✅ done | neoVI driver-assistant (`preflight.py`/`drivers.py`), sliding-window correlator, `cli drive`/`sniff`, first real Aura profile |
-| **AR** | **Auto-ID / guided RE (NEXT — `docs/AUTO_RE_PLAN.md`)** | 🚧 next | confidence engine + RE session (A/B/C tiers); guided fuel-type protocols (Mode 2); passive log pipeline (Mode 1); Auto-RE UI |
+| **AR** | **Auto-ID / guided RE (`docs/AUTO_RE_PLAN.md`)** | ✅ done | `confidence.py` (A/B/C) + `resession.py` (evidence/confirm/export); Mode 1 `populate_from_log`; Mode 2 `guided.py` + `protocols/*.json` + `cli guided`; Auto-RE UI (`/api/autore/*`). Remaining: field validation + provenance polish |
 | 5 | Fleet / telematics | ⬜ todo | multi-vehicle registry, export pipeline (Parquet/MQTT), fleet agent |
 | 6 | Polish & package | ⬜ todo | workspace UX, full UDS client, packaging |
 
