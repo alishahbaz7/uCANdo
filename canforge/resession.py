@@ -130,11 +130,17 @@ class RESession:
         return model
 
 
-def populate_from_log(session: RESession, path: str, r_threshold: float = 0.70) -> RESession:
-    """Mode 1: feed a recorded log through READ + OBD correlation into ``session``."""
+def populate_from_log(session: RESession, path: str, r_threshold: float = 0.70,
+                      known_values: dict | None = None) -> RESession:
+    """Mode 1: feed a recorded log through READ + OBD correlation into ``session``.
+
+    ``known_values`` maps a label to a static reading from the dash (e.g.
+    ``{"Odometer": 19335, "Fuel level": 25}``) and is resolved by known-value
+    matching — landing those signals in the high-confidence tier.
+    """
     from .reverse import load_log_frames
     from .re_engines.read import analyze_id_read
-    from .re_engines.correlate import _obd_ground_truth, correlate_windows
+    from .re_engines.correlate import _obd_ground_truth, correlate_windows, known_value_matches
 
     frames = load_log_frames(path)
 
@@ -153,4 +159,13 @@ def populate_from_log(session: RESession, path: str, r_threshold: float = 0.70) 
         session.add_evidence(s["id"], s["start_bit"], s["length"], byte_order=s["byte_order"],
                              ext=s["ext"], source="obd_correlation", label=s["label"],
                              scale=s["scale"], offset=s["offset"], r=s["r"])
+
+    # Known-value evidence (High) — static dash readings the user supplied.
+    for label, target in (known_values or {}).items():
+        matches = known_value_matches(frames, target)
+        if matches:
+            m = matches[0]
+            session.add_evidence(m["id"], m["start_bit"], m["length"], byte_order=m["byte_order"],
+                                 ext=m["ext"], source="known_value", label=label,
+                                 scale=m["scale"], offset=0, exact=(m["error"] < 1.0))
     return session

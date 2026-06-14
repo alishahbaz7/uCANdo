@@ -62,6 +62,16 @@ def test_to_dbc_model_from_confirmed():
     assert msgs[0]["signals"][0]["scale"] == 0.25
 
 
+def test_known_value_matches():
+    from canforge.re_engines.correlate import known_value_matches
+    raw = 193353                                   # 19335.3 km at x0.1 (24-bit LE)
+    payload = bytes([raw & 0xFF, (raw >> 8) & 0xFF, (raw >> 16) & 0xFF, 0])
+    frames = {(0x5B0, False): {"payloads": [payload] * 10, "timestamps": [i * 0.1 for i in range(10)]}}
+    m = known_value_matches(frames, 19335)
+    assert m and m[0]["id"] == 0x5B0 and m[0]["start_bit"] == 0
+    assert m[0]["scale"] == 0.1 and m[0]["byte_order"] == "little_endian"
+
+
 def test_populate_from_log(tmp_path):
     # Synthetic drive: 0x100 carries RPM (LE bytes0-1) + OBD RPM response on 0x7E8.
     p = str(tmp_path / "drive.asc")

@@ -93,6 +93,46 @@ def _pearson_fit(xs: list, ys: list):
     return r, slope, my - slope * mx
 
 
+def known_value_matches(frames: dict, target: float, *, tol_frac: float = 0.003,
+                        scales=(1, 0.1, 10, 0.01, 100), widths=(8, 16, 24, 32),
+                        max_distinct: int = 3) -> list[dict]:
+    """Find near-constant fields whose value (× a common scale) equals ``target``.
+
+    This is the *known-value matching* technique: the user reads a static value
+    off the dash (odometer, fuel %, VIN-derived…) and we locate the field that
+    carries it. Returns matches sorted by closeness then widest field.
+    """
+    tol = max(1.0, abs(target) * tol_frac)
+    found = []
+    for (arb, ext), data in frames.items():
+        if arb == 0x7DF or 0x7E0 <= arb <= 0x7EF:
+            continue
+        ps = data["payloads"]
+        if not ps:
+            continue
+        nbits = max(len(p) for p in ps) * 8
+        for w in widths:
+            for s in range(0, nbits - w + 1, 8):
+                for order in ("big_endian", "little_endian"):
+                    fn = value_be if order == "big_endian" else value_le
+                    seq = [fn(p, s, w) for p in ps]
+                    vals = set(seq)
+                    if len(vals) > max_distinct:
+                        continue                       # not (near-)constant
+                    v = max(vals, key=seq.count)
+                    if v == 0:
+                        continue
+                    for sc in scales:
+                        if abs(v * sc - target) <= tol:
+                            found.append({
+                                "id": arb, "id_hex": f"{arb:0{8 if ext else 3}X}", "ext": ext,
+                                "start_bit": s, "length": w, "byte_order": order,
+                                "scale": sc, "raw": v, "decoded": round(v * sc, 3),
+                                "error": abs(v * sc - target)})
+    found.sort(key=lambda m: (m["error"], -m["length"]))
+    return found
+
+
 def _subsample(seq, cap=2000):
     """Stride a sequence down to <= cap points (keeps correlation cheap)."""
     n = len(seq)
