@@ -16,7 +16,8 @@ let pollTimer = null;
 const VIEW_TITLES = {
   dashboard: "Dashboard — Standard Decoded Values",
   logger: "CAN Logger — Live Capture", replay: "TX Replay — Log Playback",
-  re: "Reverse Engineering", dbc: "DBC Builder", oem: "OEM CAN Database", signals: "Signal Viewer",
+  re: "Reverse Engineering", autore: "Auto-RE — Confidence-Tiered Identification",
+  dbc: "DBC Builder", oem: "OEM CAN Database", signals: "Signal Viewer",
   scheduler: "TX Scheduler", automation: "Automation — Rules, Jobs, Restbus & Scripting",
   dtc: "DTC — Diagnostic Trouble Codes", decoder: "Protocol Decoder",
 };
@@ -35,6 +36,7 @@ document.querySelectorAll(".nav").forEach((btn) => {
     if (view === "replay" || view === "re") refreshLogs();
     if (view === "dbc") renderDbc();
     if (view === "logger") loadLogDir();
+    if (view === "autore") initAutoRE();
     if (view === "oem") renderOem();
     if (view === "automation") renderAutomation();
     if (view === "scheduler") pollTx();
@@ -139,7 +141,7 @@ async function refreshLogs() {
   const opts = logs.length
     ? logs.map((l) => `<option value="${l.path}">${l.name} (${(l.size / 1024).toFixed(0)} KB)</option>`).join("")
     : `<option value="">— no logs yet (record one first) —</option>`;
-  ["replaySelect", "reSelect", "cmpA", "cmpB"].forEach((id) => { if ($(id)) $(id).innerHTML = opts; });
+  ["replaySelect", "reSelect", "cmpA", "cmpB", "autoreSelect"].forEach((id) => { if ($(id)) $(id).innerHTML = opts; });
   loadReEngines();
 }
 let reEnginesLoaded = false;
@@ -396,6 +398,66 @@ $("btnRestbusStop").addEventListener("click", async () => { await POST("/api/res
 $("btnScriptRun").addEventListener("click", async () => {
   const r = await POST("/api/script/run", { code: $("scriptCode").value });
   $("scriptOut").textContent = (r.error ? "ERROR: " + r.error + "\n" : "") + (r.logs || []).join("\n");
+});
+
+// ------------------------------------------------------ Auto-RE (A/B/C tiers)
+async function initAutoRE() {
+  refreshLogs();
+  const p = await api("/api/autore/protocols");
+  if ($("autoreProtocols")) $("autoreProtocols").textContent = (p.protocols || []).join(" · ");
+  renderAutoRE(await api("/api/autore/report"));
+}
+$("btnAutoReRescan").addEventListener("click", refreshLogs);
+$("btnAutoReAnalyze").addEventListener("click", async () => {
+  const path = $("autoreSelect").value; if (!path) return;
+  const known = {};
+  if ($("autoreOdo").value.trim()) known["Odometer"] = $("autoreOdo").value.trim();
+  if ($("autoreFuel").value.trim()) known["Fuel Level"] = $("autoreFuel").value.trim();
+  $("autoreStatus").textContent = "Analyzing…";
+  const r = await POST("/api/autore/analyze-log", { path, known_values: known });
+  $("autoreStatus").textContent = r.ok ? "Done" : ("Error: " + r.error);
+  if (r.ok) renderAutoRE(r.report);
+});
+function autoreLoc(s) {
+  const sc = s.scale && s.scale !== 1 ? " ×" + s.scale : "";
+  return `0x${s.id_hex} · bit ${s.start_bit}/${s.length} ${s.byte_order === "little_endian" ? "LE" : "BE"}${sc}`;
+}
+const _ref = (s) => encodeURIComponent(JSON.stringify(
+  { frame_id: s.frame_id, start_bit: s.start_bit, length: s.length, byte_order: s.byte_order, ext: s.ext, label: s.label }));
+function renderAutoRE(rep) {
+  if (!rep) return;
+  const c = rep.counts || { A: 0, B: 0, C: 0 };
+  $("autoreACount").textContent = c.A + " confirmed";
+  $("autoreBCount").textContent = c.B + " to review";
+  $("autoreCCount").textContent = c.C + " fields";
+  $("autoreA").innerHTML = `<table class="data-table"><thead><tr><th>Signal</th><th>Location</th><th>Conf</th><th>Source</th></tr></thead><tbody>` +
+    (rep.A || []).map((s) => `<tr><td><b>${s.label || "—"}</b></td><td class="mono">${autoreLoc(s)}</td><td>${(s.confidence * 100).toFixed(0)}%</td><td class="muted-line">${s.sources.join(",")}</td></tr>`).join("") +
+    `</tbody></table>`;
+  $("autoreB").innerHTML = `<table class="data-table"><thead><tr><th>Guess (editable)</th><th>Location</th><th>Conf</th><th></th></tr></thead><tbody>` +
+    (rep.B || []).map((s, i) => `<tr><td><input id="blbl${i}" value="${s.label || ""}" style="width:140px"/></td>
+      <td class="mono">${autoreLoc(s)}</td><td>${(s.confidence * 100).toFixed(0)}%</td>
+      <td><button class="btn-mini" onclick="autoreConfirm('${_ref(s)}',${i})">✓ Confirm</button>
+          <button class="btn-mini" onclick="autoreReject('${_ref(s)}')">✕ Reject</button></td></tr>`).join("") +
+    `</tbody></table>`;
+  $("autoreC").innerHTML = `<table class="data-table"><tbody>` +
+    (rep.C || []).slice(0, 40).map((s) => `<tr><td class="mono">${autoreLoc(s)}</td><td class="muted-line">${s.sources.join(",")}</td></tr>`).join("") +
+    `</tbody></table>` + ((rep.C || []).length > 40 ? `<div class="muted-line" style="padding:6px">+${rep.C.length - 40} more</div>` : "");
+}
+window.autoreConfirm = async (ref, i) => {
+  const s = JSON.parse(decodeURIComponent(ref));
+  const edited = $("blbl" + i); if (edited && edited.value.trim()) s.label = edited.value.trim();
+  const r = await POST("/api/autore/confirm", s);
+  if (r.ok) { renderAutoRE(r.report); setStatus(`Confirmed ${s.label || "signal"} → tier A`); }
+};
+window.autoreReject = async (ref) => {
+  const r = await POST("/api/autore/reject", JSON.parse(decodeURIComponent(ref)));
+  if (r.ok) renderAutoRE(r.report);
+};
+$("btnAutoReSave").addEventListener("click", async () => {
+  const oem = $("autoreOem").value.trim(), name = $("autoreName").value.trim();
+  if (!oem || !name) return void setStatus("Enter OEM + profile name");
+  const r = await POST("/api/autore/save-profile", { oem, name, tiers: ["A"] });
+  setStatus(r.ok ? `Saved profile "${name}" (id ${r.id})` : "Save: " + r.error);
 });
 
 // -------------------------------------------------------------- DBC Builder

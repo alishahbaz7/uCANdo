@@ -121,6 +121,33 @@ def test_oem_auto_apply_on_sim():
         client.post("/api/disconnect")
 
 
+def test_autore_analyze_confirm_save(tmp_path):
+    import math, struct
+    p = str(tmp_path / "auto.asc")
+    w = can.ASCWriter(p)
+    for i in range(300):
+        rpm = int(2000 + 1500 * math.sin(i / 30.0))
+        w.on_message_received(can.Message(arbitration_id=0x100, data=struct.pack("<H", rpm) + b"\0\0\0\0\0\0",
+                                          is_extended_id=False, timestamp=i * 0.05))
+        r = rpm * 4
+        w.on_message_received(can.Message(arbitration_id=0x7E8,
+                                          data=bytes([0x04, 0x41, 0x0C, (r >> 8) & 0xFF, r & 0xFF, 0, 0, 0]),
+                                          is_extended_id=False, timestamp=i * 0.05 + 0.01))
+    w.stop()
+
+    rep = client.post("/api/autore/analyze-log", json={"path": p, "known_values": {}}).json()
+    assert rep["ok"] is True
+    a = rep["report"]["A"]
+    assert any(s["label"] == "Engine RPM" for s in a)
+
+    assert {"petrol", "ev"} <= set(client.get("/api/autore/protocols").json()["protocols"])
+
+    # Save tier A as a profile.
+    sv = client.post("/api/autore/save-profile",
+                     json={"oem": "Test", "name": "AutoReProf", "tiers": ["A"]}).json()
+    assert sv["ok"] is True and sv["profile"]["oem"] == "Test"
+
+
 def test_oem_from_builder_and_delete():
     client.post("/api/dbc/set", json={"messages": [
         {"frame_id": 0x321, "name": "M", "length": 8, "is_extended": False,

@@ -39,6 +39,8 @@ from .registry import RE_ENGINES, describe_all, load_plugins
 from .replay import LogReplayer
 from .re_engines.diff import StateSniffer, compare_logs
 from .re_engines.correlate import correlate_log
+from .resession import RESession, populate_from_log
+from .guided import list_protocols
 from .reverse import analyze_log
 from .scheduler import TxScheduler
 from .signals import SignalViewer
@@ -75,6 +77,7 @@ sniffer = StateSniffer()
 
 # ----- automation & simulation (Phase 4, Pillar C) -------------------------
 restbus = RestbusSimulator(bus.send)
+auto_session = RESession()        # current Auto-RE identification session (A/B/C)
 jobs_runner = JobRunner(storage)
 rules = RulesEngine(storage, send=bus.send, trigger_job=jobs_runner.run_now)
 viewer.add_value_subscriber(rules.on_values)   # rules see decoded signal values
@@ -647,6 +650,79 @@ def oem_auto_apply(min_score: float = 0.5):
                 except Exception as exc:
                     return _err(str(exc))
     return {"ok": False, "reason": "no confident decodable match", "matches": matches}
+
+
+# ===========================================================================
+# Auto-RE / identification (confidence-tiered A/B/C)
+# ===========================================================================
+class AutoReAnalyzeReq(BaseModel):
+    path: str
+    known_values: dict = {}      # {label: value}, e.g. {"Odometer": 19335}
+
+
+class SignalRef(BaseModel):
+    frame_id: int
+    start_bit: int
+    length: int
+    byte_order: str = "big_endian"
+    ext: bool = False
+    label: str | None = None
+
+
+@app.get("/api/autore/protocols")
+def autore_protocols():
+    return {"protocols": list_protocols()}
+
+
+@app.post("/api/autore/analyze-log")
+def autore_analyze_log(req: AutoReAnalyzeReq):
+    """Mode 1: run a recorded log through the RE session, return the A/B/C report."""
+    global auto_session
+    try:
+        auto_session = RESession(req.path)
+        # numeric known-values only
+        knowns = {k: float(v) for k, v in (req.known_values or {}).items()
+                  if str(v).strip() not in ("", "None")}
+        populate_from_log(auto_session, req.path, known_values=knowns)
+        return {"ok": True, "report": auto_session.report()}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/autore/report")
+def autore_report():
+    return auto_session.report()
+
+
+@app.post("/api/autore/confirm")
+def autore_confirm(req: SignalRef):
+    auto_session.confirm(req.frame_id, req.start_bit, req.length,
+                         byte_order=req.byte_order, ext=req.ext, label=req.label)
+    return {"ok": True, "report": auto_session.report()}
+
+
+@app.post("/api/autore/reject")
+def autore_reject(req: SignalRef):
+    auto_session.reject(req.frame_id, req.start_bit, req.length,
+                        byte_order=req.byte_order, ext=req.ext)
+    return {"ok": True, "report": auto_session.report()}
+
+
+class AutoReSaveReq(BaseModel):
+    oem: str
+    name: str
+    tiers: list[str] = ["A"]
+
+
+@app.post("/api/autore/save-profile")
+def autore_save_profile(req: AutoReSaveReq):
+    """Export the chosen tiers of the current session as an OEM profile."""
+    try:
+        model = auto_session.to_dbc_model(tuple(req.tiers))
+        pid = oem.save_from_dbc_model(model, req.oem, req.name)
+        return {"ok": True, "id": pid, "profile": oem.get_profile(pid)}
+    except Exception as exc:
+        return _err(str(exc))
 
 
 # ===========================================================================
