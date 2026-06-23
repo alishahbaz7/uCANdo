@@ -150,6 +150,25 @@ def test_autore_analyze_confirm_save(tmp_path):
     assert sv["ok"] is True and sv["profile"]["oem"] == "Test"
 
 
+def test_decode_dbc_frames_endpoint():
+    from canforge.dbc_builder import DbcModel
+    m = DbcModel()
+    m.add_message(0x94, "M94", length=8)
+    m.add_signal(0x94, {"name": "Speed", "start_bit": 3, "length": 12,
+                        "byte_order": "big_endian", "scale": 10, "offset": 0})
+    dbc_text = m.to_dbc_string()
+
+    imp = client.post("/api/decode/dbc-import",
+                      files={"file": ("t.dbc", dbc_text, "text/plain")}).json()
+    assert imp["ok"] and any(msg["id_hex"] == "94" for msg in imp["messages"])
+
+    dec = client.post("/api/decode/frames",
+                      json={"frames": [{"id": "94", "data": "0006320040001C00"}]}).json()
+    assert dec["ok"]
+    sig = next(s for s in dec["frames"][0]["signals"] if s["name"] == "Speed")
+    assert float(sig["physical"]) == 60.0 and len(sig["cells"]) == 12
+
+
 def test_oem_from_builder_and_delete():
     client.post("/api/dbc/set", json={"messages": [
         {"frame_id": 0x321, "name": "M", "length": 8, "is_extended": False,

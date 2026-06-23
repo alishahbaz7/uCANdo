@@ -32,6 +32,7 @@
       <div class="nav-group-label">Analysis</div>
       <button class="nav" data-view="re">∿ Reverse Eng.</button>
       <button class="nav" data-view="autore">🧠 Auto-RE</button>
+      <button class="nav" data-view="framedec">🔢 Frame Decoder</button>
       <button class="nav" data-view="dbc">▦ DBC Builder</button>
       <button class="nav" data-view="oem">🗄 OEM Database</button>
 
@@ -187,6 +188,27 @@
             </table>
           </div>
         </div>
+      </section>
+
+      <!-- ===== Frame Decoder (DBC byte/bit mapping) ===== -->
+      <section id="view-framedec" class="view hidden">
+        <div class="panel" style="margin-bottom:14px">
+          <div class="panel-head"><span>1 · Import DBC</span><span id="fdDbcStatus" class="muted-line">no DBC loaded</span></div>
+          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center">
+            <input type="file" id="fdDbcFile" accept=".dbc,.txt" hidden />
+            <button class="btn" id="btnFdImport">Import .dbc</button>
+            <span class="muted-line">Load your DBC, then paste raw frames below.</span>
+          </div>
+        </div>
+        <div class="panel" style="margin-bottom:14px">
+          <div class="panel-head"><span>2 · Raw frames — <code>CAN_ID  data</code> (hex), one per line</span></div>
+          <div style="padding:12px 16px">
+            <textarea id="fdRaw" spellcheck="false" style="width:100%;height:150px;font-family:var(--mono);font-size:12px"
+              placeholder="163  0205000000000200&#10;94   0006320040001C00&#10;540  0128C30000000000"></textarea>
+            <div style="margin-top:8px"><button class="btn" id="btnFdDecode">Decode</button> <span id="fdStatus" class="muted-line"></span></div>
+          </div>
+        </div>
+        <div id="fdResults"></div>
       </section>
 
       <!-- ===== Auto-RE (confidence-tiered identification) ===== -->

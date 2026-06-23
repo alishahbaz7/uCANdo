@@ -15,6 +15,21 @@
 
 * { box-sizing: border-box; }
 
+/* Frame Decoder — BusMaster-style bit grid + byte view */
+.bitgrid { border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.bitgrid th, .bitgrid td {
+  border: 1px solid var(--line); width: 24px; height: 24px;
+  text-align: center; color: var(--muted);
+}
+.bitgrid thead th { color: var(--accent); }
+.bitgrid td.bit-hi { background: var(--accent); color: #fff; font-weight: 700; }
+.byteview { border-collapse: collapse; }
+.byteview th, .byteview td {
+  border: 1px solid var(--line); padding: 3px 10px; text-align: center; min-width: 34px;
+}
+.byteview th { color: var(--muted); }
+.data-table tr.sel td { background: var(--accent-soft); }
+
 /* Reverse-engineering candidate chips */
 .cand-chip {
   display: inline-block; padding: 1px 6px; margin: 1px 2px;

@@ -17,6 +17,7 @@ const VIEW_TITLES = {
   dashboard: "Dashboard — Standard Decoded Values",
   logger: "CAN Logger — Live Capture", replay: "TX Replay — Log Playback",
   re: "Reverse Engineering", autore: "Auto-RE — Confidence-Tiered Identification",
+  framedec: "Frame Decoder — DBC Byte/Bit Mapping",
   dbc: "DBC Builder", oem: "OEM CAN Database", signals: "Signal Viewer",
   scheduler: "TX Scheduler", automation: "Automation — Rules, Jobs, Restbus & Scripting",
   dtc: "DTC — Diagnostic Trouble Codes", decoder: "Protocol Decoder",
@@ -459,6 +460,62 @@ $("btnAutoReSave").addEventListener("click", async () => {
   const r = await POST("/api/autore/save-profile", { oem, name, tiers: ["A"] });
   setStatus(r.ok ? `Saved profile "${name}" (id ${r.id})` : "Save: " + r.error);
 });
+
+// --------------------------------------------- Frame Decoder (byte/bit grid)
+let fdFrames = [], fdSel = {};
+$("btnFdImport").addEventListener("click", () => $("fdDbcFile").click());
+$("fdDbcFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = await apiUpload("/api/decode/dbc-import", f);
+  $("fdDbcStatus").textContent = r.ok ? `${f.name} — ${r.messages.length} messages` : ("error: " + r.error);
+});
+$("btnFdDecode").addEventListener("click", async () => {
+  const frames = [];
+  for (const ln of $("fdRaw").value.split("\n")) {
+    const t = ln.trim().split(/[\s,]+/);
+    if (t.length < 2 || isNaN(parseInt(t[0], 16))) continue;   // skip blanks/headers
+    frames.push({ id: t[0], data: t[1] });
+  }
+  if (!frames.length) return void ($("fdStatus").textContent = "no valid frames parsed");
+  const r = await POST("/api/decode/frames", { frames });
+  if (!r.ok) return void ($("fdStatus").textContent = "Error: " + r.error);
+  fdFrames = r.frames; fdSel = {}; $("fdStatus").textContent = `${fdFrames.length} frames decoded`;
+  renderFd();
+});
+window.fdSelect = (fi, si) => { fdSel[fi] = si; renderFd(); };
+function renderFd() {
+  const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
+  $("fdResults").innerHTML = fdFrames.map((f, fi) => {
+    if (f.error) return `<div class="panel" style="margin-bottom:12px"><div style="padding:12px">0x${f.id_hex} — <span class="muted-line">${f.error}</span></div></div>`;
+    const sel = fi in fdSel ? fdSel[fi] : -1;
+    const cells = new Set((sel >= 0 && f.signals[sel] ? f.signals[sel].cells : []).map((c) => c[0] + ":" + c[1]));
+    const idx = f.bytes.map((_, i) => `<td>${String(i).padStart(2, "0")}</td>`).join("");
+    const val = f.bytes.map((b) => `<td>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("");
+    const rows = f.signals.map((s, si) => `<tr class="${si === sel ? "sel" : ""}" style="cursor:pointer" onclick="fdSelect(${fi},${si})">
+      <td>${s.name}</td><td class="mono">${s.raw}</td><td class="mono">${s.physical}</td><td>${s.unit}</td></tr>`).join("")
+      || `<tr><td colspan="4" class="muted-line">no signals</td></tr>`;
+    let grid = `<table class="bitgrid"><thead><tr><th></th>${COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>`;
+    for (let b = 0; b < f.bytes.length; b++) {
+      grid += `<tr><th>${b}</th>` + COLS.map((c) => {
+        const bit = (f.bytes[b] >> c) & 1, hi = cells.has(b + ":" + c);
+        return `<td class="${hi ? "bit-hi" : ""}">${bit}</td>`;
+      }).join("") + `</tr>`;
+    }
+    grid += `</tbody></table>`;
+    return `<div class="panel" style="margin-bottom:16px">
+      <div class="panel-head"><span>0x${f.id_hex} · ${f.name}</span><span class="muted-line">DLC ${f.length} — click a signal to highlight its bits</span></div>
+      <div style="padding:10px 16px">
+        <div class="muted-line" style="margin-bottom:4px">Data Byte View (HEX)</div>
+        <table class="byteview mono"><tbody><tr><th>Index</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:12px">
+          <div style="flex:1;min-width:300px">
+            <table class="data-table"><thead><tr><th>Signal</th><th>Raw</th><th>Physical</th><th>Unit</th></tr></thead><tbody>${rows}</tbody></table>
+          </div>
+          <div>${grid}</div>
+        </div>
+      </div></div>`;
+  }).join("") || `<div class="placeholder" style="padding:30px">Import a DBC and paste frames, then click Decode.</div>`;
+}
 
 // -------------------------------------------------------------- DBC Builder
 let dbcModel = { messages: [] };

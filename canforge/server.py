@@ -1025,6 +1025,38 @@ def decode_frame(req: DecodeReq):
         return _err(str(exc))
 
 
+# ----- DBC frame decoder (BusMaster-style byte/bit view) -------------------
+import cantools as _cantools           # noqa: E402  (local to this feature)
+from .framedecode import decode_frames as _decode_frames
+
+_decode_db = None                      # cantools DB loaded for the frame decoder
+
+
+@app.post("/api/decode/dbc-import")
+async def decode_dbc_import(file: UploadFile = File(...)):
+    """Load a DBC for the frame decoder; returns its message/signal catalogue."""
+    global _decode_db
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        _decode_db = _cantools.database.load_string(text, database_format="dbc")
+        msgs = [{"id_hex": f"{m.frame_id:X}", "name": m.name, "length": m.length,
+                 "signals": [s.name for s in m.signals]} for m in _decode_db.messages]
+        return {"ok": True, "dbc": file.filename, "messages": msgs}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+class DecodeFramesReq(BaseModel):
+    frames: list = []                  # [{id: "94"|148, data: "0006320040001C00"}]
+
+
+@app.post("/api/decode/frames")
+def decode_frames_route(req: DecodeFramesReq):
+    if _decode_db is None:
+        return _err("Import a DBC first (Decode → Import .dbc)")
+    return {"ok": True, "frames": _decode_frames(_decode_db, req.frames)}
+
+
 # ===========================================================================
 # Dashboard (standard decoded values)
 # ===========================================================================
