@@ -464,6 +464,11 @@ $("btnAutoReSave").addEventListener("click", async () => {
 // --------------------------- Frame Decoder (per-ID editable payloads + grid)
 let fdMessages = [], fdPayloads = {}, fdDetail = null, fdSelSig = -1, fdTimer = null;
 $("btnFdImport").addEventListener("click", () => $("fdDbcFile").click());
+$("btnFdToggleFill").addEventListener("click", () => {
+  const box = $("fdFillBox"), open = !box.classList.contains("hidden");
+  box.classList.toggle("hidden", open);
+  $("btnFdToggleFill").textContent = open ? "Paste dump ▾" : "Paste dump ▴";
+});
 $("fdDbcFile").addEventListener("change", async (e) => {
   const f = e.target.files[0]; if (!f) return;
   const r = await apiUpload("/api/decode/dbc-import", f);
@@ -480,7 +485,7 @@ function renderFdCatalogue() {
       const sigs = m.signals.slice(0, 4).join(", ") + (m.signals.length > 4 ? " …" : "");
       return `<tr data-id="${m.id_hex}"><td class="mono">0x${m.id_hex}</td><td>${m.name}</td><td>${m.length}</td>
         <td class="muted-line">${m.signals.length}: ${sigs}</td>
-        <td><input class="fdpay mono" data-id="${m.id_hex}" value="${fdPayloads[m.id_hex] || ""}" style="width:170px" /></td></tr>`;
+        <td style="padding-right:12px"><input class="fdpay mono" data-id="${m.id_hex}" value="${fdPayloads[m.id_hex] || ""}" /></td></tr>`;
     }).join("") + `</tbody></table>`;
 }
 $("fdCatalogue").addEventListener("input", (e) => {
@@ -501,8 +506,8 @@ async function fdDecodeOne(idHex) {
 window.fdSelectSig = (si) => { fdSelSig = si; renderFdDetail(); };
 function renderFdDetail() {
   const f = fdDetail;
-  if (!f) return void ($("fdDetail").innerHTML = "");
-  if (f.error) return void ($("fdDetail").innerHTML = `<div class="panel"><div style="padding:12px">0x${f.id_hex} — <span class="muted-line">${f.error}</span></div></div>`);
+  if (!f) return void ($("fdDetail").innerHTML = `<div class="fd-placeholder"><span style="font-size:28px">🔢</span><span>Import a .dbc, then click any message row</span><span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span></div>`);
+  if (f.error) return void ($("fdDetail").innerHTML = `<div style="padding:16px;color:var(--muted)">0x${f.id_hex} — ${f.error}</div>`);
   const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
   const cells = new Set((fdSelSig >= 0 && f.signals[fdSelSig] ? f.signals[fdSelSig].cells : []).map((c) => c[0] + ":" + c[1]));
   const idx = f.bytes.map((_, i) => `<td>${String(i).padStart(2, "0")}</td>`).join("");
@@ -518,12 +523,21 @@ function renderFdDetail() {
     }).join("") + `</tr>`;
   }
   grid += `</tbody></table>`;
-  $("fdDetail").innerHTML = `<div class="panel"><div class="panel-head"><span>0x${f.id_hex} · ${f.name}</span><span class="muted-line">DLC ${f.length} — click a signal to highlight its bits</span></div>
-    <div style="padding:10px 16px"><div class="muted-line" style="margin-bottom:4px">Data Byte View (HEX)</div>
-    <table class="byteview mono"><tbody><tr><th>Index</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
-    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:12px">
-      <div style="flex:1;min-width:300px"><table class="data-table"><thead><tr><th>Signal</th><th>Raw</th><th>Physical</th><th>Unit</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <div>${grid}</div></div></div></div>`;
+  $("fdDetail").innerHTML = `<div class="panel-head"><span>0x${f.id_hex} · ${f.name}</span><span class="muted-line" style="font-size:12px">DLC ${f.length} — click a signal to highlight its bits</span></div>
+    <div style="padding:12px 16px">
+      <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Data Byte View (HEX)</div>
+      <table class="byteview mono"><tbody><tr><th>Byte</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
+        <div style="flex:1;min-width:280px">
+          <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Signal Details</div>
+          <table class="data-table"><thead><tr><th>Signal</th><th>Raw</th><th>Physical</th><th>Unit</th></tr></thead><tbody>${rows}</tbody></table>
+        </div>
+        <div>
+          <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Bit Layout (MSB→LSB)</div>
+          ${grid}
+        </div>
+      </div>
+    </div>`;
 }
 $("btnFdFill").addEventListener("click", () => {
   for (const ln of $("fdFill").value.split("\n")) {

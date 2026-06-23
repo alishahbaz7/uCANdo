@@ -18,17 +18,49 @@
 /* Frame Decoder — BusMaster-style bit grid + byte view */
 .bitgrid { border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
 .bitgrid th, .bitgrid td {
-  border: 1px solid var(--line); width: 24px; height: 24px;
+  border: 1px solid var(--line); width: 26px; height: 26px;
   text-align: center; color: var(--muted);
 }
 .bitgrid thead th { color: var(--accent); }
 .bitgrid td.bit-hi { background: var(--accent); color: #fff; font-weight: 700; }
 .byteview { border-collapse: collapse; }
 .byteview th, .byteview td {
-  border: 1px solid var(--line); padding: 3px 10px; text-align: center; min-width: 34px;
+  border: 1px solid var(--line); padding: 4px 12px; text-align: center; min-width: 38px;
+  font-variant-numeric: tabular-nums;
 }
 .byteview th { color: var(--muted); }
 .data-table tr.sel td { background: var(--accent-soft); }
+
+/* Frame Decoder — 2-column layout */
+.fd-import-bar {
+  display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 16px;
+}
+.fd-import-bar .muted-line { font-size: 13px; }
+#fdFillBox { margin-bottom: 10px; }
+#fdFill {
+  width: 100%; height: 70px; display: block;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text);
+  font-family: var(--mono); font-size: 12px; border-radius: 8px; padding: 8px 10px;
+  resize: vertical;
+}
+.fd-layout {
+  display: grid; grid-template-columns: 460px 1fr; gap: 14px;
+  height: calc(100vh - 192px); min-height: 380px;
+}
+.fd-left { overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.fd-left .table-wrap { flex: 1; overflow-y: auto; }
+.fd-right { overflow: auto; }
+.fdpay {
+  width: 100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 6px; padding: 4px 8px; font-family: var(--mono); font-size: 12px;
+}
+.fdpay:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.fd-placeholder {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--muted); font-size: 15px; gap: 8px; text-align: center;
+}
 
 /* Reverse-engineering candidate chips */
 .cand-chip {
@@ -39,7 +71,8 @@
 html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg); color: var(--text);
-  font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px;
+  font-family: "Segoe UI Variable Display", "Segoe UI", "Inter", system-ui, sans-serif;
+  font-size: 14px; -webkit-font-smoothing: antialiased;
 }
 
 .app { display: grid; grid-template-columns: 250px 1fr; height: 100vh; }
@@ -86,7 +119,7 @@ body {
 .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 18px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
 .card-k { color: var(--muted); font-size: 12px; }
-.card-v { font-size: 24px; font-weight: 600; margin-top: 4px; }
+.card-v { font-size: 24px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
 /* Logger grid */
 .logger-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; height: calc(100% - 110px); }
@@ -123,9 +156,10 @@ body {
 
 /* Shared toolbar / inputs */
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
-.toolbar input, .toolbar select, select, input[type=text] {
+.toolbar input, .toolbar select, select, input[type=text], textarea {
   background: var(--bg); border: 1px solid var(--line); color: var(--text);
   padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+textarea { resize: vertical; font-family: var(--mono); font-size: 12px; }
 .muted-line { color: var(--muted); font-size: 12px; margin-top: 8px; }
 .controls { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 .controls input[type=range] { width: 180px; }
