@@ -461,61 +461,79 @@ $("btnAutoReSave").addEventListener("click", async () => {
   setStatus(r.ok ? `Saved profile "${name}" (id ${r.id})` : "Save: " + r.error);
 });
 
-// --------------------------------------------- Frame Decoder (byte/bit grid)
-let fdFrames = [], fdSel = {};
+// --------------------------- Frame Decoder (per-ID editable payloads + grid)
+let fdMessages = [], fdPayloads = {}, fdDetail = null, fdSelSig = -1, fdTimer = null;
 $("btnFdImport").addEventListener("click", () => $("fdDbcFile").click());
 $("fdDbcFile").addEventListener("change", async (e) => {
   const f = e.target.files[0]; if (!f) return;
   const r = await apiUpload("/api/decode/dbc-import", f);
-  $("fdDbcStatus").textContent = r.ok ? `${f.name} — ${r.messages.length} messages` : ("error: " + r.error);
+  if (!r.ok) return void ($("fdDbcStatus").textContent = "error: " + r.error);
+  fdMessages = r.messages; fdPayloads = {};
+  fdMessages.forEach((m) => (fdPayloads[m.id_hex] = "00".repeat(m.length)));
+  $("fdDbcStatus").textContent = `${f.name} — ${fdMessages.length} messages`;
+  $("fdMsgCount").textContent = `${fdMessages.length} IDs`;
+  fdDetail = null; $("fdDetail").innerHTML = ""; renderFdCatalogue();
 });
-$("btnFdDecode").addEventListener("click", async () => {
-  const frames = [];
-  for (const ln of $("fdRaw").value.split("\n")) {
-    const t = ln.trim().split(/[\s,]+/);
-    if (t.length < 2 || isNaN(parseInt(t[0], 16))) continue;   // skip blanks/headers
-    frames.push({ id: t[0], data: t[1] });
-  }
-  if (!frames.length) return void ($("fdStatus").textContent = "no valid frames parsed");
-  const r = await POST("/api/decode/frames", { frames });
-  if (!r.ok) return void ($("fdStatus").textContent = "Error: " + r.error);
-  fdFrames = r.frames; fdSel = {}; $("fdStatus").textContent = `${fdFrames.length} frames decoded`;
-  renderFd();
-});
-window.fdSelect = (fi, si) => { fdSel[fi] = si; renderFd(); };
-function renderFd() {
-  const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
-  $("fdResults").innerHTML = fdFrames.map((f, fi) => {
-    if (f.error) return `<div class="panel" style="margin-bottom:12px"><div style="padding:12px">0x${f.id_hex} — <span class="muted-line">${f.error}</span></div></div>`;
-    const sel = fi in fdSel ? fdSel[fi] : -1;
-    const cells = new Set((sel >= 0 && f.signals[sel] ? f.signals[sel].cells : []).map((c) => c[0] + ":" + c[1]));
-    const idx = f.bytes.map((_, i) => `<td>${String(i).padStart(2, "0")}</td>`).join("");
-    const val = f.bytes.map((b) => `<td>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("");
-    const rows = f.signals.map((s, si) => `<tr class="${si === sel ? "sel" : ""}" style="cursor:pointer" onclick="fdSelect(${fi},${si})">
-      <td>${s.name}</td><td class="mono">${s.raw}</td><td class="mono">${s.physical}</td><td>${s.unit}</td></tr>`).join("")
-      || `<tr><td colspan="4" class="muted-line">no signals</td></tr>`;
-    let grid = `<table class="bitgrid"><thead><tr><th></th>${COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>`;
-    for (let b = 0; b < f.bytes.length; b++) {
-      grid += `<tr><th>${b}</th>` + COLS.map((c) => {
-        const bit = (f.bytes[b] >> c) & 1, hi = cells.has(b + ":" + c);
-        return `<td class="${hi ? "bit-hi" : ""}">${bit}</td>`;
-      }).join("") + `</tr>`;
-    }
-    grid += `</tbody></table>`;
-    return `<div class="panel" style="margin-bottom:16px">
-      <div class="panel-head"><span>0x${f.id_hex} · ${f.name}</span><span class="muted-line">DLC ${f.length} — click a signal to highlight its bits</span></div>
-      <div style="padding:10px 16px">
-        <div class="muted-line" style="margin-bottom:4px">Data Byte View (HEX)</div>
-        <table class="byteview mono"><tbody><tr><th>Index</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
-        <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:12px">
-          <div style="flex:1;min-width:300px">
-            <table class="data-table"><thead><tr><th>Signal</th><th>Raw</th><th>Physical</th><th>Unit</th></tr></thead><tbody>${rows}</tbody></table>
-          </div>
-          <div>${grid}</div>
-        </div>
-      </div></div>`;
-  }).join("") || `<div class="placeholder" style="padding:30px">Import a DBC and paste frames, then click Decode.</div>`;
+function renderFdCatalogue() {
+  $("fdCatalogue").innerHTML = `<table class="data-table"><thead><tr><th>CAN ID</th><th>Message</th><th>DLC</th><th>Signals</th><th>Payload (hex — editable)</th></tr></thead><tbody>` +
+    fdMessages.map((m) => {
+      const sigs = m.signals.slice(0, 4).join(", ") + (m.signals.length > 4 ? " …" : "");
+      return `<tr data-id="${m.id_hex}"><td class="mono">0x${m.id_hex}</td><td>${m.name}</td><td>${m.length}</td>
+        <td class="muted-line">${m.signals.length}: ${sigs}</td>
+        <td><input class="fdpay mono" data-id="${m.id_hex}" value="${fdPayloads[m.id_hex] || ""}" style="width:170px" /></td></tr>`;
+    }).join("") + `</tbody></table>`;
 }
+$("fdCatalogue").addEventListener("input", (e) => {
+  const inp = e.target.closest(".fdpay"); if (!inp) return;
+  fdPayloads[inp.dataset.id] = inp.value;
+  clearTimeout(fdTimer); fdTimer = setTimeout(() => fdDecodeOne(inp.dataset.id), 250);
+});
+$("fdCatalogue").addEventListener("click", (e) => {
+  if (e.target.closest(".fdpay")) return;             // don't hijack the input
+  const tr = e.target.closest("tr[data-id]"); if (tr) fdDecodeOne(tr.dataset.id);
+});
+async function fdDecodeOne(idHex) {
+  const r = await POST("/api/decode/frames", { frames: [{ id: idHex, data: fdPayloads[idHex] || "" }] });
+  if (!r.ok || !r.frames.length) return;
+  fdDetail = r.frames[0]; fdSelSig = -1; renderFdDetail();
+  document.querySelectorAll("#fdCatalogue tr[data-id]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.id === idHex));
+}
+window.fdSelectSig = (si) => { fdSelSig = si; renderFdDetail(); };
+function renderFdDetail() {
+  const f = fdDetail;
+  if (!f) return void ($("fdDetail").innerHTML = "");
+  if (f.error) return void ($("fdDetail").innerHTML = `<div class="panel"><div style="padding:12px">0x${f.id_hex} — <span class="muted-line">${f.error}</span></div></div>`);
+  const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
+  const cells = new Set((fdSelSig >= 0 && f.signals[fdSelSig] ? f.signals[fdSelSig].cells : []).map((c) => c[0] + ":" + c[1]));
+  const idx = f.bytes.map((_, i) => `<td>${String(i).padStart(2, "0")}</td>`).join("");
+  const val = f.bytes.map((b) => `<td>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("");
+  const rows = f.signals.map((s, si) => `<tr class="${si === fdSelSig ? "sel" : ""}" style="cursor:pointer" onclick="fdSelectSig(${si})">
+    <td>${s.name}</td><td class="mono">${s.raw}</td><td class="mono">${s.physical}</td><td>${s.unit}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="muted-line">no signals</td></tr>`;
+  let grid = `<table class="bitgrid"><thead><tr><th></th>${COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>`;
+  for (let b = 0; b < f.bytes.length; b++) {
+    grid += `<tr><th>${b}</th>` + COLS.map((c) => {
+      const bit = (f.bytes[b] >> c) & 1, hi = cells.has(b + ":" + c);
+      return `<td class="${hi ? "bit-hi" : ""}">${bit}</td>`;
+    }).join("") + `</tr>`;
+  }
+  grid += `</tbody></table>`;
+  $("fdDetail").innerHTML = `<div class="panel"><div class="panel-head"><span>0x${f.id_hex} · ${f.name}</span><span class="muted-line">DLC ${f.length} — click a signal to highlight its bits</span></div>
+    <div style="padding:10px 16px"><div class="muted-line" style="margin-bottom:4px">Data Byte View (HEX)</div>
+    <table class="byteview mono"><tbody><tr><th>Index</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:12px">
+      <div style="flex:1;min-width:300px"><table class="data-table"><thead><tr><th>Signal</th><th>Raw</th><th>Physical</th><th>Unit</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div>${grid}</div></div></div></div>`;
+}
+$("btnFdFill").addEventListener("click", () => {
+  for (const ln of $("fdFill").value.split("\n")) {
+    const t = ln.trim().split(/[\s,]+/); if (t.length < 2) continue;
+    const id = parseInt(t[0], 16); if (isNaN(id)) continue;
+    const idHex = id.toString(16).toUpperCase();
+    if (idHex in fdPayloads) fdPayloads[idHex] = t[1];
+  }
+  renderFdCatalogue(); setStatus("Payloads filled from raw dump");
+});
 
 // -------------------------------------------------------------- DBC Builder
 let dbcModel = { messages: [] };
