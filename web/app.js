@@ -1302,29 +1302,20 @@ Object.entries(BTN_ICONS).forEach(([id, [ic, label]]) => {
   el.classList.add("btn-ico");
 });
 
-// --------------------------- sidebar modes: open (locked) · auto (hover) · rail (locked)
-// Width/expansion is pure CSS (fixed-position flyout + :hover) — JS only sets the
-// mode class, highlights the toggle when locked, and persists the choice.
+// --------------------------- sidebar: simple open ↔ collapsed toggle (persisted)
+// (auto-hide/hover-flyout mode is disabled for now — needs more work.)
 const _appEl = document.querySelector(".app");
 let navMode = "open";
-const NAV_MODE_TIP = {
-  open: "Sidebar locked open — click for auto-hide",
-  auto: "Sidebar auto-hides (hover to expand) — click to lock collapsed",
-  rail: "Sidebar locked collapsed — click to lock open",
-};
 function applyNavMode(mode) {
-  navMode = mode;
-  _appEl.classList.toggle("nav-rail", mode === "rail");
-  _appEl.classList.toggle("nav-auto", mode === "auto");
-  $("navToggle").classList.toggle("locked", mode !== "auto");   // highlight when locked
-  $("navToggle").title = NAV_MODE_TIP[mode];
-  try { localStorage.setItem("ucando_nav_mode", mode); } catch (e) {}
+  navMode = mode === "rail" ? "rail" : "open";   // only two states supported
+  _appEl.classList.toggle("nav-rail", navMode === "rail");
+  $("navToggle").title = navMode === "rail" ? "Expand sidebar" : "Collapse sidebar";
+  try { localStorage.setItem("ucando_nav_mode", navMode); } catch (e) {}
 }
-$("navToggle").addEventListener("click", () =>
-  applyNavMode(navMode === "open" ? "auto" : navMode === "auto" ? "rail" : "open"));
+$("navToggle").addEventListener("click", () => applyNavMode(navMode === "rail" ? "open" : "rail"));
 let _savedMode = "open";
 try { _savedMode = localStorage.getItem("ucando_nav_mode") || "open"; } catch (e) {}
-applyNavMode(["open", "auto", "rail"].includes(_savedMode) ? _savedMode : "open");
+applyNavMode(_savedMode === "rail" ? "rail" : "open");   // legacy "auto" → open
 
 // Initial header title/description + kick off polling for the Dashboard view.
 setViewMeta(state.view);

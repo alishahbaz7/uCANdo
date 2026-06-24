@@ -156,12 +156,13 @@ body {
 }
 
 .app { display: grid; grid-template-columns: 250px 1fr; height: 100vh;
-  transition: grid-template-columns .18s ease; }
+  transition: grid-template-columns .3s cubic-bezier(.4, 0, .2, 1); }
 
 /* Sidebar — fixed-position flyout; the grid column just reserves its resting width */
 .sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 250px; z-index: 40;
   background: #161819; border-right: 1px solid var(--line); padding: 18px 14px;
-  overflow-x: hidden; overflow-y: auto; transition: width .18s ease; }
+  overflow-x: hidden; overflow-y: auto;
+  transition: width .3s cubic-bezier(.4, 0, .2, 1), padding .3s cubic-bezier(.4, 0, .2, 1); }
 .brand { display: flex; gap: 11px; align-items: center; margin-bottom: 22px; }
 .brand-mark { color: var(--accent); display: flex; align-items: center; }
 .brand-mark svg { width: 27px; height: 27px; }
@@ -186,7 +187,9 @@ body {
 .hw-chip[data-state="on"] .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
 
 /* Main */
-.main { display: flex; flex-direction: column; min-width: 0; }
+/* Sidebar is position:fixed (out of grid flow), so pin main to the 2nd track
+   explicitly — otherwise it auto-places into the reserved 58px/250px column. */
+.main { grid-column: 2; display: flex; flex-direction: column; min-width: 0; }
 .topbar { display: flex; align-items: center; gap: 14px;
   padding: 13px 24px; border-bottom: 1px solid var(--line); }
 .topbar-titles { flex: 1; min-width: 0; }
@@ -224,6 +227,15 @@ body {
 .app.nav-rail #hwChipText,
 .app.nav-auto .sidebar:not(:hover) #hwChipText { display: none; }
 .app.nav-rail .nav, .app.nav-auto .nav { white-space: nowrap; }
+/* While narrow: shrink padding & center the icons so nothing clips (58px rail) */
+.app.nav-rail .sidebar,
+.app.nav-auto .sidebar:not(:hover) { padding-left: 9px; padding-right: 9px; }
+.app.nav-rail .brand,
+.app.nav-auto .sidebar:not(:hover) .brand { justify-content: center; }
+.app.nav-rail .nav,
+.app.nav-auto .sidebar:not(:hover) .nav { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
+.app.nav-rail .hw-chip,
+.app.nav-auto .sidebar:not(:hover) .hw-chip { justify-content: center; padding-left: 0; padding-right: 0; }
 
 /* Toggle is highlighted when the sidebar is locked (open or rail), not in auto */
 .icon-btn.locked { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }

@@ -16,6 +16,15 @@ def test_info_and_plugins():
     assert info["app"] == "uCANdo"
     assert "plugins_loaded" in info
 
+
+def test_index_injects_single_version():
+    # One version number (__version__) drives both /api/info and the asset ?v= URLs.
+    from canforge import __version__
+    html = client.get("/").text
+    assert "__VER__" not in html                       # placeholder fully substituted
+    assert f"?v={__version__}" in html                 # assets cache-bust on the app version
+    assert client.get("/api/info").json()["version"] == __version__
+
     plugins = client.get("/api/plugins").json()
     assert {"re_engine", "decoder", "exporter", "oem_pack"} <= set(plugins)
 

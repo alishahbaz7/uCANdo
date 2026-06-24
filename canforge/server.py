@@ -14,7 +14,7 @@ import threading
 from collections import deque
 
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -1223,5 +1223,20 @@ async def ws_live(ws: WebSocket):
 
 
 # ----- static UI (mounted last) --------------------------------------------
+# Serve index.html through a route so the single app __version__ is injected into
+# the asset URLs (?v=) — one version number drives both the UI chip and cache-busting.
+_INDEX_PATH = os.path.join(WEB_DIR, "index.html")
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/index.html", response_class=HTMLResponse)
+def _serve_index():
+    try:
+        with open(_INDEX_PATH, encoding="utf-8") as fh:
+            return HTMLResponse(fh.read().replace("__VER__", __version__))
+    except OSError:
+        return HTMLResponse("<h1>uCANdo</h1><p>UI not found.</p>", status_code=500)
+
+
 if os.path.isdir(WEB_DIR):
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
