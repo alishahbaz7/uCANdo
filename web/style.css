@@ -14,6 +14,8 @@
 }
 
 * { box-sizing: border-box; }
+/* form controls don't inherit the page font by default — make them consistent */
+button, input, select, textarea { font-family: inherit; }
 
 /* Frame Decoder — BusMaster-style bit grid + byte view */
 .bitgrid { border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
@@ -23,6 +25,16 @@
 }
 .bitgrid thead th { color: var(--accent); }
 .bitgrid td.bit-hi { background: var(--accent); color: #fff; font-weight: 700; }
+/* Most/least significant bit of the highlighted signal — distinct colours */
+.bitgrid td.bit-msb { background: #e0a82e; color: #1b1d1f; font-weight: 700; }
+.bitgrid td.bit-lsb { background: var(--green); color: #fff; font-weight: 700; }
+/* Bit-grid legend */
+.bit-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+.bit-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.bit-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.bit-legend .sw-msb { background: #e0a82e; }
+.bit-legend .sw-lsb { background: var(--green); }
+.bit-legend .sw-hi  { background: var(--accent); }
 .byteview { border-collapse: collapse; }
 .byteview th, .byteview td {
   border: 1px solid var(--line); padding: 4px 12px; text-align: center; min-width: 38px;
@@ -87,6 +99,49 @@
 }
 .fd-pay-bar .fdpay { flex: 1; max-width: 340px; }
 
+/* Inline icons (Feather-style) on buttons */
+.ico { width: 15px; height: 15px; flex: none; vertical-align: -2px; }
+/* Tier status dot (Auto-RE A/B/C) */
+.tdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+/* Panel-head leading icon */
+.ph-ico { display: inline-flex; align-items: center; gap: 7px; }
+.ph-ico .ico { color: #e0a82e; }
+.btn-ico { display: inline-flex; align-items: center; gap: 7px; }
+.btn-mini.btn-ico { gap: 5px; }
+.btn-mini .ico { width: 13px; height: 13px; }
+/* Mild-red Clear */
+.btn-clear { color: #d98b8b; border-color: #5e3636; }
+.btn-clear:hover:not(:disabled) { background: #3a2020; border-color: #8a4a4a; color: #eaa3a3; }
+/* Green Download (primary action) */
+.btn-download { background: var(--green); border-color: var(--green); color: #08160d; font-weight: 600; }
+.btn-download:hover:not(:disabled) { background: #54c97c; border-color: #54c97c; }
+.btn-download:disabled { background: var(--panel-2); border-color: var(--line); color: var(--text); font-weight: 400; }
+/* Search field with leading icon */
+.cv-search { position: relative; display: inline-flex; align-items: center; }
+.cv-search .ico { position: absolute; left: 9px; color: var(--muted); pointer-events: none; }
+.cv-search input { padding-left: 30px; width: 220px; }
+
+/* Converter workbench — editable message/signal table */
+.cv-msg { margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.cv-msg-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--panel-2); }
+.cv-sigtable { width: 100%; }
+.cv-sigtable th { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cv-sigtable td { padding: 3px 6px; }
+.cv-in {
+  background: var(--bg); border: 1px solid var(--line); color: var(--text);
+  border-radius: 4px; padding: 2px 5px; font-size: 12px; width: 92px; font-family: inherit;
+}
+.cv-in.n { width: 54px; text-align: right; font-family: var(--mono); }
+.cv-in:focus { outline: none; border-color: var(--accent); }
+/* read-only (view) mode: fields look like flat text, not edit boxes */
+.cv-in[readonly], .cv-in:disabled {
+  background: transparent; border-color: transparent; color: var(--text);
+  cursor: default; opacity: 0.9;
+}
+/* Edit toggle when active */
+#cvEditToggle.cv-editing { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+#cvTable { max-height: calc(100vh - 320px); overflow-y: auto; }
+
 /* Reverse-engineering candidate chips */
 .cand-chip {
   display: inline-block; padding: 1px 6px; margin: 1px 2px;
@@ -100,21 +155,29 @@ body {
   font-size: 14px; -webkit-font-smoothing: antialiased;
 }
 
-.app { display: grid; grid-template-columns: 250px 1fr; height: 100vh; }
+.app { display: grid; grid-template-columns: 250px 1fr; height: 100vh;
+  transition: grid-template-columns .18s ease; }
 
-/* Sidebar */
-.sidebar { background: #161819; border-right: 1px solid var(--line); padding: 18px 14px; overflow-y: auto; }
-.brand { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; }
-.brand-mark { font-size: 22px; color: var(--accent); }
-.brand-title { font-weight: 600; font-size: 17px; }
+/* Sidebar — fixed-position flyout; the grid column just reserves its resting width */
+.sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 250px; z-index: 40;
+  background: #161819; border-right: 1px solid var(--line); padding: 18px 14px;
+  overflow-x: hidden; overflow-y: auto; transition: width .18s ease; }
+.brand { display: flex; gap: 11px; align-items: center; margin-bottom: 22px; }
+.brand-mark { color: var(--accent); display: flex; align-items: center; }
+.brand-mark svg { width: 27px; height: 27px; }
+.brand-title { font-weight: 650; font-size: 17px; letter-spacing: .01em; }
 .brand-sub { color: var(--muted); font-size: 12px; }
 .brand-ver { font-size: 10px; color: var(--accent); font-family: var(--mono);
   margin-top: 3px; letter-spacing: .06em; opacity: .75; }
-.nav-group-label { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin: 16px 6px 6px; }
-.nav { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text);
-  padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-.nav:hover { background: var(--panel-2); }
-.nav.active { background: var(--accent-soft); color: var(--accent); }
+.nav-group-label { color: #6b7280; font-size: 10.5px; letter-spacing: .1em;
+  text-transform: uppercase; margin: 15px 8px 5px; font-weight: 600; }
+.nav { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: none; color: var(--muted); padding: 8px 11px;
+  border-radius: 7px; cursor: pointer; font-size: 13.5px; font-weight: 500; }
+.nav:hover { background: var(--panel-2); color: var(--text); }
+.nav.active { background: var(--accent-soft); color: #c5e1ff; box-shadow: inset 2px 0 0 var(--accent); }
+.nav-ico { width: 17px; height: 17px; flex: none; opacity: .85; }
+.nav:hover .nav-ico, .nav.active .nav-ico { opacity: 1; }
 
 .hw-chip { width: 100%; display: flex; align-items: center; gap: 8px; background: var(--panel-2);
   border: 1px solid var(--line); color: var(--text); padding: 9px 12px; border-radius: 8px; cursor: pointer; }
@@ -124,16 +187,53 @@ body {
 
 /* Main */
 .main { display: flex; flex-direction: column; min-width: 0; }
-.topbar { display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 24px; border-bottom: 1px solid var(--line); }
-.topbar h1 { font-size: 18px; font-weight: 500; margin: 0; }
-.topbar-actions { display: flex; gap: 10px; }
+.topbar { display: flex; align-items: center; gap: 14px;
+  padding: 13px 24px; border-bottom: 1px solid var(--line); }
+.topbar-titles { flex: 1; min-width: 0; }
+.topbar h1 { font-size: 16px; font-weight: 650; margin: 0; line-height: 1.25; letter-spacing: .01em; }
+.view-desc { font-size: 12.5px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow-x: auto; }
+.view-desc::-webkit-scrollbar { height: 0; }
+.topbar-actions { display: flex; gap: 10px; flex: none; }
+
+/* Square icon button (sidebar toggle) */
+.icon-btn { background: none; border: 1px solid var(--line); color: var(--muted);
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer; flex: none;
+  display: inline-flex; align-items: center; justify-content: center; }
+.icon-btn:hover { color: var(--text); border-color: var(--accent); }
+.icon-btn .ico { width: 18px; height: 18px; }
+
+/* Sidebar modes — rail & auto rest at 58px; open is the default 250px.
+   The sidebar is position:fixed and animates its width, so expanding is a smooth
+   flyover that never reflows the page (no jump, no stuck/blank state). */
+.app.nav-rail, .app.nav-auto { grid-template-columns: 58px 1fr; }
+.app.nav-rail .sidebar, .app.nav-auto .sidebar { width: 58px; }
+.app.nav-auto .sidebar:hover { width: 250px; z-index: 60; box-shadow: 6px 0 22px rgba(0, 0, 0, .5); }
+
+/* Icon-only look while the rail is narrow (rail always; auto when not hovered).
+   Labels are clipped by overflow-x:hidden, so they reveal as the width animates. */
+.app.nav-rail .brand > div:not(.brand-mark),
+.app.nav-auto .sidebar:not(:hover) .brand > div:not(.brand-mark) { display: none; }
+.app.nav-rail .nav span,
+.app.nav-auto .sidebar:not(:hover) .nav span { display: none; }
+.app.nav-rail .nav.active,
+.app.nav-auto .sidebar:not(:hover) .nav.active { box-shadow: none; }
+.app.nav-rail .nav-group-label,
+.app.nav-auto .sidebar:not(:hover) .nav-group-label { text-indent: -9999px; overflow: hidden;
+  height: 0; border-top: 1px solid var(--line); margin: 10px 8px; padding: 0; }
+.app.nav-rail #hwChipText,
+.app.nav-auto .sidebar:not(:hover) #hwChipText { display: none; }
+.app.nav-rail .nav, .app.nav-auto .nav { white-space: nowrap; }
+
+/* Toggle is highlighted when the sidebar is locked (open or rail), not in auto */
+.icon-btn.locked { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 
 .btn { background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
   padding: 9px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.ghost { background: none; }
+.btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .btn-rec[data-on="1"] { background: #3a1c1c; border-color: var(--red); color: #ff9a9a; }
 .btn-mini { background: none; border: 1px solid var(--line); color: var(--muted);
   padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }

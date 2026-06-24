@@ -56,6 +56,26 @@ def signal_cells(message, sig) -> list[list[int]]:
     return cells
 
 
+def signal_msb_lsb(message, sig):
+    """Return ``(msb_cell, lsb_cell)`` as ``[byte, bit]`` for the value's most-
+    and least-significant bits (endianness-aware), via the cantools packer."""
+    def _one_bit_cell(raw_val: int):
+        try:
+            vals = {s.name: s.offset for s in message.signals}
+            vals[sig.name] = raw_val * sig.scale + sig.offset
+            enc = message.encode(vals, strict=False, padding=False)
+        except Exception:
+            return None
+        for bi, byte in enumerate(enc):
+            for bit in range(8):
+                if byte & (1 << bit):
+                    return [bi, bit]
+        return None
+    lsb = _one_bit_cell(1)                                  # only value bit 0 set
+    msb = _one_bit_cell(1 << (sig.length - 1)) if sig.length > 1 else lsb
+    return msb, lsb
+
+
 def decode_frame(db, frame_id: int, data_hex: str) -> dict:
     """Decode one frame; returns message info, bytes, and per-signal detail+cells."""
     m = db.get_message_by_frame_id(frame_id)
@@ -92,6 +112,7 @@ def decode_frame(db, frame_id: int, data_hex: str) -> dict:
                 or (s.maximum is not None and phys_f > float(s.maximum))
             )
         )
+        msb_cell, lsb_cell = signal_msb_lsb(m, s)
         signals.append({
             "name": s.name,
             "raw": rv,
@@ -103,6 +124,7 @@ def decode_frame(db, frame_id: int, data_hex: str) -> dict:
             "out_of_range": out_of_range,
             "start_bit": s.start, "length": s.length, "byte_order": s.byte_order,
             "cells": signal_cells(m, s),
+            "msb_cell": msb_cell, "lsb_cell": lsb_cell,
         })
     return {
         "id": frame_id, "id_hex": f"{frame_id:X}", "name": m.name, "length": m.length,

@@ -8,19 +8,21 @@
 
 ---
 
-## What's New — v0.3
+## What's New — v0.4
 
 | Feature | Details |
 |---|---|
-| **Frame Decoder** | Upload any `.dbc` → browse every message + signal. Edit per-ID hex payload live → byte view, signal table (Raw / Physical / Unit / DBC description), BusMaster-style 8×8 bit grid with clicked-signal highlighting |
-| **Value descriptions** | Enum/choice labels from DBC `VAL_` table shown as green chips alongside numeric physical value |
-| **OOR indicator** | Out-of-Range badge (red `OOR`) when physical value exceeds DBC `[min…max]` |
-| **Scale-aware formatting** | Physical values formatted to scale's decimal places (capped at 2), e.g. scale=0.1 → `6502.4` not `6502.400000001` |
-| **Payload validation** | Hex-only input, auto-strips non-hex chars, `maxlength` = DLC×2, live byte counter |
-| **DBC export timestamp** | Export filename is `DDMMYY_HHMMSS.dbc` |
-| **Rebrand** | Renamed from CANForge → **uCANdo** |
-| **UI polish** | Segoe UI Variable Display font, dark webkit scrollbars, 2-column Frame Decoder split, unified button hierarchy, `#` serial column, tabular numerals |
-| **Auto-RE** | CANMatch DB recognition wired into passive log analysis — known vehicles (e.g. Hyundai Aura) auto-decode RPM + Odometer in tier A without ground truth |
+| **JSON Signature support** | Frame Decoder **and** Converter read the cloud **Signature JSON** (decimal CAN IDs, Intel/LSB-first sequential start bits) — bit/byte convention validated against real MG ZS EV frames (`canOdometer = 75971`) |
+| **Format Converter** | New segment: **upload → preview → edit / select → download** among **DBC ⇄ JSON ⇄ CSV** in any direction. Source auto-detected; per-signal checkboxes; lossy fields reported; sub-byte big-endian flagged with inline comments |
+| **CSV with both CAN ID bases** | CSV carries `CAN ID (HEX)` **and** `CAN ID (Dec)`; `Motorola`/`Intel` byte order; value tables round-trip DBC ⇄ CSV |
+| **Smart single Upload** | One **Upload** button auto-detects `.dbc` vs `.json` (no separate buttons) |
+| **MSB/LSB bit highlighting** | Frame Decoder bit grid marks a signal's **MSB (gold)** and **LSB (green)**, endianness-aware, with a legend |
+| **Raw as hex** | Frame Decoder Raw column shows the raw bit-pattern in hex (e.g. `0x0128C3`), distinct from the scaled Physical value |
+| **Professional iconography** | All emoji replaced with a consistent inline-SVG icon set across sidebar, topbar, and tools |
+| **Collapsible sidebar** | Three modes — **locked-open / auto-hide (hover flyout) / locked-rail** — smooth animated, state persisted |
+| **Title + description header** | Each view shows a short fixed title with a one-line description |
+| **Consistent terminology** | **Upload / Download** everywhere (was Import / Export) |
+| **Font fix** | Form controls now inherit the page font (nav/buttons no longer fall back to the browser's default control font) |
 
 ---
 
@@ -32,7 +34,8 @@
 - **TX Scheduler** — cyclic or one-shot predefined frame transmission
 
 ### Decode & Visualise
-- **Frame Decoder** *(new in v0.3)* — upload DBC, browse all messages, edit payload per-ID, live byte/bit/signal decode
+- **Frame Decoder** *(new in v0.3)* — upload DBC or Signature JSON, browse all messages, edit payload per-ID, live byte/bit/signal decode
+- **Converter** *(new in v0.3)* — DBC ⇄ JSON ⇄ CSV in any direction, source auto-detected, lossy fields reported
 - **Signal Viewer** — live DBC decode into scrollable strip charts
 - **Dashboard** — standard OBD-II PID + J1939 SPN values, no DBC required
 - **Protocol Decoder** — OBD-II, UDS with ISO-TP reassembly, J1939
@@ -114,6 +117,8 @@ resession.py     RESession — accumulate evidence, export to DBC
 guided.py        GuidedRunner — protocol-driven stimulus/capture
 dbc_builder.py   DbcModel — GUI signal editor + cantools DBC I/O
 framedecode.py   decode raw hex frames against a DBC with bit-grid cells
+jsondecode.py    decode frames against the cloud Signature JSON (self-contained)
+convert.py       DBC ⇄ JSON ⇄ CSV converter over one canonical model
 signals.py       SignalViewer — live DBC decode → ring buffers → charts
 dashboard.py     OBD-II PID + J1939 SPN live values
 dtc.py           DtcMonitor — trouble codes (OBD-II / UDS / J1939)
@@ -136,7 +141,16 @@ Everything above the HAL is adapter-independent — modules hold a `CANInterface
 
 ## Release History
 
-### v0.3 — Frame Decoder + uCANdo rebrand *(current)*
+### v0.4 — JSON signatures, Format Converter & UI overhaul *(current)*
+- **Frame Decoder** now reads the cloud **Signature JSON** as well as DBC (one smart Upload button, auto-detected)
+- **Converter** segment: DBC ⇄ JSON ⇄ CSV in any direction — upload → preview → edit/select signals → download
+- Self-contained JSON decoder (`jsondecode.py`) and format engine (`convert.py`); bit/byte convention validated on real vehicle frames
+- CSV carries both `CAN ID (HEX)` and `CAN ID (Dec)`, `Motorola`/`Intel` byte order, and round-trips DBC value tables
+- Frame Decoder: MSB/LSB bit-grid highlighting, Raw shown as hex, auto-spaced payload entry
+- UI overhaul: inline-SVG icon set (no emoji), collapsible sidebar (open / auto-hide / rail), title+description headers, Upload/Download terminology, form-control font fix
+- Endpoints: `/api/decode/json-import`, `/api/convert`, `/api/convert/{parse,export}`
+
+### v0.3 — Frame Decoder + uCANdo rebrand
 - Frame Decoder: upload DBC → per-ID editable payload → live byte/signal/bit-grid decode
 - DBC value descriptions (enum labels) shown as green chips
 - Physical value: scale-aware decimal formatting, OOR badge, choice label

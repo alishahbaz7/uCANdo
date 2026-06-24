@@ -8,5 +8,5 @@ module above it is independent of whether a Neo VI, PCAN, Microchip/SLCAN
 adapter, or the development virtual bus is in use.
 """
 
-__version__ = "0.3"
+__version__ = "0.4"
 __app_name__ = "uCANdo"

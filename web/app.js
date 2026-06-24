@@ -13,21 +13,61 @@ const POST = (p, body) => api(p, { method: "POST", body: body ? JSON.stringify(b
 const state = { connected: false, recording: false, view: "dashboard" };
 let pollTimer = null;
 
+// ---- shared inline SVG icon set (Feather-style) ----
+const _ico = (b, extra = "") => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${extra}>${b}</svg>`;
+const ICONS = {
+  power: _ico('<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>'),
+  record: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="#e25555"/></svg>',
+  play: '<svg class="ico" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>',
+  pause: _ico('<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>'),
+  stop: _ico('<rect x="6" y="6" width="12" height="12" rx="1.5"/>'),
+  step: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
+  refresh: _ico('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
+  chevronDown: _ico('<polyline points="6 9 12 15 18 9"/>'),
+  chevronUp: _ico('<polyline points="18 15 12 9 6 15"/>'),
+  close: _ico('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+  check: _ico('<polyline points="20 6 9 17 4 12"/>'),
+  arrowRight: _ico('<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>'),
+  upload: _ico('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
+  download: _ico('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+  clipboard: _ico('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>'),
+  grid: _ico('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>'),
+  alert: _ico('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+};
+// Back-compat aliases used by the topbar renderer
+const ICON_POWER = ICONS.power, ICON_RECORD = ICONS.record, ICON_STOP = ICONS.stop;
+const _bigGrid = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:30px;height:30px;color:var(--accent)"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+
 // Populate version chip from API
 api("/api/info").then((d) => {
   const chip = $("verChip");
   if (chip) chip.textContent = `v${d.version} · ${d.app}`;
 });
 
-const VIEW_TITLES = {
-  dashboard: "Dashboard — Standard Decoded Values",
-  logger: "CAN Logger — Live Capture", replay: "TX Replay — Log Playback",
-  re: "Reverse Engineering", autore: "Auto-RE — Confidence-Tiered Identification",
-  framedec: "Frame Decoder — DBC Byte/Bit Mapping",
-  dbc: "DBC Builder", oem: "OEM CAN Database", signals: "Signal Viewer",
-  scheduler: "TX Scheduler", automation: "Automation — Rules, Jobs, Restbus & Scripting",
-  dtc: "DTC — Diagnostic Trouble Codes", decoder: "Protocol Decoder",
+// Each view: a short fixed title + a one-line description.
+const VIEW_META = {
+  dashboard: { t: "Dashboard", d: "Live values decoded from standard protocols (OBD-II, J1939) — no DBC required." },
+  logger: { t: "CAN Logger", d: "Live capture with per-ID stats and recording to .asc / .blf / .csv." },
+  replay: { t: "TX Replay", d: "Play a recorded log back onto the bus with speed, loop, and step control." },
+  re: { t: "Reverse Engineering", d: "Find candidate signals in an unknown log — entropy, bit-flip rate, sniffer, OBD correlation." },
+  autore: { t: "Auto-RE", d: "Confidence-tiered (A/B/C) identification: CANMatch, OBD correlation, and known-value matching." },
+  framedec: { t: "Frame Decoder", d: "Decode raw CAN frames against a DBC or JSON signature — byte, bit, and signal view." },
+  convert: { t: "Converter", d: "Convert a signal database among DBC, Signature JSON, and CSV in any direction." },
+  dbc: { t: "DBC Builder", d: "Edit messages and signals, then round-trip to a .dbc file." },
+  oem: { t: "OEM Database", d: "Store, fingerprint, and auto-apply vehicle DBC profiles (CANMatch)." },
+  signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms." },
+  scheduler: { t: "TX Scheduler", d: "Transmit cyclic or one-shot frames on the bus." },
+  automation: { t: "Automation", d: "Rules, scheduled jobs, restbus simulation, and scripting." },
+  dtc: { t: "DTC Codes", d: "Read and clear trouble codes — OBD-II, UDS, and J1939." },
+  decoder: { t: "Protocol Decoder", d: "Live OBD-II / UDS (ISO-TP) / J1939 frame interpretation." },
 };
+function setViewMeta(view) {
+  const m = VIEW_META[view] || { t: view, d: "" };
+  $("viewTitle").textContent = m.t;
+  const desc = $("viewDesc");
+  desc.textContent = m.d;
+  desc.title = m.d;
+}
 
 // ---------------------------------------------------------------- navigation
 document.querySelectorAll(".nav").forEach((btn) => {
@@ -38,7 +78,7 @@ document.querySelectorAll(".nav").forEach((btn) => {
     state.view = view;
     document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
     $("view-" + view).classList.remove("hidden");
-    $("viewTitle").textContent = VIEW_TITLES[view] || view;
+    setViewMeta(view);
     startPolling(view);
     if (view === "replay" || view === "re") refreshLogs();
     if (view === "dbc") renderDbc();
@@ -109,10 +149,10 @@ function renderLogger(snap) {
   const chip = $("hwChip");
   chip.dataset.state = state.connected ? "on" : "off";
   $("hwChipText").textContent = state.connected ? "Connected" : "Not connected";
-  $("btnConnect").textContent = state.connected ? "⏼ Disconnect" : "⏻ Connect";
+  $("btnConnect").innerHTML = ICON_POWER + `<span>${state.connected ? "Disconnect" : "Connect"}</span>`;
   $("btnRecord").disabled = !state.connected;
   $("btnRecord").dataset.on = state.recording ? "1" : "0";
-  $("btnRecord").textContent = state.recording ? "■ Stop" : "● Record";
+  $("btnRecord").innerHTML = (state.recording ? ICON_STOP : ICON_RECORD) + `<span>${state.recording ? "Stop" : "Record"}</span>`;
   $("recBadge").classList.toggle("hidden", !state.recording);
 
   if (snap.replay) renderReplay(snap.replay);
@@ -227,7 +267,7 @@ $("btnAnalyze").addEventListener("click", async () => {
     const mux = id.multiplexor ? ` <span class="cand-chip" style="border-color:#c678dd;color:#c678dd" title="multiplexor">mux@byte${id.multiplexor.selector_byte}</span>` : "";
     return `<tr><td class="mono">0x${id.id_hex}</td><td>${id.frames}</td><td>${id.period_ms} ms</td>
       <td>${id.length}</td><td><div class="entropy-row">${ent}</div></td><td>${cands}${mux}</td>
-      <td><button class="btn-mini" onclick="seedDbc(${i})">→ DBC</button></td></tr>`;
+      <td><button class="btn-mini" onclick="seedDbc(${i})">${ICONS.arrowRight} DBC</button></td></tr>`;
   }).join("");
 });
 window.seedDbc = async (i) => {
@@ -245,7 +285,7 @@ function renderChanged(wrapId, ns, result) {
     const bits = c.candidates.map((cd) => `<span class="cand-chip" style="border-color:#c678dd;color:#c678dd">@${cd.start_bit}/${cd.length}</span>`).join(" ");
     const bytes = c.changed_bytes.map((b) => `byte${b.index}: ${b.baseline.join("/")}→${b.after.join("/")}`).join("; ");
     return `<tr><td class="mono">0x${c.id_hex}</td><td>${bits}</td><td class="muted-line">${bytes}</td>
-      <td><button class="btn-mini" onclick="promoteChanged('${ns}','${c.id_hex}')">→ DBC</button></td></tr>`;
+      <td><button class="btn-mini" onclick="promoteChanged('${ns}','${c.id_hex}')">${ICONS.arrowRight} DBC</button></td></tr>`;
   }).join("");
   const extra = [];
   if (result.new_ids && result.new_ids.length) extra.push(`new IDs: ${result.new_ids.map((x) => "0x" + x).join(", ")}`);
@@ -300,7 +340,7 @@ $("btnCorrelate").addEventListener("click", async () => {
   const rows = res.labeled_ids.map((d) => d.labeled.map((L) =>
     `<tr><td class="mono">0x${d.id_hex}</td><td>${L.label}</td><td>@${L.start_bit}/${L.length} ${L.byte_order === "little_endian" ? "LE" : "BE"}</td>
       <td>r=${L.r}</td><td>×${L.scale} ${L.offset >= 0 ? "+" : ""}${L.offset}</td>
-      <td><button class="btn-mini" onclick="promoteCorr('${d.id_hex}')">→ DBC</button></td></tr>`).join("")).join("");
+      <td><button class="btn-mini" onclick="promoteCorr('${d.id_hex}')">${ICONS.arrowRight} DBC</button></td></tr>`).join("")).join("");
   $("corrResultWrap").innerHTML = `<table class="data-table"><thead><tr><th>ID</th><th>Label (OBD)</th><th>Bits</th><th>Fit</th><th>Scale/offset</th><th></th></tr></thead>
     <tbody>${rows || `<tr><td colspan="6" class="muted-line" style="padding:14px">No signals correlated above threshold. Capture must include OBD-II PID responses.</td></tr>`}</tbody></table>`;
   setStatus(`Correlated · ground truth: ${res.ground_truth.join(", ") || "none found"}`);
@@ -318,7 +358,7 @@ async function renderOem() {
     const apply = p.id_count ? `<button class="btn-mini" onclick="oemApply(${p.id})">Apply</button>` : "";
     return `<tr><td>${p.oem}</td><td>${p.name}</td><td class="muted-line">${p.model || "—"}</td>
       <td>${p.id_count}</td><td><span class="tag">${p.status}</span></td>
-      <td>${apply} <button class="btn-mini" onclick="oemDelete(${p.id})">✕</button></td></tr>`;
+      <td>${apply} <button class="btn-mini" onclick="oemDelete(${p.id})">${ICONS.close}</button></td></tr>`;
   }).join("") || `<tr><td colspan="6" class="muted-line" style="padding:14px">No profiles.</td></tr>`;
 }
 window.oemApply = async (id) => {
@@ -358,7 +398,7 @@ async function renderRules() {
   $("rulesWrap").innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>When</th><th>Action</th><th>Fired</th><th></th></tr></thead>
     <tbody>${(t.rules || []).map((r) => `<tr><td>${r.name}</td><td class="mono">${r.when}</td>
       <td>${r.action.type}</td><td>${r.fired}</td>
-      <td><button class="btn-mini" onclick="delRule(${r.uid})">✕</button></td></tr>`).join("")
+      <td><button class="btn-mini" onclick="delRule(${r.uid})">${ICONS.close}</button></td></tr>`).join("")
       || `<tr><td colspan="5" class="muted-line" style="padding:12px">No rules.</td></tr>`}</tbody></table>`;
   $("ruleEventsWrap").innerHTML = `<table class="data-table mono"><tbody>${(t.events || []).slice(0, 30).map((e) =>
     `<tr><td>${e.ts}</td><td>${e.rule}</td><td>${e.action}</td><td>${e.detail}</td></tr>`).join("")
@@ -383,7 +423,7 @@ async function renderJobs() {
   $("jobsWrap").innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Kind</th><th>Schedule</th><th>Last run</th><th></th></tr></thead>
     <tbody>${(jobs || []).map((j) => `<tr><td>${j.name}</td><td>${j.kind}</td><td class="mono">${j.schedule || "manual"}</td>
       <td>${j.last_run ? new Date(j.last_run * 1000).toLocaleTimeString() : "—"}</td>
-      <td><button class="btn-mini" onclick="runJob(${j.id})">Run</button> <button class="btn-mini" onclick="delJob(${j.id})">✕</button></td></tr>`).join("")
+      <td><button class="btn-mini" onclick="runJob(${j.id})">Run</button> <button class="btn-mini" onclick="delJob(${j.id})">${ICONS.close}</button></td></tr>`).join("")
       || `<tr><td colspan="5" class="muted-line" style="padding:12px">No jobs.</td></tr>`}</tbody></table>`;
 }
 $("btnJobAdd").addEventListener("click", async () => {
@@ -443,8 +483,8 @@ function renderAutoRE(rep) {
   $("autoreB").innerHTML = `<table class="data-table"><thead><tr><th>Guess (editable)</th><th>Location</th><th>Conf</th><th></th></tr></thead><tbody>` +
     (rep.B || []).map((s, i) => `<tr><td><input id="blbl${i}" value="${s.label || ""}" style="width:140px"/></td>
       <td class="mono">${autoreLoc(s)}</td><td>${(s.confidence * 100).toFixed(0)}%</td>
-      <td><button class="btn-mini" onclick="autoreConfirm('${_ref(s)}',${i})">✓ Confirm</button>
-          <button class="btn-mini" onclick="autoreReject('${_ref(s)}')">✕ Reject</button></td></tr>`).join("") +
+      <td><button class="btn-mini btn-ico" onclick="autoreConfirm('${_ref(s)}',${i})">${ICONS.check}<span>Confirm</span></button>
+          <button class="btn-mini btn-ico" onclick="autoreReject('${_ref(s)}')">${ICONS.close}<span>Reject</span></button></td></tr>`).join("") +
     `</tbody></table>`;
   $("autoreC").innerHTML = `<table class="data-table"><thead><tr><th>Location</th><th>Behaviour</th></tr></thead><tbody>` +
     (rep.C || []).slice(0, 40).map((s) => `<tr><td class="mono">${autoreLoc(s)}</td><td class="muted-line">${s.kind || s.sources.join(",")}</td></tr>`).join("") +
@@ -469,24 +509,51 @@ $("btnAutoReSave").addEventListener("click", async () => {
 
 // --------------------------- Frame Decoder (per-ID editable payloads + grid)
 let fdMessages = [], fdPayloads = {}, fdDetail = null, fdSelSig = -1, fdTimer = null, fdCurrentDetailId = null;
-$("btnFdImport").addEventListener("click", () => $("fdDbcFile").click());
+let fdSource = "dbc";   // "dbc" → show IDs in hex; "json" → show IDs in decimal (native)
+// Display the CAN ID in its source's native base. `o` is a catalogue row or a decoded frame.
+const fdIdLabel = (o) => fdSource === "json" ? `${o.id}` : `0x${o.id_hex}`;
+// Group a clean hex string into space-separated bytes: "0128C3" → "01 28 C3".
+const spaceHex = (h) => (h.match(/.{1,2}/g) || []).join(" ");
+// Raw bit-pattern as hex, zero-padded to the signal's bit width (e.g. 24-bit → "0x0128C3").
+function fdRawHex(s) {
+  if (s.raw === null || s.raw === undefined) return "—";
+  const nib = Math.max(1, Math.ceil((s.length || 8) / 4));
+  const hex = Math.abs(s.raw).toString(16).toUpperCase().padStart(nib, "0");
+  return (s.raw < 0 ? "-0x" : "0x") + hex;
+}
+$("btnFdUpload").addEventListener("click", () => $("fdFile").click());
 $("btnFdToggleFill").addEventListener("click", () => {
-  const box = $("fdFillBox"), open = !box.classList.contains("hidden");
-  box.classList.toggle("hidden", open);
-  $("btnFdToggleFill").textContent = open ? "Paste dump ▾" : "Paste dump ▴";
+  const box = $("fdFillBox");
+  box.classList.toggle("hidden");
+  $("btnFdToggleFill").classList.toggle("active", !box.classList.contains("hidden"));
 });
-$("fdDbcFile").addEventListener("change", async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  const r = await apiUpload("/api/decode/dbc-import", f);
-  if (!r.ok) return void ($("fdDbcStatus").textContent = "error: " + r.error);
-  fdMessages = r.messages; fdPayloads = {};
+
+function _fdLoaded(filename, messages) {
+  fdMessages = messages; fdPayloads = {};
   fdMessages.forEach((m) => (fdPayloads[m.id_hex] = "00".repeat(m.length)));
-  $("fdDbcStatus").textContent = `${f.name} — ${fdMessages.length} messages`;
+  // Paste-dump example IDs match the active source's base (decimal for JSON).
+  const fill = $("fdFill");
+  if (fill) fill.placeholder = fdSource === "json"
+    ? "912  0128C30000000000\n900  0205000000000200"
+    : "163  0205000000000200\n94   0006320040001C00";
+  $("fdDbcStatus").textContent = `${filename} — ${fdMessages.length} messages`;
   $("fdMsgCount").textContent = `${fdMessages.length} IDs`;
   fdDetail = null; fdCurrentDetailId = null;
   $("fdDetailHeader").innerHTML = "";
-  $("fdDetailBody").innerHTML = `<div class="fd-placeholder"><span style="font-size:28px">🔢</span><span>Click a message row to decode</span></div>`;
+  $("fdDetailBody").innerHTML = `<div class="fd-placeholder">${_bigGrid}<span>Click a message row to decode</span></div>`;
   renderFdCatalogue();
+}
+
+$("fdFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  // Auto-detect format from the file extension (.json → signature, else DBC).
+  const isJson = (f.name.split(".").pop() || "").toLowerCase() === "json";
+  $("fdDbcStatus").textContent = "Loading…";
+  const r = await apiUpload(isJson ? "/api/decode/json-import" : "/api/decode/dbc-import", f);
+  if (!r.ok) return void ($("fdDbcStatus").textContent = "error: " + r.error);
+  fdSource = isJson ? "json" : "dbc";
+  _fdLoaded(f.name, r.messages);
+  e.target.value = "";          // allow re-uploading the same file
 });
 function renderFdCatalogue() {
   $("fdCatalogue").innerHTML =
@@ -494,7 +561,7 @@ function renderFdCatalogue() {
       <col class="c-num"><col class="c-id"><col class="c-dlc"><col class="c-sigs">
     </colgroup><thead><tr>
       <th style="text-align:center">#</th>
-      <th>CAN ID · Message</th>
+      <th>CAN ID${fdSource === "json" ? " (dec)" : ""} · Message</th>
       <th style="text-align:center">DLC</th>
       <th>Signals</th>
     </tr></thead><tbody>` +
@@ -502,7 +569,7 @@ function renderFdCatalogue() {
       const sigList = m.signals.join(", ") || "—";
       return `<tr data-id="${m.id_hex}">
         <td>${i + 1}</td>
-        <td class="mono" style="font-weight:500">0x${m.id_hex}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${m.name}</span></td>
+        <td class="mono" style="font-weight:500">${fdIdLabel(m)}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${m.name}</span></td>
         <td style="text-align:center">${m.length}</td>
         <td class="muted-line" style="font-size:12px" title="${sigList}">${m.signals.length}: ${sigList}</td>
       </tr>`;
@@ -523,13 +590,13 @@ function renderFdDetail() {
   if (!f) {
     fdCurrentDetailId = null;
     $("fdDetailHeader").innerHTML = "";
-    $("fdDetailBody").innerHTML = `<div class="fd-placeholder"><span style="font-size:28px">🔢</span><span>Click a message row to decode</span><span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span></div>`;
+    $("fdDetailBody").innerHTML = `<div class="fd-placeholder">${_bigGrid}<span>Click a message row to decode</span><span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span></div>`;
     return;
   }
   if (f.error) {
     fdCurrentDetailId = null;
     $("fdDetailHeader").innerHTML = "";
-    $("fdDetailBody").innerHTML = `<div style="padding:16px;color:var(--muted)">0x${f.id_hex} — ${f.error}</div>`;
+    $("fdDetailBody").innerHTML = `<div style="padding:16px;color:var(--muted)">${fdIdLabel(f)} — ${f.error}</div>`;
     return;
   }
   // Re-render header only when the selected message changes (preserves input focus while typing)
@@ -537,27 +604,27 @@ function renderFdDetail() {
     fdCurrentDetailId = f.id_hex;
     $("fdDetailHeader").innerHTML = `
       <div class="panel-head">
-        <span class="mono" style="font-weight:500">0x${f.id_hex}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${f.name}</span></span>
+        <span class="mono" style="font-weight:500">${fdIdLabel(f)}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${f.name}</span></span>
         <span class="tag" style="font-size:11px">DLC ${f.length}</span>
       </div>
       <div class="fd-pay-bar">
         <span class="muted-line" style="font-size:12px;white-space:nowrap">Payload (hex)</span>
-        <input id="fdPayInput" class="fdpay" value="${fdPayloads[f.id_hex] || ""}"
-          placeholder="${"00".repeat(f.length)}"
-          maxlength="${f.length * 2}"
+        <input id="fdPayInput" class="fdpay" value="${spaceHex(fdPayloads[f.id_hex] || "")}"
+          placeholder="${spaceHex("00".repeat(f.length))}"
+          maxlength="${f.length * 3}"
           autocomplete="off" spellcheck="false" />
-        <span id="fdPayHint" class="muted-line" style="font-size:11px;white-space:nowrap">max ${f.length * 2} chars</span>
+        <span id="fdPayHint" class="muted-line" style="font-size:11px;white-space:nowrap">0 / ${f.length} bytes</span>
       </div>`;
     $("fdPayInput").addEventListener("input", (e) => {
       const inp = e.target;
-      // Strip non-hex characters and enforce DLC byte limit
+      // Strip to hex-only, cap at DLC bytes, then auto-space between bytes for readability.
       const clean = inp.value.replace(/[^0-9a-fA-F]/g, "").slice(0, f.length * 2);
-      if (inp.value !== clean) { inp.value = clean; }
       fdPayloads[f.id_hex] = clean;
-      const hint = $("fdPayHint");
+      const spaced = spaceHex(clean);
+      if (inp.value !== spaced) { inp.value = spaced; inp.setSelectionRange(spaced.length, spaced.length); }
       const bytes = Math.floor(clean.length / 2);
-      hint.textContent = `${bytes} / ${f.length} bytes`;
-      inp.classList.toggle("invalid", clean.length > 0 && clean.length % 2 !== 0);
+      $("fdPayHint").textContent = `${bytes} / ${f.length} bytes`;
+      inp.classList.toggle("invalid", clean.length % 2 !== 0);
       clearTimeout(fdTimer);
       fdTimer = setTimeout(() => fdDecodeBody(f.id_hex), 250);
     });
@@ -572,7 +639,11 @@ async function fdDecodeBody(idHex) {
 }
 function fdRenderBody(f) {
   const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
-  const cells = new Set((fdSelSig >= 0 && f.signals[fdSelSig] ? f.signals[fdSelSig].cells : []).map((c) => c[0] + ":" + c[1]));
+  const sel = (fdSelSig >= 0 && f.signals[fdSelSig]) ? f.signals[fdSelSig] : null;
+  const cells = new Set((sel ? sel.cells : []).map((c) => c[0] + ":" + c[1]));
+  const msbKey = sel && sel.msb_cell ? sel.msb_cell[0] + ":" + sel.msb_cell[1] : null;
+  const lsbKey = sel && sel.lsb_cell ? sel.lsb_cell[0] + ":" + sel.lsb_cell[1] : null;
+  const single = msbKey && msbKey === lsbKey;   // 1-bit signal: MSB == LSB
   const idx = f.bytes.map((_, i) => `<td>${String(i).padStart(2, "0")}</td>`).join("");
   const val = f.bytes.map((b) => `<td>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("");
 
@@ -597,7 +668,7 @@ function fdRenderBody(f) {
     return `<tr class="${si === fdSelSig ? "sel" : ""}" style="cursor:pointer" onclick="fdSelectSig(${si})" title="Click to highlight bits">
       <td style="text-align:center;color:var(--muted)">${si + 1}</td>
       <td style="font-weight:500">${s.name}</td>
-      <td class="mono" style="text-align:right">${s.raw}</td>
+      <td class="mono" style="text-align:right" title="${s.raw} (dec)">${fdRawHex(s)}</td>
       <td class="mono" style="text-align:right;color:${physColor}">${s.physical}${oorBadge}</td>
       <td style="color:var(--muted);font-size:12px">${s.unit || "—"}</td>
       ${descCell}
@@ -607,14 +678,34 @@ function fdRenderBody(f) {
   // Header: add Description column only when needed
   const descHead = hasChoices ? `<th style="color:var(--green)">Description</th>` : "";
 
-  let grid = `<table class="bitgrid"><thead><tr><th></th>${COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>`;
+  const bitHead = COLS.map((c, ci) => {
+    const sub = ci === 0 ? `<br><span style="font-size:9px;letter-spacing:.04em;opacity:.65">MSB</span>` :
+                ci === 7 ? `<br><span style="font-size:9px;letter-spacing:.04em;opacity:.65">LSB</span>` : "";
+    return `<th>${c}${sub}</th>`;
+  }).join("");
+  // Inline colours (cache-proof — don't depend on style.css being fresh).
+  const C_HI = "#4ea1ff", C_MSB = "#e0a82e", C_LSB = "#46b86a";
+  let grid = `<table class="bitgrid"><thead><tr><th></th>${bitHead}</tr></thead><tbody>`;
   for (let b = 0; b < f.bytes.length; b++) {
     grid += `<tr><th>${b}</th>` + COLS.map((c) => {
-      const bit = (f.bytes[b] >> c) & 1, hi = cells.has(b + ":" + c);
-      return `<td class="${hi ? "bit-hi" : ""}">${bit}</td>`;
+      const key = b + ":" + c, bit = (f.bytes[b] >> c) & 1;
+      let st = "";
+      if (!single && key === msbKey) st = `background:${C_MSB};color:#1b1d1f;font-weight:700`;
+      else if (!single && key === lsbKey) st = `background:${C_LSB};color:#fff;font-weight:700`;
+      else if (cells.has(key)) st = `background:${C_HI};color:#fff;font-weight:700`;
+      return `<td style="${st}">${bit}</td>`;
     }).join("") + `</tr>`;
   }
   grid += `</tbody></table>`;
+  // Legend (inline-styled, only when a signal is highlighted)
+  const sw = (c) => `<i style="width:12px;height:12px;border-radius:3px;display:inline-block;background:${c}"></i>`;
+  const chip = (c, label) => `<span style="display:inline-flex;align-items:center;gap:5px">${sw(c)}${label}</span>`;
+  const legendStyle = "display:flex;gap:14px;margin-top:8px;font-size:11px;color:var(--muted)";
+  const legend = sel
+    ? (single
+        ? `<div style="${legendStyle}">${chip(C_HI, "signal bit")}</div>`
+        : `<div style="${legendStyle}">${chip(C_MSB, "MSB")}${chip(C_HI, "signal bits")}${chip(C_LSB, "LSB")}</div>`)
+    : "";
 
   $("fdDetailBody").innerHTML = `<div style="padding:12px 16px">
     <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Data Byte View (HEX)</div>
@@ -635,20 +726,242 @@ function fdRenderBody(f) {
         </table>
       </div>
       <div>
-        <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Bit Layout (MSB→LSB)</div>
+        <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Bit Layout — byte · bit 7(MSB)→0(LSB)</div>
         ${grid}
+        ${legend}
       </div>
     </div>
   </div>`;
 }
 $("btnFdFill").addEventListener("click", () => {
+  // ID base follows the active source: decimal for JSON, hex for DBC.
+  const idBase = fdSource === "json" ? 10 : 16;
+  let matched = 0;
   for (const ln of $("fdFill").value.split("\n")) {
     const t = ln.trim().split(/[\s,]+/); if (t.length < 2) continue;
-    const id = parseInt(t[0], 16); if (isNaN(id)) continue;
+    const id = parseInt(t[0], idBase); if (isNaN(id)) continue;
     const idHex = id.toString(16).toUpperCase();
-    if (idHex in fdPayloads) fdPayloads[idHex] = t[1];
+    if (idHex in fdPayloads) {
+      // join remaining tokens so spaced payloads ("01 28 C3") work, hex-only
+      fdPayloads[idHex] = t.slice(1).join("").replace(/[^0-9a-fA-F]/g, "");
+      matched++;
+    }
   }
-  renderFdCatalogue(); setStatus("Payloads filled from raw dump");
+  renderFdCatalogue();
+  // Refresh the open message so its input + decode reflect the filled payload.
+  const openId = fdCurrentDetailId;
+  if (openId && openId in fdPayloads) { fdCurrentDetailId = null; fdDecodeOne(openId); }
+  setStatus(`Payloads filled from dump — ${matched} message${matched === 1 ? "" : "s"} matched`);
+});
+
+// ----------------------- Converter workbench (upload · edit · select · export)
+let cvModel = null, cvSourceFmt = null, cvSourceName = null, cvEdited = false, cvEditMode = false;
+const CV_FMT = { dbc: "DBC", json: "JSON", csv: "CSV" };
+const _svg = (body) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const CV_ICON = {
+  edit: _svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
+  lock: _svg('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
+};
+const escAttr = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+const cvParseVT = (raw) => {
+  const out = {}; let any = false;
+  for (const p of String(raw || "").split(";")) {
+    const i = p.indexOf(":"); if (i < 0) continue;
+    const k = p.slice(0, i).trim(), v = p.slice(i + 1).trim();
+    if (k === "" || isNaN(+k)) continue;
+    out[+k] = v; any = true;
+  }
+  return any ? out : null;
+};
+const cvFmtVT = (vt) => vt ? Object.entries(vt).map(([k, v]) => `${k}:${v}`).join(";") : "";
+function cvBeDoubt(start, len, bo) {       // mirror of convert._be_doubt
+  if (bo !== "big_endian") return null;
+  const first = Math.floor(start / 8), last = Math.floor((start + len - 1) / 8);
+  return (last > first && !(start % 8 === 0 && len % 8 === 0))
+    ? `sub-byte big-endian (size ${len}) — verify bit layout in a DBC tool` : null;
+}
+
+$("btnCvUpload").addEventListener("click", () => $("cvFile").click());
+$("cvFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $("cvFileName").textContent = f.name; $("cvStatus").textContent = "Parsing…";
+  const fd = new FormData(); fd.append("file", f);
+  let r;
+  try { r = await fetch("/api/convert/parse", { method: "POST", body: fd }).then((x) => x.json()); }
+  catch (err) { $("cvStatus").textContent = "Network error: " + err; return; }
+  if (!r.ok) { $("cvStatus").textContent = "Error: " + r.error; cvModel = null; renderCv(); return; }
+  cvModel = r.model; cvSourceFmt = r.source_fmt; cvSourceName = r.source_name;
+  cvEdited = false; cvEditMode = false;          // #1: open in read-only view mode
+  cvModel.messages.forEach((m) => m.signals.forEach((s) => (s._sel = true)));   // select all by default
+  $("cvStatus").textContent = "";
+  $("cvWarnings").innerHTML = (r.warnings && r.warnings.length)
+    ? cvWarnBox(r.warnings, "from parsing") : "";
+  cvBuildFormatOptions();
+  renderCv();
+});
+
+function cvWarnBox(warns, ctx) {
+  return `<div style="border:1px solid #7a5;background:#2a2410;border-radius:8px;padding:10px 14px">
+    <div style="color:#e0a82e;margin-bottom:6px">⚠ ${warns.length} note${warns.length === 1 ? "" : "s"} ${ctx || ""}</div>
+    <ul style="margin:0;padding-left:18px;color:var(--muted);font-size:13px">${warns.map((w) => `<li>${w}</li>`).join("")}</ul></div>`;
+}
+
+function cvBuildFormatOptions() {
+  const sel = $("cvTo"), prev = sel.value;
+  const opts = [];
+  ["json", "dbc", "csv"].forEach((f) => {
+    if (f === cvSourceFmt && !cvEdited) return;        // #1: hide same-format until edited
+    opts.push(`<option value="${f}">${f === cvSourceFmt ? CV_FMT[f] + " (save edits)" : CV_FMT[f]}</option>`);
+  });
+  sel.innerHTML = opts.join("");
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+function renderCv() {
+  const wb = $("cvWorkbench"), empty = $("cvEmpty");
+  if (!cvModel) { wb.classList.add("hidden"); empty.classList.remove("hidden"); return; }
+  empty.classList.add("hidden"); wb.classList.remove("hidden");
+  const chip = $("cvSrcChip"); chip.textContent = "source: " + CV_FMT[cvSourceFmt]; chip.classList.remove("hidden");
+  const et = $("cvEditToggle");
+  et.innerHTML = cvEditMode ? `${CV_ICON.lock}<span>Editing — click to lock</span>` : `${CV_ICON.edit}<span>Edit</span>`;
+  et.classList.toggle("cv-editing", cvEditMode);
+  const ro = cvEditMode ? "" : "readonly", dis = cvEditMode ? "" : "disabled";
+  const filter = ($("cvSearch").value || "").toLowerCase();
+  const html = cvModel.messages.map((m, mi) => {
+    const rows = m.signals.map((s, si) => ({ s, si }))
+      .filter(({ s }) => !filter || s.name.toLowerCase().includes(filter) || String(m.frame_id).includes(filter));
+    if (!rows.length) return "";
+    const allSel = m.signals.every((s) => s._sel);
+    return `<div class="cv-msg">
+      <div class="cv-msg-head">
+        <input type="checkbox" ${allSel ? "checked" : ""} onchange="cvToggleMsg(${mi},this.checked)" title="select all in message" />
+        <input class="cv-in" style="width:78px" value="${m.frame_id}" ${ro} onchange="cvEditMsg(${mi},'frame_id',this.value)" title="CAN ID (decimal)" />
+        <input class="cv-in" style="width:170px" value="${escAttr(m.name)}" ${ro} onchange="cvEditMsg(${mi},'name',this.value)" />
+        <span class="muted-line">DLC</span>
+        <input class="cv-in n" value="${m.dlc}" ${ro} onchange="cvEditMsg(${mi},'dlc',this.value)" />
+        <span class="muted-line">${m.signals.length} signal${m.signals.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="table-wrap"><table class="data-table cv-sigtable"><thead><tr>
+        <th></th><th>Signal</th><th>Start</th><th>Len</th><th>Order</th><th>Sgn</th>
+        <th>Scale</th><th>Offset</th><th>Min</th><th>Max</th><th>Unit</th><th>Value table</th><th>Comment</th>
+      </tr></thead><tbody>${rows.map(({ s, si }) => cvSigRow(mi, si, s)).join("")}</tbody></table></div>
+    </div>`;
+  }).join("");
+  $("cvTable").innerHTML = html || `<div class="muted-line" style="padding:14px">No signals match "${filter}".</div>`;
+  cvUpdateSelCount(); cvUpdateLoss();
+}
+
+function cvSigRow(mi, si, s) {
+  const doubt = cvBeDoubt(s.start_bit, s.length, s.byte_order);
+  const warn = doubt ? `<span title="${escAttr(doubt)}" style="color:#e0a82e;margin-left:4px">⚠</span>` : "";
+  const isM = s.byte_order === "big_endian";
+  const ro = cvEditMode ? "" : "readonly", dis = cvEditMode ? "" : "disabled";
+  return `<tr>
+    <td style="text-align:center"><input type="checkbox" ${s._sel ? "checked" : ""} onchange="cvToggleSig(${mi},${si},this.checked)" /></td>
+    <td><input class="cv-in" value="${escAttr(s.name)}" ${ro} onchange="cvEdit(${mi},${si},'name',this.value)" />${warn}</td>
+    <td><input class="cv-in n" value="${s.start_bit}" ${ro} onchange="cvEdit(${mi},${si},'start_bit',this.value)" /></td>
+    <td><input class="cv-in n" value="${s.length}" ${ro} onchange="cvEdit(${mi},${si},'length',this.value)" /></td>
+    <td><select class="cv-in" ${dis} onchange="cvEdit(${mi},${si},'byte_order',this.value)">
+      <option ${isM ? "selected" : ""}>Motorola</option><option ${!isM ? "selected" : ""}>Intel</option></select></td>
+    <td style="text-align:center"><input type="checkbox" ${s.is_signed ? "checked" : ""} ${dis} onchange="cvEdit(${mi},${si},'is_signed',this.checked)" /></td>
+    <td><input class="cv-in n" value="${s.scale}" ${ro} onchange="cvEdit(${mi},${si},'scale',this.value)" /></td>
+    <td><input class="cv-in n" value="${s.offset}" ${ro} onchange="cvEdit(${mi},${si},'offset',this.value)" /></td>
+    <td><input class="cv-in n" value="${s.min ?? ""}" ${ro} onchange="cvEdit(${mi},${si},'min',this.value)" /></td>
+    <td><input class="cv-in n" value="${s.max ?? ""}" ${ro} onchange="cvEdit(${mi},${si},'max',this.value)" /></td>
+    <td><input class="cv-in" style="width:50px" value="${escAttr(s.unit || "")}" ${ro} onchange="cvEdit(${mi},${si},'unit',this.value)" /></td>
+    <td><input class="cv-in" style="width:118px" value="${escAttr(cvFmtVT(s.value_table))}" placeholder="0:Off;1:On" ${ro} onchange="cvEdit(${mi},${si},'value_table',this.value)" /></td>
+    <td><input class="cv-in" style="width:130px" value="${escAttr(s.comment || "")}" ${ro} onchange="cvEdit(${mi},${si},'comment',this.value)" /></td>
+  </tr>`;
+}
+
+window.cvEdit = (mi, si, key, val) => {
+  const s = cvModel.messages[mi].signals[si];
+  if (key === "byte_order") s.byte_order = val === "Motorola" ? "big_endian" : "little_endian";
+  else if (key === "start_bit" || key === "length") s[key] = parseInt(val, 10) || 0;
+  else if (key === "scale" || key === "offset") s[key] = parseFloat(val) || 0;
+  else if (key === "min" || key === "max") s[key] = val === "" ? null : parseFloat(val);
+  else if (key === "is_signed") s.is_signed = val;
+  else if (key === "value_table") s.value_table = cvParseVT(val);
+  else s[key] = val;
+  cvMarkEdited();
+  renderCv();      // refresh ⚠ markers + loss preview
+};
+window.cvEditMsg = (mi, key, val) => {
+  const m = cvModel.messages[mi];
+  if (key === "frame_id" || key === "dlc") m[key] = parseInt(val, 10) || 0;
+  else m[key] = val;
+  cvMarkEdited();
+};
+function cvMarkEdited() {
+  if (!cvEdited) { cvEdited = true; cvBuildFormatOptions(); }
+}
+window.cvToggleSig = (mi, si, on) => { cvModel.messages[mi].signals[si]._sel = on; cvUpdateSelCount(); cvUpdateLoss(); };
+window.cvToggleMsg = (mi, on) => { cvModel.messages[mi].signals.forEach((s) => (s._sel = on)); renderCv(); };
+$("cvSelAll").addEventListener("click", () => { cvModel.messages.forEach((m) => m.signals.forEach((s) => (s._sel = true))); renderCv(); });
+$("cvSelNone").addEventListener("click", () => { cvModel.messages.forEach((m) => m.signals.forEach((s) => (s._sel = false))); renderCv(); });
+$("cvEditToggle").addEventListener("click", () => { if (cvModel) { cvEditMode = !cvEditMode; renderCv(); } });
+$("cvSearch").addEventListener("input", renderCv);
+$("cvTo").addEventListener("change", cvUpdateLoss);
+$("btnCvClear").addEventListener("click", () => {
+  cvModel = null; cvSourceFmt = null; cvSourceName = null; cvEdited = false; cvEditMode = false;
+  $("cvFile").value = "";
+  $("cvFileName").textContent = "no file selected";
+  $("cvSrcChip").classList.add("hidden");
+  $("cvStatus").textContent = ""; $("cvWarnings").innerHTML = ""; $("cvSelCount").textContent = "";
+  renderCv();
+});
+
+function cvUpdateSelCount() {
+  let sel = 0, tot = 0;
+  cvModel.messages.forEach((m) => m.signals.forEach((s) => { tot++; if (s._sel) sel++; }));
+  $("cvSelCount").textContent = `${sel} of ${tot} signals selected`;
+  $("btnCvDownload").disabled = sel === 0;
+}
+function cvUpdateLoss() {
+  const to = $("cvTo").value; if (!to) return;
+  let msg;
+  if (to === "json") {
+    let u = 0, r = 0, v = 0, c = 0;
+    cvModel.messages.forEach((m) => m.signals.forEach((s) => {
+      if (!s._sel) return;
+      if (s.unit) u++; if (s.min != null || s.max != null) r++; if (s.value_table) v++; if (s.comment) c++;
+    }));
+    const d = [];
+    if (u) d.push(`units (${u})`); if (r) d.push(`min/max (${r})`); if (v) d.push(`value tables (${v})`); if (c) d.push(`comments (${c})`);
+    d.push("message names");
+    msg = `→ JSON will drop: ${d.join(", ")}.`;
+  } else {
+    msg = `→ ${CV_FMT[to]} preserves all fields.`;
+  }
+  let dbt = 0;
+  cvModel.messages.forEach((m) => m.signals.forEach((s) => { if (s._sel && cvBeDoubt(s.start_bit, s.length, s.byte_order)) dbt++; }));
+  if (dbt) msg += ` ⚠ ${dbt} sub-byte big-endian signal${dbt === 1 ? "" : "s"}${to === "dbc" ? " will get a verify comment" : ""}.`;
+  $("cvLoss").textContent = msg;
+}
+
+$("btnCvDownload").addEventListener("click", async () => {
+  if (!cvModel) return;
+  const to = $("cvTo").value;
+  const fm = { messages: [] };
+  cvModel.messages.forEach((m) => {
+    const sigs = m.signals.filter((s) => s._sel).map((s) => {
+      const { _sel, doubt, ...clean } = s; return clean;
+    });
+    if (sigs.length) fm.messages.push({
+      name: m.name, frame_id: parseInt(m.frame_id, 10) || 0,
+      is_extended: !!m.is_extended, dlc: parseInt(m.dlc, 10) || 8, signals: sigs,
+    });
+  });
+  if (!fm.messages.length) { $("cvStatus").textContent = "Select at least one signal."; return; }
+  $("cvStatus").textContent = "Preparing…";
+  const r = await POST("/api/convert/export", { model: fm, to, source_name: cvSourceName });
+  if (!r.ok) { $("cvStatus").textContent = "Download error: " + r.error; return; }
+  const blob = new Blob([r.content], { type: "text/plain" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = r.filename; a.click();
+  $("cvStatus").textContent = `Downloaded ${r.filename}`;
+  $("cvWarnings").innerHTML = (r.warnings && r.warnings.length)
+    ? cvWarnBox(r.warnings, "— annotated in the file")
+    : `<div class="muted-line" style="color:var(--green)">Clean conversion — downloaded ${r.filename}</div>`;
 });
 
 // -------------------------------------------------------------- DBC Builder
@@ -664,7 +977,7 @@ async function renderDbc() {
         <input type="number" value="${m.length}" onchange="dbcEdit(${mi},null,'length',+this.value)" style="width:60px" />
         <span style="flex:1"></span>
         <button class="btn-mini" onclick="dbcAddSig(${mi})">+ Signal</button>
-        <button class="btn-mini" onclick="dbcDelMsg(${mi})">✕</button>
+        <button class="btn-mini" onclick="dbcDelMsg(${mi})">${ICONS.close}</button>
       </div>
       <table class="data-table dbc-sig-table"><thead><tr>
         <th>Name</th><th>Start</th><th>Len</th><th>Order</th><th>Signed</th><th>Scale</th><th>Offset</th><th>Unit</th><th></th>
@@ -680,7 +993,7 @@ async function renderDbc() {
         <td><input type="number" step="any" value="${s.scale}" onchange="dbcEdit(${mi},${si},'scale',+this.value)"/></td>
         <td><input type="number" step="any" value="${s.offset}" onchange="dbcEdit(${mi},${si},'offset',+this.value)"/></td>
         <td><input value="${s.unit || ""}" onchange="dbcEdit(${mi},${si},'unit',this.value)"/></td>
-        <td><button class="btn-mini" onclick="dbcDelSig(${mi},${si})">✕</button></td>
+        <td><button class="btn-mini" onclick="dbcDelSig(${mi},${si})">${ICONS.close}</button></td>
       </tr>`).join("")}
       </tbody></table>
     </div>`).join("") || `<div class="placeholder" style="padding:40px">No messages. Add one, or seed from Reverse Engineering.</div>`;
@@ -747,7 +1060,7 @@ async function pollDerived() {
     ? `<span class="cand-chip" style="border-color:#e25555;color:#e25555">⚠ ${active.map((a) => a.name).join(", ")}</span>` : "";
   $("almList").innerHTML = (d.alarms || []).map((a, i) =>
     `<span class="cand-chip" style="border-color:${a.active ? "#e25555" : "#6b7280"};color:${a.active ? "#e25555" : "#9aa0a6"}">
-      ${a.name} [${a.min ?? "−∞"},${a.max ?? "∞"}]${a.active ? " ⚠" : ""} <a href="#" onclick="delAlarm(${i});return false">✕</a></span>`).join("") || "none";
+      ${a.name} [${a.min ?? "−∞"},${a.max ?? "∞"}]${a.active ? " ⚠" : ""} <a href="#" onclick="delAlarm(${i});return false">${ICONS.close}</a></span>`).join("") || "none";
 }
 $("btnCompAdd").addEventListener("click", async () => {
   const name = $("compName").value.trim(), expr = $("compExpr").value.trim();
@@ -758,7 +1071,7 @@ $("btnCompAdd").addEventListener("click", async () => {
 });
 function renderCompList() {
   $("compList").innerHTML = computedDefs.map((c, i) =>
-    `<span class="cand-chip" style="border-color:#61afef;color:#61afef">${c.name} = ${c.expr} <a href="#" onclick="delComp(${i});return false">✕</a></span>`).join("") || "none";
+    `<span class="cand-chip" style="border-color:#61afef;color:#61afef">${c.name} = ${c.expr} <a href="#" onclick="delComp(${i});return false">${ICONS.close}</a></span>`).join("") || "none";
 }
 window.delComp = async (i) => { computedDefs.splice(i, 1); await POST("/api/signals/computed", { defs: computedDefs }); renderCompList(); refreshSigList(); };
 $("btnAlmAdd").addEventListener("click", async () => {
@@ -803,7 +1116,7 @@ $("btnTxObdPreset").addEventListener("click", async () => {
   for (const [data, name] of OBD_PRESET)
     await POST("/api/tx/add", { id: 0x7DF, data, cycle_ms: 300, mode: "cyclic", name });
   pollTx();
-  setStatus("Added 5 OBD-II PID request rows — press ▶ Start all to begin polling.");
+  setStatus("Added 5 OBD-II PID request rows — press Start all to begin polling.");
 });
 
 // ----- log folder -----
@@ -833,7 +1146,7 @@ async function pollTx() {
     <td>${e.name}</td><td class="mono">0x${e.id_hex}</td><td class="mono">${e.data}</td>
     <td>${e.cycle_ms} ms</td><td>${e.mode}</td><td>${e.count}</td>
     <td><button class="btn-mini" onclick="txOnce(${e.uid})">Send</button>
-        <button class="btn-mini" onclick="txRemove(${e.uid})">✕</button></td></tr>`).join("");
+        <button class="btn-mini" onclick="txRemove(${e.uid})">${ICONS.close}</button></td></tr>`).join("");
 }
 
 // ----------------------------------------------------------- Protocol Decoder
@@ -943,5 +1256,76 @@ window.driverLaunch = async (hw) => {
 $("btnDriverRecheck").addEventListener("click", checkDrivers);
 checkDrivers();
 
-// Kick off polling for the initial (Dashboard) view.
+// ----------------------------------- sidebar nav icons (consistent SVG set)
+const _svgNav = (body) => `<svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const NAV_ICONS = {
+  dashboard: _svgNav('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>'),
+  logger: _svgNav('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'),
+  replay: _svgNav('<polygon points="5 3 19 12 5 21 5 3"/>'),
+  re: _svgNav('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'),
+  autore: _svgNav('<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>'),
+  framedec: _svgNav('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>'),
+  convert: _svgNav('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'),
+  dbc: _svgNav('<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>'),
+  oem: _svgNav('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>'),
+  signals: _svgNav('<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>'),
+  scheduler: _svgNav('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+  automation: _svgNav('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
+  dtc: _svgNav('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  decoder: _svgNav('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
+};
+document.querySelectorAll(".nav").forEach((b) => {
+  const ic = NAV_ICONS[b.dataset.view];
+  const label = b.textContent.trim();
+  if (ic) b.innerHTML = ic + `<span>${label}</span>`;
+  b.title = label;            // tooltip — useful when the rail is collapsed
+});
+
+// ----------------------------------- icons on static action buttons (by id)
+const BTN_ICONS = {
+  btnPlay: [ICONS.play, "Play"], btnPause: [ICONS.pause, "Pause"],
+  btnStop: [ICONS.stop, "Stop"], btnStep: [ICONS.step, "Step"],
+  btnTxStart: [ICONS.play, "Start all"], btnTxStop: [ICONS.stop, "Stop"],
+  btnRestbusStart: [ICONS.play, "Start"], btnRestbusStop: [ICONS.stop, "Stop"],
+  btnScriptRun: [ICONS.play, "Run script"],
+  btnReplayRescan: [ICONS.refresh, "Logs"], btnReRescan: [ICONS.refresh, "Logs"],
+  btnAutoReRescan: [ICONS.refresh, "Logs"], btnOemRefresh: [ICONS.refresh, ""],
+  btnRefreshDevs: [ICONS.refresh, "Rescan"], btnDbcToViewer: [ICONS.arrowRight, "Signal Viewer"],
+  btnFdToggleFill: [ICONS.clipboard, "Paste frames"],
+  btnDbcImport: [ICONS.upload, "Upload .dbc"], btnDbcExport: [ICONS.download, "Download .dbc"],
+  btnSigImport: [ICONS.upload, "Upload .dbc"],
+};
+Object.entries(BTN_ICONS).forEach(([id, [ic, label]]) => {
+  const el = $(id);
+  if (!el) return;
+  el.innerHTML = ic + (label ? `<span>${label}</span>` : "");
+  el.classList.add("btn-ico");
+});
+
+// --------------------------- sidebar modes: open (locked) · auto (hover) · rail (locked)
+// Width/expansion is pure CSS (fixed-position flyout + :hover) — JS only sets the
+// mode class, highlights the toggle when locked, and persists the choice.
+const _appEl = document.querySelector(".app");
+let navMode = "open";
+const NAV_MODE_TIP = {
+  open: "Sidebar locked open — click for auto-hide",
+  auto: "Sidebar auto-hides (hover to expand) — click to lock collapsed",
+  rail: "Sidebar locked collapsed — click to lock open",
+};
+function applyNavMode(mode) {
+  navMode = mode;
+  _appEl.classList.toggle("nav-rail", mode === "rail");
+  _appEl.classList.toggle("nav-auto", mode === "auto");
+  $("navToggle").classList.toggle("locked", mode !== "auto");   // highlight when locked
+  $("navToggle").title = NAV_MODE_TIP[mode];
+  try { localStorage.setItem("ucando_nav_mode", mode); } catch (e) {}
+}
+$("navToggle").addEventListener("click", () =>
+  applyNavMode(navMode === "open" ? "auto" : navMode === "auto" ? "rail" : "open"));
+let _savedMode = "open";
+try { _savedMode = localStorage.getItem("ucando_nav_mode") || "open"; } catch (e) {}
+applyNavMode(["open", "auto", "rail"].includes(_savedMode) ? _savedMode : "open");
+
+// Initial header title/description + kick off polling for the Dashboard view.
+setViewMeta(state.view);
 startPolling(state.view);

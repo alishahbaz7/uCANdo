@@ -4,13 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>uCANdo — Unified CAN Workbench</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=0.4.0" />
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">◇</div>
+        <div class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><polyline points="6 13 9 13 11 9 13 15 15 11 18 11"/></svg>
+        </div>
         <div>
           <div class="brand-title">uCANdo</div>
           <div class="brand-sub">Unified CAN Workbench</div>
@@ -24,44 +26,55 @@
       </button>
 
       <div class="nav-group-label">Overview</div>
-      <button class="nav active" data-view="dashboard">▩ Dashboard</button>
+      <button class="nav active" data-view="dashboard">Dashboard</button>
 
       <div class="nav-group-label">Capture</div>
-      <button class="nav" data-view="logger">▤ CAN Logger</button>
-      <button class="nav" data-view="replay">▶ TX Replay</button>
+      <button class="nav" data-view="logger">CAN Logger</button>
+      <button class="nav" data-view="replay">TX Replay</button>
 
       <div class="nav-group-label">Analysis</div>
-      <button class="nav" data-view="re">∿ Reverse Eng.</button>
-      <button class="nav" data-view="autore">🧠 Auto-RE</button>
-      <button class="nav" data-view="framedec">🔢 Frame Decoder</button>
-      <button class="nav" data-view="dbc">▦ DBC Builder</button>
-      <button class="nav" data-view="oem">🗄 OEM Database</button>
+      <button class="nav" data-view="re">Reverse Eng.</button>
+      <button class="nav" data-view="autore">Auto-RE</button>
+      <button class="nav" data-view="framedec">Frame Decoder</button>
+      <button class="nav" data-view="convert">Converter</button>
+      <button class="nav" data-view="dbc">DBC Builder</button>
+      <button class="nav" data-view="oem">OEM Database</button>
 
       <div class="nav-group-label">Visualization</div>
-      <button class="nav" data-view="signals">📈 Signal Viewer</button>
+      <button class="nav" data-view="signals">Signal Viewer</button>
 
       <div class="nav-group-label">Transmit</div>
-      <button class="nav" data-view="scheduler">⇆ TX Scheduler</button>
-      <button class="nav" data-view="automation">⚙ Automation</button>
+      <button class="nav" data-view="scheduler">TX Scheduler</button>
+      <button class="nav" data-view="automation">Automation</button>
 
       <div class="nav-group-label">Diagnostics</div>
-      <button class="nav" data-view="dtc">⚠ DTC Codes</button>
-      <button class="nav" data-view="decoder">⌗ Protocol Dec.</button>
+      <button class="nav" data-view="dtc">DTC Codes</button>
+      <button class="nav" data-view="decoder">Protocol Dec.</button>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <h1 id="viewTitle">Dashboard — Standard Decoded Values</h1>
+        <button id="navToggle" class="icon-btn" title="Collapse / expand sidebar">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="topbar-titles">
+          <h1 id="viewTitle">Dashboard</h1>
+          <div id="viewDesc" class="view-desc"></div>
+        </div>
         <div class="topbar-actions">
-          <button id="btnConnect" class="btn">⏻ Connect</button>
-          <button id="btnRecord" class="btn btn-rec" disabled>● Record</button>
+          <button id="btnConnect" class="btn btn-ico">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+            <span>Connect</span></button>
+          <button id="btnRecord" class="btn btn-rec btn-ico" disabled>
+            <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="#e25555"/></svg>
+            <span>Record</span></button>
         </div>
       </header>
 
       <!-- ===== Dashboard ===== -->
       <section id="view-dashboard" class="view">
         <div class="panel hidden" id="driverPanel" style="margin-bottom:14px;border-color:#7a5}">
-          <div class="panel-head"><span>⚠ Hardware setup</span><button class="btn-mini" id="btnDriverRecheck">Re-check</button></div>
+          <div class="panel-head"><span class="ph-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Hardware setup</span><button class="btn-mini" id="btnDriverRecheck">Re-check</button></div>
           <div id="driverList" style="padding:10px 14px"></div>
         </div>
         <div class="toolbar">
@@ -118,7 +131,7 @@
           <div class="panel-head"><span>Log file</span>
             <span><input type="file" id="replayFile" accept=".asc,.blf,.csv,.log" hidden />
               <button class="btn-mini" id="btnReplayUpload">Load .asc / .blf</button>
-              <button class="btn-mini" id="btnReplayRescan">Logs ↻</button></span>
+              <button class="btn-mini" id="btnReplayRescan">Logs</button></span>
           </div>
           <div style="padding:12px 16px">
             <select id="replaySelect" style="width:100%"></select>
@@ -131,10 +144,10 @@
             <div class="progress"><div id="replayBar" class="progress-bar"></div></div>
             <div class="muted-line" id="replayCursor">0.000 s</div>
             <div class="controls">
-              <button class="btn" id="btnPlay">▶ Play</button>
-              <button class="btn" id="btnPause">⏸ Pause</button>
-              <button class="btn" id="btnStop">⏹ Stop</button>
-              <button class="btn" id="btnStep">⏭ Step</button>
+              <button class="btn" id="btnPlay">Play</button>
+              <button class="btn" id="btnPause">Pause</button>
+              <button class="btn" id="btnStop">Stop</button>
+              <button class="btn" id="btnStep">Step</button>
               <label class="check"><input type="checkbox" id="replayLoop" /> Loop</label>
               <span style="flex:1"></span>
               <label>Speed <span id="speedLabel">1.0×</span></label>
@@ -147,7 +160,7 @@
       <!-- ===== Reverse Engineering ===== -->
       <section id="view-re" class="view hidden">
         <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Analyze a log</span><button class="btn-mini" id="btnReRescan">Logs ↻</button></div>
+          <div class="panel-head"><span>Analyze a log</span><button class="btn-mini" id="btnReRescan">Logs</button></div>
           <div style="padding:12px 16px;display:flex;gap:10px;align-items:center">
             <select id="reSelect" style="flex:1"></select>
             <select id="reEngine" title="RE engine"></select>
@@ -195,10 +208,12 @@
       <section id="view-framedec" class="view hidden">
         <!-- compact single-row import toolbar -->
         <div class="fd-import-bar">
-          <input type="file" id="fdDbcFile" accept=".dbc,.txt" hidden />
-          <button class="btn" id="btnFdImport">Import .dbc</button>
-          <span id="fdDbcStatus" class="muted-line">no DBC loaded — click a row to decode, or paste dump to pre-fill</span>
-          <button class="btn" id="btnFdToggleFill" style="margin-left:auto">Paste dump ▾</button>
+          <input type="file" id="fdFile" accept=".dbc,.json,.txt" hidden />
+          <button class="btn btn-ico" id="btnFdUpload">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Upload</span></button>
+          <span id="fdDbcStatus" class="muted-line">no definition loaded — upload a .dbc or .json file, then click a row</span>
+          <button class="btn btn-ico" id="btnFdToggleFill" style="margin-left:auto">Paste frames</button>
           <span id="fdMsgCount" class="muted-line"></span>
         </div>
         <!-- collapsible raw-dump fill (hidden by default) -->
@@ -217,8 +232,8 @@
             <div id="fdDetailHeader"></div>
             <div id="fdDetailBody">
               <div class="fd-placeholder">
-                <span style="font-size:28px">🔢</span>
-                <span>Import a .dbc, then click any message row</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:30px;height:30px"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                <span>Upload a .dbc or .json, then click any message row</span>
                 <span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span>
               </div>
             </div>
@@ -226,10 +241,54 @@
         </div>
       </section>
 
+      <!-- ===== Converter (DBC ⇄ JSON ⇄ CSV) — upload · edit · select · export ===== -->
+      <section id="view-convert" class="view hidden">
+        <div class="fd-import-bar">
+          <input type="file" id="cvFile" accept=".dbc,.json,.csv" hidden />
+          <button class="btn btn-ico" id="btnCvUpload">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Upload file</span></button>
+          <span id="cvFileName" class="muted-line">no file selected</span>
+          <span id="cvSrcChip" class="tag hidden"></span>
+          <span id="cvStatus" class="muted-line"></span>
+          <span style="flex:1"></span>
+          <span id="cvSelCount" class="muted-line"></span>
+          <button class="btn btn-ico btn-clear" id="btnCvClear" title="Clear the workbench">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            <span>Clear</span></button>
+        </div>
+
+        <div id="cvWorkbench" class="hidden">
+          <div class="fd-import-bar" style="margin-top:0">
+            <div class="cv-search">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input id="cvSearch" placeholder="Filter signals…" />
+            </div>
+            <button class="btn-mini" id="cvSelAll">Select all</button>
+            <button class="btn-mini" id="cvSelNone">None</button>
+            <button class="btn-mini btn-ico" id="cvEditToggle" title="Unlock fields for editing"></button>
+            <span style="flex:1"></span>
+            <span class="muted-line" style="white-space:nowrap">Download as</span>
+            <select id="cvTo"></select>
+            <button class="btn btn-ico btn-download" id="btnCvDownload">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Download</span></button>
+          </div>
+          <div id="cvLoss" class="muted-line" style="margin-bottom:8px"></div>
+          <div id="cvTable"></div>
+          <div id="cvWarnings" style="margin-top:10px"></div>
+        </div>
+
+        <div id="cvEmpty" class="placeholder" style="padding:40px">
+          Upload a <b>DBC</b>, cloud <b>Signature JSON</b>, or <b>CSV</b> to preview its messages &amp;
+          signals — then edit fields, tick the signals you want, and download in any format.
+        </div>
+      </section>
+
       <!-- ===== Auto-RE (confidence-tiered identification) ===== -->
       <section id="view-autore" class="view hidden">
         <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Analyze a log → identify signals with confidence</span><button class="btn-mini" id="btnAutoReRescan">Logs ↻</button></div>
+          <div class="panel-head"><span>Analyze a log → identify signals with confidence</span><button class="btn-mini" id="btnAutoReRescan">Logs</button></div>
           <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <select id="autoreSelect" style="flex:1;min-width:220px"></select>
             <input id="autoreOdo" placeholder="odometer km (optional)" style="width:160px" />
@@ -245,15 +304,15 @@
         </div>
 
         <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>🟢 A · Confirmed</span><span id="autoreACount" class="muted-line"></span></div>
+          <div class="panel-head"><span><span class="tdot" style="background:var(--green)"></span>A · Confirmed</span><span id="autoreACount" class="muted-line"></span></div>
           <div class="table-wrap" id="autoreA" style="max-height:30vh"></div>
         </div>
         <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>🟡 B · Suspected — confirm or reject</span><span id="autoreBCount" class="muted-line"></span></div>
+          <div class="panel-head"><span><span class="tdot" style="background:#e0a82e"></span>B · Suspected — confirm or reject</span><span id="autoreBCount" class="muted-line"></span></div>
           <div class="table-wrap" id="autoreB" style="max-height:30vh"></div>
         </div>
         <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>⚪ C · Unknown fields</span><span id="autoreCCount" class="muted-line"></span></div>
+          <div class="panel-head"><span><span class="tdot" style="background:var(--muted)"></span>C · Unknown fields</span><span id="autoreCCount" class="muted-line"></span></div>
           <div class="table-wrap" id="autoreC" style="max-height:24vh"></div>
         </div>
 
@@ -272,10 +331,10 @@
         <div class="toolbar">
           <button class="btn" id="btnDbcAddMsg">+ Message</button>
           <input type="file" id="dbcFile" accept=".dbc" hidden />
-          <button class="btn ghost" id="btnDbcImport">Import .dbc</button>
-          <button class="btn ghost" id="btnDbcExport">Export .dbc</button>
+          <button class="btn ghost" id="btnDbcImport">Upload .dbc</button>
+          <button class="btn ghost" id="btnDbcExport">Download .dbc</button>
           <span style="flex:1"></span>
-          <button class="btn" id="btnDbcToViewer">→ Signal Viewer</button>
+          <button class="btn" id="btnDbcToViewer">Signal Viewer</button>
         </div>
         <div id="dbcMessages"></div>
       </section>
@@ -303,7 +362,7 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><span>Profiles</span><button class="btn-mini" id="btnOemRefresh">↻</button></div>
+          <div class="panel-head"><span>Profiles</span><button class="btn-mini" id="btnOemRefresh"></button></div>
           <div class="table-wrap" style="max-height:46vh">
             <table class="data-table" id="oemTable">
               <thead><tr><th>OEM</th><th>Profile</th><th>Model</th><th>IDs</th><th>Status</th><th></th></tr></thead>
@@ -318,7 +377,7 @@
         <div class="toolbar">
           <button class="btn" id="btnSigUseBuilder">Use DBC Builder model</button>
           <input type="file" id="sigDbcFile" accept=".dbc" hidden />
-          <button class="btn ghost" id="btnSigImport">Import .dbc</button>
+          <button class="btn ghost" id="btnSigImport">Upload .dbc</button>
           <button class="btn ghost" id="btnSigClear">Clear charts</button>
           <span style="flex:1"></span>
           <span id="sigAlarmBanner"></span>
@@ -370,8 +429,8 @@
           <button class="btn" id="btnTxAdd">+ Add</button>
           <button class="btn ghost" id="btnTxObdPreset" title="Add standard OBD-II Mode-01 request rows (RPM/speed/coolant/throttle/load)">+ OBD PIDs</button>
           <span style="flex:1"></span>
-          <button class="btn" id="btnTxStart">▶ Start all</button>
-          <button class="btn" id="btnTxStop">⏹ Stop</button>
+          <button class="btn" id="btnTxStart">Start all</button>
+          <button class="btn" id="btnTxStop">Stop</button>
         </div>
         <div class="panel">
           <div class="panel-head"><span>TX table</span><span id="txState" class="tag">stopped</span></div>
@@ -415,8 +474,8 @@
           <div class="panel-head"><span>Restbus simulation</span><span id="restbusStatus" class="muted-line"></span></div>
           <div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <button class="btn" id="btnRestbusBuilder">Load DBC Builder</button>
-            <button class="btn" id="btnRestbusStart">▶ Start</button>
-            <button class="btn ghost" id="btnRestbusStop">⏹ Stop</button>
+            <button class="btn" id="btnRestbusStart">Start</button>
+            <button class="btn ghost" id="btnRestbusStop">Stop</button>
             <span class="muted-line">Transmits every message in the database cyclically so an ECU under test sees a full vehicle.</span>
           </div>
         </div>
@@ -426,7 +485,7 @@
           <div style="padding:10px 14px">
             <textarea id="scriptCode" spellcheck="false" style="width:100%;height:120px;font-family:var(--mono);font-size:12px"
               placeholder="for i in range(3):&#10;    ctx.send(0x100, '11 22 33')&#10;    ctx.log('rpm', ctx.latest('ENGINE.EngineRPM'))"></textarea>
-            <div style="margin-top:6px"><button class="btn" id="btnScriptRun">▶ Run script</button></div>
+            <div style="margin-top:6px"><button class="btn" id="btnScriptRun">Run script</button></div>
             <pre id="scriptOut" class="muted-line" style="white-space:pre-wrap;margin-top:8px"></pre>
           </div>
         </div>
@@ -493,7 +552,7 @@
       <label class="check"><input type="checkbox" id="simCheck" checked /> Generate synthetic traffic (virtual bus)</label>
       <div id="connectError" class="err hidden"></div>
       <div class="modal-actions">
-        <button class="btn ghost" id="btnRefreshDevs">↻ Rescan</button>
+        <button class="btn ghost" id="btnRefreshDevs">Rescan</button>
         <div style="flex:1"></div>
         <button class="btn ghost" id="btnCancelConnect">Cancel</button>
         <button class="btn" id="btnDoConnect">Connect</button>
@@ -520,6 +579,6 @@
     </div>
   </div>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=0.4.0"></script>
 </body>
 </html>

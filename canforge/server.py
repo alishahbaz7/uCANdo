@@ -1025,23 +1025,49 @@ def decode_frame(req: DecodeReq):
         return _err(str(exc))
 
 
-# ----- DBC frame decoder (BusMaster-style byte/bit view) -------------------
+# ----- Frame decoder (BusMaster-style byte/bit view) -----------------------
+# Two interchangeable signal sources feed the SAME decode UI:
+#   • a DBC  → cantools DB, decoded by framedecode (full: enums/min-max/units)
+#   • a cloud Signature JSON → jsondecode (limited; no cantools needed)
+# Only one is active at a time; loading one clears the other.
 import cantools as _cantools           # noqa: E402  (local to this feature)
 from .framedecode import decode_frames as _decode_frames
+from . import jsondecode as _jsondecode
 
-_decode_db = None                      # cantools DB loaded for the frame decoder
+_decode_db = None                      # cantools DB (DBC source)
+_decode_json = None                    # signature message map (JSON source)
 
 
 @app.post("/api/decode/dbc-import")
 async def decode_dbc_import(file: UploadFile = File(...)):
     """Load a DBC for the frame decoder; returns its message/signal catalogue."""
-    global _decode_db
+    global _decode_db, _decode_json
     try:
         text = (await file.read()).decode("utf-8", "replace")
         _decode_db = _cantools.database.load_string(text, database_format="dbc")
+        _decode_json = None            # DBC now active; drop any JSON source
         msgs = [{"id_hex": f"{m.frame_id:X}", "name": m.name, "length": m.length,
                  "signals": [s.name for s in m.signals]} for m in _decode_db.messages]
         return {"ok": True, "dbc": file.filename, "messages": msgs}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/decode/json-import")
+async def decode_json_import(file: UploadFile = File(...)):
+    """Load a cloud Signature JSON for the frame decoder; returns its catalogue.
+
+    Format: ``{"<decimal_id>": [{fieldName, startingBit, size, multiplier,
+    offset, signed, reverse, evData}, ...], ...}``. See ``jsondecode`` and
+    ``docs/JSON_SIGNATURE_DECODE.md`` for the (validated) bit/byte convention.
+    """
+    global _decode_db, _decode_json
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        _decode_json = _jsondecode.load_signature(text)
+        _decode_db = None              # JSON now active; drop any DBC source
+        return {"ok": True, "json": file.filename,
+                "messages": _jsondecode.signature_messages(_decode_json)}
     except Exception as exc:
         return _err(str(exc))
 
@@ -1052,9 +1078,66 @@ class DecodeFramesReq(BaseModel):
 
 @app.post("/api/decode/frames")
 def decode_frames_route(req: DecodeFramesReq):
-    if _decode_db is None:
-        return _err("Import a DBC first (Decode → Import .dbc)")
-    return {"ok": True, "frames": _decode_frames(_decode_db, req.frames)}
+    if _decode_json is not None:
+        return {"ok": True, "frames": _jsondecode.decode_frames(_decode_json, req.frames)}
+    if _decode_db is not None:
+        return {"ok": True, "frames": _decode_frames(_decode_db, req.frames)}
+    return _err("Upload a .dbc or .json first")
+
+
+# ----- Format converter (DBC ⇄ JSON ⇄ CSV) ---------------------------------
+from . import convert as _convert_mod
+
+
+@app.post("/api/convert")
+async def convert_route(to: str, file: UploadFile = File(...), src: str | None = None):
+    """One-shot convert an uploaded DBC / Signature-JSON / CSV to format ``to``.
+
+    Source format auto-detected from the filename/content unless ``src`` given.
+    Returns the converted text plus a summary and any (loss) warnings.
+    """
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        res = _convert_mod.convert(text, to_fmt=to, from_fmt=src, filename=file.filename or "")
+    except Exception as exc:
+        return _err(str(exc))
+    stem = (file.filename or "converted").rsplit(".", 1)[0] or "converted"
+    return {"ok": True, "filename": f"{stem}.{to}", "content": res["content"],
+            "warnings": res["warnings"], "summary": res["summary"]}
+
+
+@app.post("/api/convert/parse")
+async def convert_parse_route(file: UploadFile = File(...), src: str | None = None):
+    """Parse an uploaded file into the editable canonical model (workbench)."""
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        res = _convert_mod.parse(text, from_fmt=src, filename=file.filename or "")
+    except Exception as exc:
+        return _err(str(exc))
+    stem = (file.filename or "converted").rsplit(".", 1)[0] or "converted"
+    return {"ok": True, "source_fmt": res["from"], "source_name": stem,
+            "model": res["model"], "warnings": res["warnings"], "summary": res["summary"]}
+
+
+class ConvertExportReq(BaseModel):
+    model: dict
+    to: str
+    source_name: str | None = "converted"
+
+
+@app.post("/api/convert/export")
+def convert_export_route(req: ConvertExportReq):
+    """Serialize an edited/filtered canonical model to ``to`` with a stamped name."""
+    import datetime
+    try:
+        res = _convert_mod.serialize(req.model, req.to)
+    except Exception as exc:
+        return _err(str(exc))
+    ts = datetime.datetime.now().strftime("%d%m%y_%H%M%S")
+    stem = (req.source_name or "converted").strip() or "converted"
+    prefix = "Signature_" if req.to == "json" else ""    # JSON = cloud Signature file
+    return {"ok": True, "filename": f"{prefix}{stem}_{ts}.{req.to}",
+            "content": res["content"], "warnings": res["warnings"]}
 
 
 # ===========================================================================
