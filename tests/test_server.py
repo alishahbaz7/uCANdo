@@ -13,7 +13,7 @@ client = TestClient(app)
 
 def test_info_and_plugins():
     info = client.get("/api/info").json()
-    assert info["app"] == "CANForge"
+    assert info["app"] == "uCANdo"
     assert "plugins_loaded" in info
 
     plugins = client.get("/api/plugins").json()

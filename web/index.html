@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CANForge — Unified CAN Workbench</title>
+  <title>uCANdo — Unified CAN Workbench</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -12,8 +12,9 @@
       <div class="brand">
         <div class="brand-mark">◇</div>
         <div>
-          <div class="brand-title">CANForge</div>
+          <div class="brand-title">uCANdo</div>
           <div class="brand-sub">Unified CAN Workbench</div>
+          <div id="verChip" class="brand-ver"></div>
         </div>
       </div>
 
@@ -196,27 +197,30 @@
         <div class="fd-import-bar">
           <input type="file" id="fdDbcFile" accept=".dbc,.txt" hidden />
           <button class="btn" id="btnFdImport">Import .dbc</button>
-          <span id="fdDbcStatus" class="muted-line">no DBC loaded — edit any row's payload to decode live</span>
-          <button class="btn-mini" id="btnFdToggleFill" style="margin-left:auto">Paste dump ▾</button>
+          <span id="fdDbcStatus" class="muted-line">no DBC loaded — click a row to decode, or paste dump to pre-fill</span>
+          <button class="btn" id="btnFdToggleFill" style="margin-left:auto">Paste dump ▾</button>
           <span id="fdMsgCount" class="muted-line"></span>
         </div>
         <!-- collapsible raw-dump fill (hidden by default) -->
         <div id="fdFillBox" class="hidden">
           <textarea id="fdFill" spellcheck="false"
             placeholder="163  0205000000000200&#10;94   0006320040001C00"></textarea>
-          <button class="btn-mini" id="btnFdFill" style="margin-top:6px">Fill payloads</button>
+          <button class="btn" id="btnFdFill" style="margin-top:6px">Fill payloads</button>
         </div>
         <!-- 2-column split: message catalogue | decode detail -->
         <div class="fd-layout">
           <div class="panel fd-left">
-            <div class="panel-head"><span>Messages &amp; payloads</span><span class="muted-line" style="font-size:12px">click row · edit payload → live decode</span></div>
+            <div class="panel-head"><span>Messages</span></div>
             <div class="table-wrap" id="fdCatalogue"></div>
           </div>
           <div id="fdDetail" class="fd-right panel">
-            <div class="fd-placeholder">
-              <span style="font-size:28px">🔢</span>
-              <span>Import a .dbc, then click any message row</span>
-              <span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span>
+            <div id="fdDetailHeader"></div>
+            <div id="fdDetailBody">
+              <div class="fd-placeholder">
+                <span style="font-size:28px">🔢</span>
+                <span>Import a .dbc, then click any message row</span>
+                <span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span>
+              </div>
             </div>
           </div>
         </div>

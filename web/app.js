@@ -13,6 +13,12 @@ const POST = (p, body) => api(p, { method: "POST", body: body ? JSON.stringify(b
 const state = { connected: false, recording: false, view: "dashboard" };
 let pollTimer = null;
 
+// Populate version chip from API
+api("/api/info").then((d) => {
+  const chip = $("verChip");
+  if (chip) chip.textContent = `v${d.version} · ${d.app}`;
+});
+
 const VIEW_TITLES = {
   dashboard: "Dashboard — Standard Decoded Values",
   logger: "CAN Logger — Live Capture", replay: "TX Replay — Log Playback",
@@ -462,7 +468,7 @@ $("btnAutoReSave").addEventListener("click", async () => {
 });
 
 // --------------------------- Frame Decoder (per-ID editable payloads + grid)
-let fdMessages = [], fdPayloads = {}, fdDetail = null, fdSelSig = -1, fdTimer = null;
+let fdMessages = [], fdPayloads = {}, fdDetail = null, fdSelSig = -1, fdTimer = null, fdCurrentDetailId = null;
 $("btnFdImport").addEventListener("click", () => $("fdDbcFile").click());
 $("btnFdToggleFill").addEventListener("click", () => {
   const box = $("fdFillBox"), open = !box.classList.contains("hidden");
@@ -477,24 +483,32 @@ $("fdDbcFile").addEventListener("change", async (e) => {
   fdMessages.forEach((m) => (fdPayloads[m.id_hex] = "00".repeat(m.length)));
   $("fdDbcStatus").textContent = `${f.name} — ${fdMessages.length} messages`;
   $("fdMsgCount").textContent = `${fdMessages.length} IDs`;
-  fdDetail = null; $("fdDetail").innerHTML = ""; renderFdCatalogue();
+  fdDetail = null; fdCurrentDetailId = null;
+  $("fdDetailHeader").innerHTML = "";
+  $("fdDetailBody").innerHTML = `<div class="fd-placeholder"><span style="font-size:28px">🔢</span><span>Click a message row to decode</span></div>`;
+  renderFdCatalogue();
 });
 function renderFdCatalogue() {
-  $("fdCatalogue").innerHTML = `<table class="data-table"><thead><tr><th>CAN ID</th><th>Message</th><th>DLC</th><th>Signals</th><th>Payload (hex — editable)</th></tr></thead><tbody>` +
-    fdMessages.map((m) => {
-      const sigs = m.signals.slice(0, 4).join(", ") + (m.signals.length > 4 ? " …" : "");
-      return `<tr data-id="${m.id_hex}"><td class="mono">0x${m.id_hex}</td><td>${m.name}</td><td>${m.length}</td>
-        <td class="muted-line">${m.signals.length}: ${sigs}</td>
-        <td style="padding-right:12px"><input class="fdpay mono" data-id="${m.id_hex}" value="${fdPayloads[m.id_hex] || ""}" /></td></tr>`;
+  $("fdCatalogue").innerHTML =
+    `<table class="data-table"><colgroup>
+      <col class="c-num"><col class="c-id"><col class="c-dlc"><col class="c-sigs">
+    </colgroup><thead><tr>
+      <th style="text-align:center">#</th>
+      <th>CAN ID · Message</th>
+      <th style="text-align:center">DLC</th>
+      <th>Signals</th>
+    </tr></thead><tbody>` +
+    fdMessages.map((m, i) => {
+      const sigList = m.signals.join(", ") || "—";
+      return `<tr data-id="${m.id_hex}">
+        <td>${i + 1}</td>
+        <td class="mono" style="font-weight:500">0x${m.id_hex}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${m.name}</span></td>
+        <td style="text-align:center">${m.length}</td>
+        <td class="muted-line" style="font-size:12px" title="${sigList}">${m.signals.length}: ${sigList}</td>
+      </tr>`;
     }).join("") + `</tbody></table>`;
 }
-$("fdCatalogue").addEventListener("input", (e) => {
-  const inp = e.target.closest(".fdpay"); if (!inp) return;
-  fdPayloads[inp.dataset.id] = inp.value;
-  clearTimeout(fdTimer); fdTimer = setTimeout(() => fdDecodeOne(inp.dataset.id), 250);
-});
 $("fdCatalogue").addEventListener("click", (e) => {
-  if (e.target.closest(".fdpay")) return;             // don't hijack the input
   const tr = e.target.closest("tr[data-id]"); if (tr) fdDecodeOne(tr.dataset.id);
 });
 async function fdDecodeOne(idHex) {
@@ -503,18 +517,96 @@ async function fdDecodeOne(idHex) {
   fdDetail = r.frames[0]; fdSelSig = -1; renderFdDetail();
   document.querySelectorAll("#fdCatalogue tr[data-id]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.id === idHex));
 }
-window.fdSelectSig = (si) => { fdSelSig = si; renderFdDetail(); };
+window.fdSelectSig = (si) => { fdSelSig = si; if (fdDetail) fdRenderBody(fdDetail); };
 function renderFdDetail() {
   const f = fdDetail;
-  if (!f) return void ($("fdDetail").innerHTML = `<div class="fd-placeholder"><span style="font-size:28px">🔢</span><span>Import a .dbc, then click any message row</span><span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span></div>`);
-  if (f.error) return void ($("fdDetail").innerHTML = `<div style="padding:16px;color:var(--muted)">0x${f.id_hex} — ${f.error}</div>`);
+  if (!f) {
+    fdCurrentDetailId = null;
+    $("fdDetailHeader").innerHTML = "";
+    $("fdDetailBody").innerHTML = `<div class="fd-placeholder"><span style="font-size:28px">🔢</span><span>Click a message row to decode</span><span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span></div>`;
+    return;
+  }
+  if (f.error) {
+    fdCurrentDetailId = null;
+    $("fdDetailHeader").innerHTML = "";
+    $("fdDetailBody").innerHTML = `<div style="padding:16px;color:var(--muted)">0x${f.id_hex} — ${f.error}</div>`;
+    return;
+  }
+  // Re-render header only when the selected message changes (preserves input focus while typing)
+  if (fdCurrentDetailId !== f.id_hex) {
+    fdCurrentDetailId = f.id_hex;
+    $("fdDetailHeader").innerHTML = `
+      <div class="panel-head">
+        <span class="mono" style="font-weight:500">0x${f.id_hex}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${f.name}</span></span>
+        <span class="tag" style="font-size:11px">DLC ${f.length}</span>
+      </div>
+      <div class="fd-pay-bar">
+        <span class="muted-line" style="font-size:12px;white-space:nowrap">Payload (hex)</span>
+        <input id="fdPayInput" class="fdpay" value="${fdPayloads[f.id_hex] || ""}"
+          placeholder="${"00".repeat(f.length)}"
+          maxlength="${f.length * 2}"
+          autocomplete="off" spellcheck="false" />
+        <span id="fdPayHint" class="muted-line" style="font-size:11px;white-space:nowrap">max ${f.length * 2} chars</span>
+      </div>`;
+    $("fdPayInput").addEventListener("input", (e) => {
+      const inp = e.target;
+      // Strip non-hex characters and enforce DLC byte limit
+      const clean = inp.value.replace(/[^0-9a-fA-F]/g, "").slice(0, f.length * 2);
+      if (inp.value !== clean) { inp.value = clean; }
+      fdPayloads[f.id_hex] = clean;
+      const hint = $("fdPayHint");
+      const bytes = Math.floor(clean.length / 2);
+      hint.textContent = `${bytes} / ${f.length} bytes`;
+      inp.classList.toggle("invalid", clean.length > 0 && clean.length % 2 !== 0);
+      clearTimeout(fdTimer);
+      fdTimer = setTimeout(() => fdDecodeBody(f.id_hex), 250);
+    });
+  }
+  // Always re-render body (byte view + signal table + bit grid)
+  fdRenderBody(f);
+}
+async function fdDecodeBody(idHex) {
+  const r = await POST("/api/decode/frames", { frames: [{ id: idHex, data: fdPayloads[idHex] || "" }] });
+  if (!r.ok || !r.frames.length) return;
+  fdDetail = r.frames[0]; fdSelSig = -1; fdRenderBody(fdDetail);
+}
+function fdRenderBody(f) {
   const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
   const cells = new Set((fdSelSig >= 0 && f.signals[fdSelSig] ? f.signals[fdSelSig].cells : []).map((c) => c[0] + ":" + c[1]));
   const idx = f.bytes.map((_, i) => `<td>${String(i).padStart(2, "0")}</td>`).join("");
   const val = f.bytes.map((b) => `<td>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("");
-  const rows = f.signals.map((s, si) => `<tr class="${si === fdSelSig ? "sel" : ""}" style="cursor:pointer" onclick="fdSelectSig(${si})">
-    <td>${s.name}</td><td class="mono">${s.raw}</td><td class="mono">${s.physical}</td><td>${s.unit}</td></tr>`).join("")
-    || `<tr><td colspan="4" class="muted-line">no signals</td></tr>`;
+
+  // Check if any signal in this frame has a DBC value description
+  const hasChoices = f.signals.some((s) => s.choice !== null && s.choice !== undefined);
+
+  const rows = f.signals.map((s, si) => {
+    const oor = s.out_of_range;
+    const physColor = oor ? "var(--red)" : "var(--accent)";
+    const oorBadge = oor
+      ? `<span title="Outside DBC range [${s.min ?? "?"}…${s.max ?? "?"}]"
+           style="margin-left:5px;font-size:10px;background:#3a1c1c;color:var(--red);border-radius:3px;padding:1px 5px;vertical-align:middle">OOR</span>`
+      : "";
+    // Value description column cell
+    const descCell = hasChoices
+      ? `<td style="color:var(--green);font-weight:600;letter-spacing:.02em">${
+          s.choice != null
+            ? `<span class="tag" style="background:var(--green-bg);color:var(--green);border-color:#2c5a39;font-size:12px">${s.choice}</span>`
+            : "<span style=\"color:var(--muted)\">—</span>"
+        }</td>`
+      : "";
+    return `<tr class="${si === fdSelSig ? "sel" : ""}" style="cursor:pointer" onclick="fdSelectSig(${si})" title="Click to highlight bits">
+      <td style="text-align:center;color:var(--muted)">${si + 1}</td>
+      <td style="font-weight:500">${s.name}</td>
+      <td class="mono" style="text-align:right">${s.raw}</td>
+      <td class="mono" style="text-align:right;color:${physColor}">${s.physical}${oorBadge}</td>
+      <td style="color:var(--muted);font-size:12px">${s.unit || "—"}</td>
+      ${descCell}
+    </tr>`;
+  }).join("") || `<tr><td colspan="${hasChoices ? 6 : 5}" class="muted-line" style="padding:12px;text-align:center">no decoded signals</td></tr>`;
+
+  // Header: add Description column only when needed
+  const descHead = hasChoices ? `<th style="color:var(--green)">Description</th>` : "";
+
   let grid = `<table class="bitgrid"><thead><tr><th></th>${COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>`;
   for (let b = 0; b < f.bytes.length; b++) {
     grid += `<tr><th>${b}</th>` + COLS.map((c) => {
@@ -523,21 +615,31 @@ function renderFdDetail() {
     }).join("") + `</tr>`;
   }
   grid += `</tbody></table>`;
-  $("fdDetail").innerHTML = `<div class="panel-head"><span>0x${f.id_hex} · ${f.name}</span><span class="muted-line" style="font-size:12px">DLC ${f.length} — click a signal to highlight its bits</span></div>
-    <div style="padding:12px 16px">
-      <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Data Byte View (HEX)</div>
-      <table class="byteview mono"><tbody><tr><th>Byte</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
-      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
-        <div style="flex:1;min-width:280px">
-          <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Signal Details</div>
-          <table class="data-table"><thead><tr><th>Signal</th><th>Raw</th><th>Physical</th><th>Unit</th></tr></thead><tbody>${rows}</tbody></table>
-        </div>
-        <div>
-          <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Bit Layout (MSB→LSB)</div>
-          ${grid}
-        </div>
+
+  $("fdDetailBody").innerHTML = `<div style="padding:12px 16px">
+    <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Data Byte View (HEX)</div>
+    <table class="byteview mono"><tbody><tr><th>Byte</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
+      <div style="flex:1;min-width:300px">
+        <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Signal Details</div>
+        <table class="data-table" style="min-width:380px">
+          <colgroup><col style="width:34px"><col><col style="width:80px"><col style="width:100px"><col style="width:52px">${hasChoices ? '<col style="width:110px">' : ""}</colgroup>
+          <thead><tr>
+            <th style="text-align:center">#</th><th>Signal</th>
+            <th style="text-align:right">Raw</th>
+            <th style="text-align:right">Physical</th>
+            <th>Unit</th>
+            ${descHead}
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
       </div>
-    </div>`;
+      <div>
+        <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Bit Layout (MSB→LSB)</div>
+        ${grid}
+      </div>
+    </div>
+  </div>`;
 }
 $("btnFdFill").addEventListener("click", () => {
   for (const ln of $("fdFill").value.split("\n")) {
@@ -598,7 +700,10 @@ $("dbcFile").addEventListener("change", async (e) => { const f = e.target.files[
 $("btnDbcExport").addEventListener("click", async () => {
   const txt = await fetch("/api/dbc/export").then((r) => r.text());
   const blob = new Blob([txt], { type: "text/plain" });
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "canforge.dbc"; a.click();
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const ts = `${pad(now.getDate())}${pad(now.getMonth()+1)}${String(now.getFullYear()).slice(-2)}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${ts}.dbc`; a.click();
 });
 $("btnDbcToViewer").addEventListener("click", async () => {
   const r = await POST("/api/signals/use-builder");
