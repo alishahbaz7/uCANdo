@@ -9,6 +9,7 @@ a tap on the bus manager so they survive reconnects; subsystems that transmit
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 from collections import deque
@@ -19,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __app_name__, __version__
+from . import applog
 from .bus_manager import BusManager
 import can
 
@@ -55,7 +57,20 @@ DRIVER_DIR = os.path.join(DATA_DIR, "drivers")
 for d in (LOG_DIR, UPLOAD_DIR, DRIVER_DIR):
     os.makedirs(d, exist_ok=True)
 
+# Rotating error/activity log → data/ucando.log (captures crashes for diagnosis).
+applog.setup_logging(os.path.join(DATA_DIR, "ucando.log"))
+log = logging.getLogger("canforge.server")
+log.info("uCANdo %s starting up", __version__)
+
 app = FastAPI(title=f"{__app_name__} API", version=__version__)
+
+
+@app.exception_handler(Exception)
+async def _log_unhandled(request, exc):
+    """Last-resort handler: log the full traceback, return a graceful 500."""
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500,
+                        content={"ok": False, "error": "internal error (logged to data/ucando.log)"})
 
 # ----- foundation rails (persistence, config, plugins) ---------------------
 storage = Storage()
@@ -269,13 +284,18 @@ def drivers_launch(hw: str):
 @app.post("/api/connect")
 def connect(req: ConnectReq):
     try:
-        return {"ok": True, "connection": bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate)}
+        conn = bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate)
+        log.info("connected: hw=%s channel=%s bitrate=%s sim=%s",
+                 req.hw, req.channel, req.bitrate, req.simulate)
+        return {"ok": True, "connection": conn}
     except Exception as exc:
+        log.error("connect failed (hw=%s channel=%s): %s", req.hw, req.channel, exc)
         return _err(str(exc))
 
 
 @app.post("/api/disconnect")
 def disconnect():
+    log.info("disconnect requested")
     return {"ok": True, **bus.disconnect()}
 
 

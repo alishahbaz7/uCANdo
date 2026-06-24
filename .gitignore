@@ -5,6 +5,8 @@ venv/
 data/logs/
 data/uploads/
 data/drivers/
+data/*.log
+data/*.log.*
 *.asc
 *.blf
 *.db
