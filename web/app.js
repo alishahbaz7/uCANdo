@@ -1561,6 +1561,256 @@ let _savedMode = "open";
 try { _savedMode = localStorage.getItem("ucando_nav_mode") || "open"; } catch (e) {}
 applyNavMode(_savedMode === "rail" ? "rail" : "open");   // legacy "auto" → open
 
+// ===================== Animated idle / empty states ========================
+// One self-contained CAN-bus SVG (no GIF, no library) reused across idle pages:
+// ECU chip-nodes tapping a differential bus while data frames flow + nodes pulse.
+const CAN_BUS_SVG = `<svg class="bus-anim" viewBox="0 0 440 200" role="img" aria-label="CAN bus animation">
+  <line class="bus-line" x1="40" y1="112" x2="400" y2="112" stroke="var(--accent)" stroke-width="2.5"/>
+  <line class="bus-line" x1="40" y1="120" x2="400" y2="120" stroke="var(--green)" stroke-width="2.5"/>
+  <line class="bus-flow" x1="40" y1="112" x2="400" y2="112" stroke="var(--accent)" stroke-width="2.5"/>
+  <line class="bus-flow" x1="40" y1="120" x2="400" y2="120" stroke="var(--green)" stroke-width="2.5"/>
+  <line x1="40" y1="110" x2="40" y2="122" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/>
+  <line x1="400" y1="110" x2="400" y2="122" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/>
+  <line class="tap" x1="90" y1="66" x2="90" y2="112"/><line class="tap" x1="180" y1="120" x2="180" y2="134"/>
+  <line class="tap" x1="270" y1="66" x2="270" y2="112"/><line class="tap" x1="360" y1="120" x2="360" y2="134"/>
+  <rect class="node-ring" style="animation-delay:0s" x="62" y="30" width="56" height="40" rx="9"/>
+  <rect class="ecu" x="66" y="34" width="48" height="32" rx="6"/>
+  <rect x="80" y="42" width="20" height="16" rx="3" fill="none" stroke="var(--muted)" stroke-width="1.4"/>
+  <line class="ecu-pin" x1="78" y1="66" x2="78" y2="71"/><line class="ecu-pin" x1="90" y1="66" x2="90" y2="71"/><line class="ecu-pin" x1="102" y1="66" x2="102" y2="71"/>
+  <rect class="node-ring" style="animation-delay:.8s" x="152" y="130" width="56" height="40" rx="9"/>
+  <rect class="ecu" x="156" y="134" width="48" height="32" rx="6"/>
+  <rect x="170" y="142" width="20" height="16" rx="3" fill="none" stroke="var(--muted)" stroke-width="1.4"/>
+  <line class="ecu-pin" x1="168" y1="129" x2="168" y2="134"/><line class="ecu-pin" x1="180" y1="129" x2="180" y2="134"/><line class="ecu-pin" x1="192" y1="129" x2="192" y2="134"/>
+  <rect class="node-ring" style="animation-delay:1.6s" x="242" y="30" width="56" height="40" rx="9"/>
+  <rect class="ecu" x="246" y="34" width="48" height="32" rx="6"/>
+  <rect x="260" y="42" width="20" height="16" rx="3" fill="none" stroke="var(--muted)" stroke-width="1.4"/>
+  <line class="ecu-pin" x1="258" y1="66" x2="258" y2="71"/><line class="ecu-pin" x1="270" y1="66" x2="270" y2="71"/><line class="ecu-pin" x1="282" y1="66" x2="282" y2="71"/>
+  <rect class="node-ring" style="animation-delay:2.4s" x="332" y="130" width="56" height="40" rx="9"/>
+  <rect class="ecu" x="336" y="134" width="48" height="32" rx="6"/>
+  <rect x="350" y="142" width="20" height="16" rx="3" fill="none" stroke="var(--muted)" stroke-width="1.4"/>
+  <line class="ecu-pin" x1="348" y1="129" x2="348" y2="134"/><line class="ecu-pin" x1="360" y1="129" x2="360" y2="134"/><line class="ecu-pin" x1="372" y1="129" x2="372" y2="134"/>
+  <rect class="pkt" style="animation-delay:0s" x="40" y="111" width="16" height="10" rx="3"/>
+  <rect class="pkt" style="animation-delay:.95s" x="40" y="111" width="16" height="10" rx="3"/>
+  <rect class="pkt" style="animation-delay:1.9s" x="40" y="111" width="16" height="10" rx="3"/>
+</svg>`;
+
+// Live CAN-network hero on <canvas>: glowing differential bus + ECU nodes, with
+// data packets streaking node→node (comet trails), arrival ripples that flash the
+// destination ECU, over a faint drift of hex CAN-IDs. Pauses when off-screen;
+// draws a single static frame under prefers-reduced-motion.
+function startHeroCanvas(canvas) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no 2d context");
+  const css = getComputedStyle(document.documentElement);
+  const pick = (v, d) => { const x = (css.getPropertyValue(v) || "").trim(); return x || d; };
+  const C = { acc: pick("--accent", "#4ea1ff"), grn: pick("--green", "#46b86a"),
+              mut: pick("--muted", "#8b9298"), line: pick("--line", "#2b2f36") };
+  const NAMES = ["ENGINE", "BMS", "ABS", "DASH", "GATEWAY", "TPMS", "HVAC", "EPS"];
+  const HEX = ["0x0C9", "0x1A4", "0x244", "0x316", "0x5B0", "FF 2C", "3A 90", "0x7DF", "1B C0", "0x18F", "0x202", "0x45A"];
+  const BANDS = [-86, 54, -50, 88, -56, 50, -86, 60];   // y-offsets from the bus → 2D scatter
+  let W = 0, H = 0, dpr = 1, busY = 0;
+  let nodes = [], edges = [], adj = [], packets = [], wires = [], ripples = [], rain = [];
+  let raf = null, running = false, last = 0, spawnAcc = 0, hover = -1, reduce = false;
+  try { reduce = matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+
+  const hexA = (hex, a) => {
+    let h = hex.replace("#", ""); if (h.length === 3) h = h.replace(/(.)/g, "$1$1");
+    const n = parseInt(h, 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  };
+  const seg = (x1, y1, x2, y2) => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+  const dot = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill(); };
+  const rrect = (x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+  const ease = (t) => { t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); };
+
+  function resize() {
+    const r = canvas.getBoundingClientRect();
+    if (!r.width) return;
+    dpr = Math.min(window.devicePixelRatio || 1, 2); W = r.width; H = r.height;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    busY = Math.round(H * 0.5);
+    const n = W < 560 ? 5 : 8, pad = Math.max(50, W * 0.09), span = W - pad * 2;
+    nodes = [];
+    for (let i = 0; i < n; i++) nodes.push({ x: pad + span * (i / (n - 1)), y: busY + BANDS[i % BANDS.length], name: NAMES[i % NAMES.length], pulse: 0 });
+    // mesh: connect each node to its 2 nearest neighbours (dedup) → edges + adjacency
+    edges = []; adj = nodes.map(() => []);
+    const have = new Set();
+    for (let i = 0; i < n; i++) {
+      const d = nodes.map((m, j) => ({ j, d: (m.x - nodes[i].x) ** 2 + (m.y - nodes[i].y) ** 2 })).filter((o) => o.j !== i).sort((a, b) => a.d - b.d);
+      for (let k = 0; k < Math.min(2, d.length); k++) {
+        const a = Math.min(i, d[k].j), b = Math.max(i, d[k].j), key = a + "_" + b;
+        if (have.has(key)) continue; have.add(key);
+        const ei = edges.length; edges.push({ a, b, glow: 0 });
+        adj[a].push({ to: b, ei }); adj[b].push({ to: a, ei });
+      }
+    }
+    packets = []; wires = []; ripples = [];
+    rain = [];
+    const cols = Math.max(6, Math.floor(W / 90));
+    for (let i = 0; i < cols; i++) rain.push({ x: Math.random() * W, y: Math.random() * H, vy: 14 + Math.random() * 26, t: HEX[(Math.random() * HEX.length) | 0], a: 0.04 + Math.random() * 0.08 });
+  }
+  const nbox = (nd) => ({ x: nd.x - 17, y: nd.y - 12, w: 34, h: 24 });
+  function spawnBus() {
+    if (nodes.length < 2) return;
+    let a = (Math.random() * nodes.length) | 0, b; do { b = (Math.random() * nodes.length) | 0; } while (b === a);
+    packets.push({ x0: nodes[a].x, x1: nodes[b].x, to: b, t: 0, spd: 0.4 + Math.random() * 0.5, col: Math.random() < 0.5 ? C.acc : C.grn, trail: [] });
+  }
+  // Hover a node → ripple signals outward along the mesh wires (BFS ≤2 hops) and back.
+  function emitRipple(src) {
+    if (wires.length > 70 || !adj[src]) return;
+    const seen = new Set([src]); let frontier = [src];
+    for (let d = 0; d < 2; d++) {
+      const next = [];
+      for (const u of frontier) for (const { to, ei } of adj[u]) {
+        if (seen.has(to)) continue; seen.add(to); next.push(to);
+        const delay = d * 0.28;
+        wires.push({ a: u, b: to, ei, t: 0, delay, spd: 0.8, col: d % 2 ? C.grn : C.acc });
+        wires.push({ a: to, b: u, ei, t: 0, delay: delay + 0.9, spd: 0.8, col: C.acc });   // return wave
+      }
+      frontier = next;
+    }
+  }
+
+  function draw(dt) {
+    ctx.clearRect(0, 0, W, H);
+    if (!W || !nodes.length) return;
+    // background hex drift
+    ctx.font = "11px ui-monospace, Menlo, Consolas, monospace"; ctx.textBaseline = "top"; ctx.textAlign = "left";
+    for (const d of rain) {
+      d.y += d.vy * dt;
+      if (d.y > H + 12) { d.y = -12; d.x = Math.random() * W; d.t = HEX[(Math.random() * HEX.length) | 0]; }
+      ctx.fillStyle = hexA(C.acc, d.a); ctx.fillText(d.t, d.x, d.y);
+    }
+    // mesh wires (faint; brighten when a signal rides them)
+    for (const e of edges) {
+      e.glow = Math.max(0, e.glow - dt * 1.2);
+      const A = nodes[e.a], B = nodes[e.b], mid = 0.05 + e.glow * 0.55;
+      // fade the wire to transparent at both ends (no hard endpoints)
+      const g = ctx.createLinearGradient(A.x, A.y, B.x, B.y);
+      g.addColorStop(0, hexA(C.acc, 0)); g.addColorStop(.2, hexA(C.acc, mid * .6));
+      g.addColorStop(.5, hexA(C.acc, mid)); g.addColorStop(.8, hexA(C.acc, mid * .6));
+      g.addColorStop(1, hexA(C.acc, 0));
+      ctx.strokeStyle = g; ctx.lineWidth = 1 + e.glow * 1.4; seg(A.x, A.y, B.x, B.y);
+    }
+    // differential bus spine
+    const x0 = nodes[0].x - 28, x1 = nodes[nodes.length - 1].x + 28;
+    ctx.save(); ctx.lineCap = "round"; ctx.lineWidth = 2.5; ctx.shadowBlur = 12;
+    ctx.shadowColor = C.acc; ctx.strokeStyle = C.acc; seg(x0, busY - 4, x1, busY - 4);
+    ctx.shadowColor = C.grn; ctx.strokeStyle = C.grn; seg(x0, busY + 4, x1, busY + 4);
+    ctx.restore();
+    // nodes (with tap to bus)
+    for (let i = 0; i < nodes.length; i++) {
+      const nd = nodes[i], b = nbox(nd); nd.pulse = Math.max(0, nd.pulse - dt * 2.2);
+      ctx.strokeStyle = hexA(C.mut, .35); ctx.lineWidth = 1.5; seg(nd.x, nd.y < busY ? b.y + b.h : b.y, nd.x, busY);
+      const hot = i === hover ? 1 : nd.pulse;
+      if (hot > 0) { ctx.save(); ctx.globalAlpha = hot; ctx.shadowColor = C.acc; ctx.shadowBlur = 18; ctx.strokeStyle = C.acc; ctx.lineWidth = 2; rrect(b.x - 4, b.y - 4, b.w + 8, b.h + 8, 8); ctx.stroke(); ctx.restore(); }
+      ctx.fillStyle = "rgba(255,255,255,.03)"; ctx.strokeStyle = C.acc; ctx.lineWidth = 1.5; rrect(b.x, b.y, b.w, b.h, 6); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = hexA(C.mut, .8); ctx.lineWidth = 1.3; rrect(nd.x - 9, nd.y - 7, 18, 14, 3); ctx.stroke();
+      ctx.fillStyle = hexA(C.mut, .85); ctx.font = "9px ui-sans-serif,system-ui,sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = nd.y < busY ? "bottom" : "top";
+      ctx.fillText(nd.name, nd.x, nd.y < busY ? b.y - 6 : b.y + b.h + 6); ctx.textAlign = "left";
+    }
+    // bus packets
+    for (let i = packets.length - 1; i >= 0; i--) {
+      const p = packets[i]; p.t += dt * p.spd;
+      const x = p.x0 + (p.x1 - p.x0) * ease(p.t);
+      p.trail.unshift(x); if (p.trail.length > 10) p.trail.pop();
+      for (let k = 0; k < p.trail.length; k++) { const a = (1 - k / p.trail.length) * 0.5; ctx.fillStyle = hexA(p.col, a); dot(p.trail[k], busY, (1 - k / p.trail.length) * 3 + 1); }
+      ctx.save(); ctx.shadowColor = p.col; ctx.shadowBlur = 12; ctx.fillStyle = p.col; dot(x, busY, 4); ctx.restore();
+      if (p.t >= 1) { nodes[p.to].pulse = 1; ripples.push({ x: nodes[p.to].x, y: busY, r: 6, a: .6, col: p.col }); packets.splice(i, 1); }
+    }
+    // wire pulses (hover ripple)
+    for (let i = wires.length - 1; i >= 0; i--) {
+      const p = wires[i];
+      if (p.delay > 0) { p.delay -= dt; continue; }
+      p.t += dt * p.spd; edges[p.ei].glow = 1;
+      const A = nodes[p.a], B = nodes[p.b], e = ease(p.t);
+      const x = A.x + (B.x - A.x) * e, y = A.y + (B.y - A.y) * e;
+      ctx.save(); ctx.shadowColor = p.col; ctx.shadowBlur = 10; ctx.fillStyle = p.col; dot(x, y, 3); ctx.restore();
+      if (p.t >= 1) { nodes[p.b].pulse = Math.max(nodes[p.b].pulse, .9); wires.splice(i, 1); }
+    }
+    // arrival ripples
+    for (let i = ripples.length - 1; i >= 0; i--) { const r = ripples[i]; r.r += dt * 42; r.a -= dt * 0.9; if (r.a <= 0) { ripples.splice(i, 1); continue; } ctx.save(); ctx.globalAlpha = r.a; ctx.strokeStyle = r.col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.2832); ctx.stroke(); ctx.restore(); }
+  }
+  function frame(ts) {
+    const dt = Math.min(0.05, (ts - last) / 1000 || 0.016); last = ts;
+    if (!nodes.length) resize();
+    draw(dt);
+    spawnAcc += dt; if (spawnAcc > 0.6 && packets.length < 9) { spawnAcc = 0; spawnBus(); }
+    raf = requestAnimationFrame(frame);
+  }
+  function start() { if (running || reduce) return; running = true; last = performance.now(); raf = requestAnimationFrame(frame); }
+  function stop() { running = false; if (raf) cancelAnimationFrame(raf); raf = null; }
+
+  canvas.addEventListener("mousemove", (e) => {
+    const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    let hit = -1, best = 30 * 30;
+    for (let i = 0; i < nodes.length; i++) { const d = (nodes[i].x - mx) ** 2 + (nodes[i].y - my) ** 2; if (d < best) { best = d; hit = i; } }
+    if (hit !== hover) { hover = hit; if (hit >= 0) { nodes[hit].pulse = 1; emitRipple(hit); } }
+    canvas.style.cursor = hit >= 0 ? "pointer" : "default";
+  });
+  canvas.addEventListener("mouseleave", () => { hover = -1; });
+
+  resize();
+  if (reduce) { draw(0); return; }
+  try {
+    const io = new IntersectionObserver((es) => { if (es[0].isIntersecting) { resize(); start(); } else { stop(); } });
+    io.observe(canvas);
+  } catch (e) { start(); }
+  window.addEventListener("resize", resize);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); else if (canvas.offsetParent) start(); });
+}
+
+const _SWAP_ICON = _ico('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>');
+function idleCard(c) {
+  return `<button class="idle-card ${c.primary ? "primary" : ""}" onclick="${c.onclick}">
+    <span class="ic-wrap">${c.icon}</span><h4>${c.title}</h4><p>${c.desc}</p></button>`;
+}
+function emptyHero(id, o) {
+  const el = $(id); if (!el) return;
+  const cards = (o.cards || []).map(idleCard).join("");
+  el.innerHTML = `<div class="idle-hero">
+    <div class="hero-stage"><canvas class="hero-canvas"></canvas></div>
+    <div class="empty-anim-title">${o.title}</div>
+    <div class="empty-anim-sub">${o.sub}</div>
+    ${cards ? `<div class="idle-cards">${cards}</div>` : ""}
+    ${o.tips ? `<div class="idle-tips">${o.tips.map((t) => `<span>${t}</span>`).join("")}</div>` : ""}
+  </div>`;
+  try { startHeroCanvas(el.querySelector(".hero-canvas")); }
+  catch (e) { el.querySelector(".hero-stage").innerHTML = CAN_BUS_SVG; }   // graceful fallback
+}
+window.goView = (v) => { const b = document.querySelector(`.nav[data-view="${v}"]`); if (b) b.click(); };
+window.quickConnectVirtual = async () => {
+  setStatus("Connecting to virtual bus…");
+  const r = await POST("/api/connect", { hw: "virtual", channel: "canforge", bitrate: 500000, simulate: true });
+  setStatus(r && r.ok !== false ? "Virtual bus connected — streaming demo frames" : "Could not start virtual bus");
+};
+window.cvUploadClick = () => $("btnCvUpload").click();
+
+emptyHero("dashEmpty", {
+  title: "Waiting for live frames…",
+  sub: "Connect a bus to start decoding standard protocols (OBD-II · J1939) — no DBC required.",
+  cards: [
+    { icon: ICON_POWER, title: "Try it now", desc: "Spin up the virtual bus with demo OBD-II + J1939 traffic.", onclick: "quickConnectVirtual()", primary: true },
+    { icon: ICONS.grid, title: "Frame Decoder", desc: "Decode payloads against a DBC or Signature JSON.", onclick: "goView('framedec')" },
+    { icon: _SWAP_ICON, title: "Converter", desc: "Convert DBC ⇄ JSON ⇄ CSV in any direction.", onclick: "goView('convert')" },
+  ],
+  tips: [
+    "Tip: Frame Decoder → Trace mode highlights which signals change across many payloads.",
+    "Tip: the Converter shows DBC/CSV IDs in hex and downloads a clean, sorted layout.",
+    "Tip: no hardware? The virtual bus streams realistic CAN traffic for testing.",
+  ],
+});
+emptyHero("cvEmpty", {
+  title: "Convert & inspect CAN databases",
+  sub: "Upload a DBC, cloud Signature JSON, or CSV to preview its messages & signals — edit fields, pick the signals you want, and download in any format.",
+  cards: [{ icon: ICONS.upload, title: "Upload file", desc: "DBC · JSON · CSV — source auto-detected.", onclick: "cvUploadClick()", primary: true }],
+});
+emptyHero("dtcEmpty", {
+  title: "No trouble codes",
+  sub: "Connect a bus and Scan for OBD-II / UDS / J1939 codes. J1939 DM1 codes also appear passively.",
+  cards: [{ icon: ICON_POWER, title: "Connect virtual bus", desc: "Stream demo frames to see the flow.", onclick: "quickConnectVirtual()", primary: true }],
+});
+
 // Initial header title/description + kick off polling for the Dashboard view.
 setViewMeta(state.view);
 startPolling(state.view);

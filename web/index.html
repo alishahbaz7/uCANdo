@@ -83,9 +83,7 @@
           <button class="btn ghost" id="btnDashClear">Clear</button>
         </div>
         <div id="dashGroups"></div>
-        <div id="dashEmpty" class="placeholder" style="padding:40px">
-          Waiting for standard frames… connect a bus (the virtual bus emits OBD-II + J1939 demo frames).
-        </div>
+        <div id="dashEmpty" class="empty-anim"></div>
       </section>
 
       <!-- ===== CAN Logger ===== -->
@@ -279,10 +277,7 @@
           <div id="cvWarnings" style="margin-top:10px"></div>
         </div>
 
-        <div id="cvEmpty" class="placeholder" style="padding:40px">
-          Upload a <b>DBC</b>, cloud <b>Signature JSON</b>, or <b>CSV</b> to preview its messages &amp;
-          signals — then edit fields, tick the signals you want, and download in any format.
-        </div>
+        <div id="cvEmpty" class="empty-anim"></div>
       </section>
 
       <!-- ===== Auto-RE (confidence-tiered identification) ===== -->
@@ -501,9 +496,7 @@
           <button class="btn btn-rec" id="btnDtcClearEcu">Clear vehicle DTCs (Mode 04)</button>
         </div>
         <div id="dtcGroups"></div>
-        <div id="dtcEmpty" class="placeholder" style="padding:40px">
-          No trouble codes. Connect a bus and Scan — J1939 DM1 codes also appear passively.
-        </div>
+        <div id="dtcEmpty" class="empty-anim"></div>
       </section>
 
       <!-- ===== Protocol Decoder ===== -->
