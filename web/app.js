@@ -992,6 +992,16 @@ $("btnFdFill").addEventListener("click", () => {
 // ----------------------- Converter workbench (upload · edit · select · export)
 let cvModel = null, cvSourceFmt = null, cvSourceName = null, cvEdited = false, cvEditMode = false;
 const CV_FMT = { dbc: "DBC", json: "JSON", csv: "CSV" };
+// CAN IDs read in hex for DBC/CSV (engineer convention, matches the source);
+// JSON keeps decimal because its keys are native decimal. Display only — the
+// model frame_id stays an int, so conversions/exports are unchanged.
+const cvIdHex = () => cvSourceFmt !== "json";
+const cvFmtId = (id) => (cvIdHex() ? "0x" + (id || 0).toString(16).toUpperCase() : String(id));
+const cvParseId = (val) => {
+  const t = String(val).trim();
+  if (/^0x/i.test(t)) return parseInt(t, 16) || 0;
+  return (cvIdHex() ? parseInt(t, 16) : parseInt(t, 10)) || 0;
+};
 const _svg = (body) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 const CV_ICON = {
   edit: _svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
@@ -1061,13 +1071,14 @@ function renderCv() {
   const filter = ($("cvSearch").value || "").toLowerCase();
   const html = cvModel.messages.map((m, mi) => {
     const rows = m.signals.map((s, si) => ({ s, si }))
-      .filter(({ s }) => !filter || s.name.toLowerCase().includes(filter) || String(m.frame_id).includes(filter));
+      .filter(({ s }) => !filter || s.name.toLowerCase().includes(filter)
+        || String(m.frame_id).includes(filter) || cvFmtId(m.frame_id).toLowerCase().includes(filter));
     if (!rows.length) return "";
     const allSel = m.signals.every((s) => s._sel);
     return `<div class="cv-msg">
       <div class="cv-msg-head">
         <input type="checkbox" ${allSel ? "checked" : ""} onchange="cvToggleMsg(${mi},this.checked)" title="select all in message" />
-        <input class="cv-in" style="width:78px" value="${m.frame_id}" ${ro} onchange="cvEditMsg(${mi},'frame_id',this.value)" title="CAN ID (decimal)" />
+        <input class="cv-in" style="width:78px" value="${cvFmtId(m.frame_id)}" ${ro} onchange="cvEditMsg(${mi},'frame_id',this.value)" title="CAN ID (${cvIdHex() ? "hex" : "decimal"})" />
         <input class="cv-in" style="width:170px" value="${escAttr(m.name)}" ${ro} onchange="cvEditMsg(${mi},'name',this.value)" />
         <span class="muted-line">DLC</span>
         <input class="cv-in n" value="${m.dlc}" ${ro} onchange="cvEditMsg(${mi},'dlc',this.value)" />
@@ -1120,7 +1131,8 @@ window.cvEdit = (mi, si, key, val) => {
 };
 window.cvEditMsg = (mi, key, val) => {
   const m = cvModel.messages[mi];
-  if (key === "frame_id" || key === "dlc") m[key] = parseInt(val, 10) || 0;
+  if (key === "frame_id") m.frame_id = cvParseId(val);
+  else if (key === "dlc") m.dlc = parseInt(val, 10) || 0;
   else m[key] = val;
   cvMarkEdited();
 };
