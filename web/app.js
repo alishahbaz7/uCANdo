@@ -510,6 +510,13 @@ $("btnAutoReSave").addEventListener("click", async () => {
 // --------------------------- Frame Decoder (per-ID editable payloads + grid)
 let fdMessages = [], fdPayloads = {}, fdDetail = null, fdSelSig = -1, fdTimer = null, fdCurrentDetailId = null;
 let fdSource = "dbc";   // "dbc" → show IDs in hex; "json" → show IDs in decimal (native)
+// Multi-frame "Trace" mode: decode many payloads of one ID as a change-highlighted matrix.
+let fdMode = "single";          // "single" | "trace"
+let fdTraceText = {};           // idHex → pasted multi-line payloads (one per line)
+let fdTraceFrames = [];         // last decoded trace frames (reused on option toggle)
+let fdTraceRaw = false;         // false → physical value, true → raw (hex)
+let fdTraceCollapse = true;     // collapse runs of identical consecutive frames
+let fdRenderedKey = null;       // "<id>:<mode>" the header was last built for
 // Display the CAN ID in its source's native base. `o` is a catalogue row or a decoded frame.
 const fdIdLabel = (o) => fdSource === "json" ? `${o.id}` : `0x${o.id_hex}`;
 // Group a clean hex string into space-separated bytes: "0128C3" → "01 28 C3".
@@ -588,49 +595,231 @@ window.fdSelectSig = (si) => { fdSelSig = si; if (fdDetail) fdRenderBody(fdDetai
 function renderFdDetail() {
   const f = fdDetail;
   if (!f) {
-    fdCurrentDetailId = null;
+    fdCurrentDetailId = null; fdRenderedKey = null;
     $("fdDetailHeader").innerHTML = "";
     $("fdDetailBody").innerHTML = `<div class="fd-placeholder">${_bigGrid}<span>Click a message row to decode</span><span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span></div>`;
     return;
   }
   if (f.error) {
-    fdCurrentDetailId = null;
+    fdCurrentDetailId = null; fdRenderedKey = null;
     $("fdDetailHeader").innerHTML = "";
     $("fdDetailBody").innerHTML = `<div style="padding:16px;color:var(--muted)">${fdIdLabel(f)} — ${f.error}</div>`;
     return;
   }
-  // Re-render header only when the selected message changes (preserves input focus while typing)
-  if (fdCurrentDetailId !== f.id_hex) {
+  // Rebuild the header only when the message OR the mode changes (preserves input focus while typing).
+  const key = f.id_hex + ":" + fdMode;
+  if (fdRenderedKey !== key) {
+    fdRenderedKey = key;
     fdCurrentDetailId = f.id_hex;
-    $("fdDetailHeader").innerHTML = `
-      <div class="panel-head">
+    const seg = `<span class="fd-seg">
+        <button class="${fdMode === "single" ? "active" : ""}" onclick="fdSetMode('single')">Single</button>
+        <button class="${fdMode === "trace" ? "active" : ""}" onclick="fdSetMode('trace')">Trace</button>
+      </span>`;
+    const head = `<div class="panel-head">
         <span class="mono" style="font-weight:500">${fdIdLabel(f)}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${f.name}</span></span>
-        <span class="tag" style="font-size:11px">DLC ${f.length}</span>
-      </div>
-      <div class="fd-pay-bar">
-        <span class="muted-line" style="font-size:12px;white-space:nowrap">Payload (hex)</span>
-        <input id="fdPayInput" class="fdpay" value="${spaceHex(fdPayloads[f.id_hex] || "")}"
-          placeholder="${spaceHex("00".repeat(f.length))}"
-          maxlength="${f.length * 3}"
-          autocomplete="off" spellcheck="false" />
-        <span id="fdPayHint" class="muted-line" style="font-size:11px;white-space:nowrap">0 / ${f.length} bytes</span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span class="tag" style="font-size:11px">DLC ${f.length}</span>${seg}
+        </span>
       </div>`;
-    $("fdPayInput").addEventListener("input", (e) => {
-      const inp = e.target;
-      // Strip to hex-only, cap at DLC bytes, then auto-space between bytes for readability.
-      const clean = inp.value.replace(/[^0-9a-fA-F]/g, "").slice(0, f.length * 2);
-      fdPayloads[f.id_hex] = clean;
-      const spaced = spaceHex(clean);
-      if (inp.value !== spaced) { inp.value = spaced; inp.setSelectionRange(spaced.length, spaced.length); }
-      const bytes = Math.floor(clean.length / 2);
-      $("fdPayHint").textContent = `${bytes} / ${f.length} bytes`;
-      inp.classList.toggle("invalid", clean.length % 2 !== 0);
-      clearTimeout(fdTimer);
-      fdTimer = setTimeout(() => fdDecodeBody(f.id_hex), 250);
-    });
+    if (fdMode === "single") {
+      $("fdDetailHeader").innerHTML = head + `
+        <div class="fd-pay-bar">
+          <span class="muted-line" style="font-size:12px;white-space:nowrap">Payload (hex)</span>
+          <input id="fdPayInput" class="fdpay" value="${spaceHex(fdPayloads[f.id_hex] || "")}"
+            placeholder="${spaceHex("00".repeat(f.length))}"
+            maxlength="${f.length * 3}"
+            autocomplete="off" spellcheck="false" />
+          <span id="fdPayHint" class="muted-line" style="font-size:11px;white-space:nowrap">0 / ${f.length} bytes</span>
+        </div>`;
+      $("fdPayInput").addEventListener("input", (e) => {
+        const inp = e.target;
+        // Strip to hex-only, cap at DLC bytes, then auto-space between bytes for readability.
+        const clean = inp.value.replace(/[^0-9a-fA-F]/g, "").slice(0, f.length * 2);
+        fdPayloads[f.id_hex] = clean;
+        const spaced = spaceHex(clean);
+        if (inp.value !== spaced) { inp.value = spaced; inp.setSelectionRange(spaced.length, spaced.length); }
+        const bytes = Math.floor(clean.length / 2);
+        $("fdPayHint").textContent = `${bytes} / ${f.length} bytes`;
+        inp.classList.toggle("invalid", clean.length % 2 !== 0);
+        clearTimeout(fdTimer);
+        fdTimer = setTimeout(() => fdDecodeBody(f.id_hex), 250);
+      });
+    } else {
+      const ph = `Paste one payload per line — e.g.&#10;525100FFC000BE56&#10;525100498000BE56&#10;(optional leading index/timestamp: '12.34, 5251…')`;
+      $("fdDetailHeader").innerHTML = head + `
+        <div class="fd-trace-bar">
+          <textarea id="fdTraceInput" class="fd-trace-ta" spellcheck="false" autocomplete="off" placeholder="${ph}">${fdTraceText[f.id_hex] || ""}</textarea>
+          <div class="fd-trace-tools">
+            <button id="fdTraceRawBtn" class="mini ${fdTraceRaw ? "active" : ""}" onclick="fdTraceToggleRaw()">Raw (hex)</button>
+            <button id="fdTraceColBtn" class="mini ${fdTraceCollapse ? "active" : ""}" onclick="fdTraceToggleCollapse()">Collapse duplicates</button>
+            <button id="fdTraceCsvBtn" class="mini" onclick="fdTraceExport()">Download CSV</button>
+            <span id="fdTraceHint" class="muted-line" style="font-size:11px"></span>
+          </div>
+        </div>`;
+      const ta = $("fdTraceInput");
+      ta.addEventListener("input", () => {
+        fdTraceText[f.id_hex] = ta.value;
+        clearTimeout(fdTimer);
+        fdTimer = setTimeout(() => fdDecodeTrace(f.id_hex), 300);
+      });
+    }
   }
-  // Always re-render body (byte view + signal table + bit grid)
-  fdRenderBody(f);
+  if (fdMode === "single") fdRenderBody(f);
+  else fdDecodeTrace(f.id_hex);
+}
+window.fdSetMode = (m) => { if (fdMode === m) return; fdMode = m; renderFdDetail(); };
+window.fdTraceToggleRaw = () => {
+  fdTraceRaw = !fdTraceRaw;
+  const b = $("fdTraceRawBtn"); if (b) b.classList.toggle("active", fdTraceRaw);
+  fdRenderTrace();
+};
+window.fdTraceToggleCollapse = () => {
+  fdTraceCollapse = !fdTraceCollapse;
+  const b = $("fdTraceColBtn"); if (b) b.classList.toggle("active", fdTraceCollapse);
+  fdRenderTrace();
+};
+// Export the decoded trace to CSV: Frame No, Message ID, RAW payload, then one
+// column per signal (parsed physical value). Always per-frame (not collapsed).
+window.fdTraceExport = () => {
+  const frames = fdTraceFrames;
+  if (!frames.length) { setStatus("Nothing to export — paste payloads first"); return; }
+  const ok = frames.filter((fr) => fr && fr.signals);
+  const cols = ok.length ? ok[0].signals.map((s) => s.name) : [];
+  const unit = {};
+  ok.forEach((fr) => fr.signals.forEach((s) => { if (s.unit && !unit[s.name]) unit[s.name] = s.unit; }));
+  const esc = (v) => {
+    const t = v == null ? "" : String(v);
+    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const idLabel = (fr) => (fdSource === "json" ? String(fr.id) : "0x" + fr.id_hex);
+  const header = ["Frame No", "Message ID", "RAW payload",
+                  ...cols.map((c) => (unit[c] ? `${c} (${unit[c]})` : c))];
+  const rows = frames.map((fr, i) => {
+    const base = [i + 1, idLabel(fr), fr._data || ""];
+    if (fr.error) return [...base, fr.error, ...cols.slice(1).map(() => "")].map(esc).join(",");
+    const byName = {}; (fr.signals || []).forEach((s) => (byName[s.name] = s));
+    return [...base, ...cols.map((c) => (byName[c] ? byName[c].physical : ""))].map(esc).join(",");
+  });
+  const csv = [header.map(esc).join(","), ...rows].join("\r\n");
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const ts = `${pad(now.getDate())}${pad(now.getMonth() + 1)}${String(now.getFullYear()).slice(-2)}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const id = fdDetail ? (fdSource === "json" ? String(fdDetail.id) : fdDetail.id_hex) : "trace";
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `Trace_${id}_${ts}.csv`; a.click();
+  setStatus(`Trace exported — ${frames.length} frame${frames.length === 1 ? "" : "s"} → ${a.download}`);
+};
+
+// Parse the trace textarea into [{label, data}]. One payload per line; a leading
+// short decimal/timestamp token (e.g. "12.34, " or "1 ") is taken as the row label.
+function fdParseTrace(text) {
+  const out = [];
+  (text || "").split(/\r?\n/).forEach((ln) => {
+    const t = ln.trim(); if (!t) return;
+    let toks = t.split(/[\s,]+/).filter(Boolean);
+    let label = null;
+    if (toks.length > 1 && /^[0-9]+(\.[0-9]+)?$/.test(toks[0]) && toks[0].length <= 8) {
+      label = toks[0]; toks = toks.slice(1);
+    }
+    const hex = toks.join("").replace(/[^0-9a-fA-F]/g, "");
+    if (!hex) return;
+    out.push({ label: label ?? String(out.length + 1), data: hex });
+  });
+  return out;
+}
+
+async function fdDecodeTrace(idHex) {
+  const lines = fdParseTrace(fdTraceText[idHex] || "").slice(0, 2000);
+  if (!lines.length) {
+    fdTraceFrames = [];
+    if ($("fdTraceHint")) $("fdTraceHint").textContent = "";
+    $("fdDetailBody").innerHTML = `<div class="muted-line" style="padding:16px;font-size:13px">Paste payloads above — one per line — to build the trace.</div>`;
+    return;
+  }
+  const r = await POST("/api/decode/frames", { frames: lines.map((l) => ({ id: idHex, data: l.data })) });
+  if (!r.ok || !r.frames) return;
+  fdTraceFrames = r.frames.map((fr, i) => ({
+    ...fr,
+    _label: lines[i] ? lines[i].label : String(i + 1),
+    _data: lines[i] ? lines[i].data.toUpperCase() : "",
+  }));
+  fdRenderTrace();
+}
+
+function fdRenderTrace() {
+  const frames = fdTraceFrames, body = $("fdDetailBody");
+  if (!frames.length) { body.innerHTML = `<div style="padding:16px" class="muted-line">Paste payloads above to build the trace.</div>`; return; }
+  const ok = frames.filter((fr) => fr && fr.signals);
+  const cols = ok.length ? ok[0].signals.map((s) => s.name) : [];
+
+  // Per-signal stats over every frame → const vs varies + min/max.
+  const stat = {};
+  cols.forEach((c) => (stat[c] = { vals: new Set(), min: null, max: null, unit: "" }));
+  ok.forEach((fr) => fr.signals.forEach((s) => {
+    const st = stat[s.name]; if (!st) return;
+    st.vals.add(s.raw); if (s.unit) st.unit = s.unit;
+    if (typeof s.raw === "number") {
+      st.min = st.min === null ? s.raw : Math.min(st.min, s.raw);
+      st.max = st.max === null ? s.raw : Math.max(st.max, s.raw);
+    }
+  }));
+  const isConst = {}; cols.forEach((c) => (isConst[c] = stat[c].vals.size <= 1));
+
+  // Display rows: optionally collapse runs of identical consecutive frames.
+  const rowMap = (fr) => { const m = {}; (fr.signals || []).forEach((s) => (m[s.name] = s)); return m; };
+  const sig = (fr) => fr.error ? "ERR:" + fr.error : (fr.signals || []).map((s) => s.raw).join("|");
+  let disp = [];
+  frames.forEach((fr) => {
+    const k = sig(fr), prev = disp[disp.length - 1];
+    if (fdTraceCollapse && prev && prev.key === k) { prev.count++; prev.last = fr._label; return; }
+    disp.push({ key: k, count: 1, first: fr._label, last: fr._label, fr, map: rowMap(fr) });
+  });
+  const total = frames.length, capped = disp.length > 1000;
+  if (capped) disp = disp.slice(0, 1000);
+
+  // Summary strip.
+  const sChip = (c) => {
+    const s = stat[c], u = s.unit ? " " + s.unit : "";
+    return `<span class="${isConst[c] ? "tc-const" : ""}" style="display:inline-flex;gap:5px;align-items:center">
+      <b style="font-weight:600;color:var(--text)">${c}</b>` +
+      (isConst[c] ? `<span class="muted-line">const</span>`
+                  : `<span style="color:var(--green)">varies</span><span class="muted-line">${s.min}–${s.max}${u}</span>`) + `</span>`;
+  };
+  const summary = `<div style="display:flex;flex-wrap:wrap;gap:8px 18px;font-size:11px;color:var(--muted);margin-bottom:12px">${cols.map(sChip).join("")}</div>`;
+
+  // Matrix with change-highlighting.
+  const fmt = (s) => (s == null ? "—" : (fdTraceRaw ? fdRawHex(s) : s.physical));
+  let prev = null;
+  const trows = disp.map((d, ri) => {
+    let cells;
+    if (d.fr.error) {
+      cells = `<td colspan="${cols.length}" class="tc-oor mono" style="text-align:left">${d.fr.error}</td>`;
+    } else {
+      cells = cols.map((c) => {
+        const s = d.map[c];
+        const changed = prev && prev[c] && s && prev[c].raw !== s.raw;
+        const cls = [isConst[c] ? "tc-const" : "", changed ? "tc-chg" : "", s && s.out_of_range ? "tc-oor" : ""].filter(Boolean).join(" ");
+        return `<td class="mono ${cls}" style="text-align:right" title="${s ? s.raw + " (raw)" : ""}">${fmt(s)}</td>`;
+      }).join("");
+    }
+    prev = d.fr.error ? null : d.map;
+    const lbl = d.count > 1 ? `${d.first}–${d.last}` : d.first;
+    const cnt = d.count > 1 ? ` <span class="tc-cnt">×${d.count}</span>` : "";
+    return `<tr><td class="tc-cnt" style="text-align:center">${ri + 1}</td><td class="mono" style="white-space:nowrap">${lbl}${cnt}</td>${cells}</tr>`;
+  }).join("");
+
+  const head = `<tr><th style="text-align:center;width:40px">#</th><th style="text-align:left">Frame</th>` +
+    cols.map((c) => `<th class="${isConst[c] ? "tc-const" : ""}" style="text-align:right">${c}</th>`).join("") + `</tr>`;
+  const note = `${total} frame${total === 1 ? "" : "s"} → ${disp.length} ${fdTraceCollapse ? "state" : "row"}${disp.length === 1 ? "" : "s"}${capped ? " (showing first 1000)" : ""}`;
+  if ($("fdTraceHint")) $("fdTraceHint").textContent = note;
+
+  body.innerHTML = `<div style="padding:12px 16px">
+    ${summary}
+    <div style="overflow:auto"><table class="data-table trace-tbl"><thead>${head}</thead><tbody>${trows}</tbody></table></div>
+    <div class="muted-line" style="font-size:11px;margin-top:8px">Changed cells highlighted · constant signals dimmed · ${note}</div>
+  </div>`;
 }
 async function fdDecodeBody(idHex) {
   const r = await POST("/api/decode/frames", { frames: [{ id: idHex, data: fdPayloads[idHex] || "" }] });

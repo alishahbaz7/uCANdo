@@ -87,3 +87,15 @@ def test_msb_lsb_single_bit():
 
 def test_unknown_id_returns_error():
     assert "error" in jd.decode_frame(_msgs(), 0x7FF, "00")
+
+
+def test_decode_frames_multi_payload_ordered():
+    # Trace view contract: a list of payloads on one ID decodes in order, each
+    # frame carrying its own signals (raw/physical) so the matrix can diff rows.
+    m = jd.load_signature(json.dumps({"905": ZIPTRON_905}))
+    idhex = f"{905:X}"
+    payloads = ["525100FFC000BE56", "525100498000BE56", "52510047C000BA56"]
+    out = jd.decode_frames(m, [{"id": idhex, "data": p} for p in payloads])
+    assert [f["id"] for f in out] == [905, 905, 905]
+    dte = [next(s["raw"] for s in f["signals"] if s["name"] == "distanceToEmpty") for f in out]
+    assert dte == [1023, 294, 287]      # varies across the sequence (change-highlight)

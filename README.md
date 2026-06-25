@@ -12,7 +12,10 @@
 
 | Feature | Details |
 |---|---|
+| **Multi-frame Trace view** | Frame Decoder `Single / Trace` toggle: paste many payloads of one ID → change-highlighted matrix (frames × signals), const/varies summary, collapse-duplicates, raw/physical toggle, and **CSV export** (`Frame No, Message ID, RAW payload`, then one column per parsed signal) |
 | **JSON Signature support** | Frame Decoder **and** Converter read the cloud **Signature JSON** (decimal CAN IDs; big-endian `startingBit` is MSB-first sequential = DBC Motorola layout) — bit/byte convention validated against the Ziptron DBC (`DTeInfo=287`, `HVBattSoCPercen=93`) |
+| **Converter clean ordering** | Upload preview and downloaded file sort messages by CAN ID and signals by start bit |
+| **Vector-style bit layout** | Frame Decoder bit grid shows the whole message layout (all signals coloured) when none selected, LSB→MSB direction arrows, highlighted header row/column, and per-cell sequential bit index |
 | **Format Converter** | New segment: **upload → preview → edit / select → download** among **DBC ⇄ JSON ⇄ CSV** in any direction. Source auto-detected; per-signal checkboxes; lossy fields reported. JSON↔DBC bit layout is exact |
 | **CSV with both CAN ID bases** | CSV carries `CAN ID (HEX)` **and** `CAN ID (Dec)`; `Motorola`/`Intel` byte order; value tables round-trip DBC ⇄ CSV |
 | **Smart single Upload** | One **Upload** button auto-detects `.dbc` vs `.json` (no separate buttons) |

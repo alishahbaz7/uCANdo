@@ -102,6 +102,33 @@ button, input, select, textarea { font-family: inherit; }
 }
 .fd-pay-bar .fdpay { flex: 1; max-width: 340px; }
 
+/* Frame Decoder — Single / Trace mode toggle + multi-frame Trace view */
+.fd-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.fd-seg button {
+  background: var(--panel-2); color: var(--muted); border: none;
+  padding: 3px 12px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.fd-seg button + button { border-left: 1px solid var(--line); }
+.fd-seg button.active { background: var(--accent); color: #fff; }
+.fd-trace-bar { padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.fd-trace-ta {
+  width: 100%; min-height: 64px; max-height: 180px; resize: vertical; box-sizing: border-box;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 6px; padding: 6px 8px; font-family: var(--mono); font-size: 12px;
+}
+.fd-trace-ta:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.fd-trace-tools { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+button.mini {
+  background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer;
+}
+button.mini.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.trace-tbl td.tc-chg { background: var(--accent-soft); font-weight: 600; color: var(--text); }
+.trace-tbl td.tc-oor { color: var(--red); }
+.trace-tbl th.tc-const, .trace-tbl td.tc-const { color: var(--muted); opacity: .65; }
+.trace-tbl .tc-cnt { color: var(--muted); font-size: 11px; }
+.tc-const { opacity: .7; }
+
 /* Inline icons (Feather-style) on buttons */
 .ico { width: 15px; height: 15px; flex: none; vertical-align: -2px; }
 /* Tier status dot (Auto-RE A/B/C) */
