@@ -84,12 +84,41 @@ def test_json_to_dbc_to_json_preserves_validated_signals():
     assert back["900"][0]["startingBit"] == 8 and back["900"][0]["reverse"] == 0
 
 
-def test_sub_byte_big_endian_is_flagged_not_silent():
-    # Batt_Voltage: big-endian, 11 bits, not byte-aligned → ambiguous in DBC
-    sig = {"909": [{"fieldName": "Batt_Voltage", "reverse": 0, "startingBit": 40,
-                    "size": 11, "multiplier": 0.25, "offset": 0, "signed": 0}]}
-    r = cv.convert(json.dumps(sig), "dbc", filename="s.json")
-    assert any("big-endian" in w for w in r["warnings"])
+def test_big_endian_startingbit_maps_to_dbc_motorola_exactly():
+    # MSB-first startingBit -> cantools Motorola start, validated vs the Ziptron
+    # DBC (JSON 24->DBC 31, 48->55), and it round-trips back unchanged.
+    sig = {"905": [
+        {"fieldName": "dte", "reverse": 0, "startingBit": 24, "size": 10, "multiplier": 1, "offset": 0},
+        {"fieldName": "soc", "reverse": 0, "startingBit": 48, "size": 7, "multiplier": 1, "offset": 0},
+    ]}
+    dbc = cv.convert(json.dumps(sig), "dbc", filename="s.json")["content"]
+    assert "dte : 31|10@0+" in dbc and "soc : 55|7@0+" in dbc
+    back = json.loads(cv.convert(dbc, "json", filename="s.dbc")["content"])
+    assert {s["fieldName"]: s["startingBit"] for s in back["905"]} == {"dte": 24, "soc": 48}
+
+
+def test_messages_and_signals_sorted_ascending():
+    # Out-of-order input: messages 912 before 256, signals Gear(24) before Rpm(0).
+    unsorted = (
+        'VERSION ""\n\nBU_:\n\n'
+        "BO_ 912 ODO: 8 Vector__XXX\n"
+        ' SG_ canOdometer : 7|24@0+ (1,0) [0|16777215] "km" Vector__XXX\n'
+        "BO_ 256 ENGINE: 8 Vector__XXX\n"
+        ' SG_ Gear : 24|3@1+ (1,0) [0|7] "" Vector__XXX\n'
+        ' SG_ Rpm : 0|16@1+ (0.25,0) [0|16000] "rpm" Vector__XXX\n'
+    )
+    model = cv.parse(unsorted, filename="x.dbc")["model"]
+    # messages ascending by CAN ID
+    assert [m["frame_id"] for m in model["messages"]] == [256, 912]
+    # signals within 256 ascending by start bit (Rpm@0 before Gear@24)
+    eng = next(m for m in model["messages"] if m["frame_id"] == 256)
+    assert [s["name"] for s in eng["signals"]] == ["Rpm", "Gear"]
+    # export keeps the same order: ENGINE block before ODO block
+    csv_text = cv.serialize(model, "csv")["content"]
+    rows = [ln for ln in csv_text.splitlines()[1:]]
+    assert rows[0].startswith("ENGINE,") and "Rpm" in rows[0]
+    assert rows[1].startswith("ENGINE,") and "Gear" in rows[1]
+    assert rows[2].startswith("ODO,")
 
 
 def test_byte_order_aliases_accepted_on_csv_import():
@@ -114,24 +143,6 @@ def test_detect_format_and_unknown_raises():
 
 
 # ----- workbench: parse → edit/select → serialize --------------------------
-def test_parse_tags_doubt_per_signal():
-    p = cv.parse(DBC, filename="x.dbc")
-    sigs = {s["name"]: s for m in p["model"]["messages"] for s in m["signals"]}
-    # byte-aligned BE + LE signals carry no doubt
-    assert sigs["canOdometer"]["doubt"] is None
-    assert sigs["Rpm"]["doubt"] is None
-
-
-def test_doubt_flagged_and_commented_for_sub_byte_be():
-    sig = {"909": [{"fieldName": "Batt_Voltage", "reverse": 0, "startingBit": 40,
-                    "size": 11, "multiplier": 0.25, "offset": 0, "signed": 0}]}
-    p = cv.parse(json.dumps(sig), filename="s.json")
-    assert p["model"]["messages"][0]["signals"][0]["doubt"]      # tagged on parse
-    # exported DBC carries a CM_ comment for it
-    out = cv.serialize(p["model"], "dbc")["content"]
-    assert any(l.startswith("CM_ SG_ 909 Batt_Voltage") and "uCANdo" in l for l in out.splitlines())
-
-
 def test_serialize_subset_only():
     p = cv.parse(DBC, filename="x.dbc")
     # keep only canOdometer

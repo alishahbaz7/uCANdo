@@ -35,8 +35,6 @@ import cantools
 from cantools.database.can import Database, Message, Signal
 from cantools.database.conversion import BaseConversion
 
-from . import framedecode
-
 CSV_HEADER = [
     "message_name", "CAN ID (HEX)", "CAN ID (Dec)", "is_extended", "dlc",
     "signal_name", "start_bit", "length", "byte_order", "signed", "scale",
@@ -88,61 +86,38 @@ def _fmt_value_table(vt) -> str:
     return ";".join(f"{k}:{v}" for k, v in (vt or {}).items())
 
 
-# --------------------------------------------------------------------------- #
-# bit-position conversion (only needed at the DBC boundary)
-# --------------------------------------------------------------------------- #
-def _intelseq_to_cantools_start(start_bit: int, length: int, big_endian: bool) -> int:
-    """Canonical Intel/LSB-seq start → cantools ``Signal.start``."""
-    if not big_endian:
-        return start_bit                       # Intel: LSB position is identical
-    # Motorola: cantools start = the field's MSB position. For a field occupying
-    # Intel-seq [start_bit, end], the MSB is the highest bit of the lowest byte.
-    end = start_bit + length - 1
-    first_byte = start_bit // 8
-    return min(end, first_byte * 8 + 7)
+def _sort_model(model):
+    """Order messages by CAN ID and, within each, signals by start bit (ascending).
 
-
-def _cantools_cells_to_intelseq(cells, length: int):
-    """cantools cell occupancy → ``(start_bit, contiguous?)`` in Intel-seq."""
-    idxs = sorted(b * 8 + bit for b, bit in cells)
-    if not idxs:
-        return 0, False
-    start = idxs[0]
-    contiguous = idxs == list(range(start, start + length))
-    return start, contiguous
-
-
-def _be_doubt(start_bit: int, length: int, byte_order: str):
-    """A note if this signal can't be represented exactly in DBC, else None.
-
-    Only **big-endian** signals that cross a byte boundary while *not* being
-    whole-byte-aligned are ambiguous (the cloud's Intel-seq span and DBC's
-    Motorola sawtooth disagree). Single-byte or byte-aligned BE round-trips fine.
+    Applied on **parse** (so the workbench preview reads top-to-bottom) and on
+    **serialize** (so the downloaded file keeps the same clean, structured order).
+    ``start_bit`` is the canonical per-signal position, so ascending order lists
+    signals in payload order for both Motorola and Intel layouts. In place; idempotent.
     """
-    if byte_order != "big_endian":
-        return None
-    first = start_bit // 8
-    last = (start_bit + length - 1) // 8
-    if last > first and not (start_bit % 8 == 0 and length % 8 == 0):
-        return f"sub-byte big-endian (size {length}) - verify bit layout in a DBC tool"
-    return None
+    for m in model.get("messages", []):
+        m["signals"].sort(key=lambda s: (int(s.get("start_bit", 0)), str(s.get("name", ""))))
+    model["messages"].sort(key=lambda m: (int(m.get("frame_id", 0)), str(m.get("name", ""))))
+    return model
 
 
-def inject_doubts(model) -> int:
-    """Tag each signal with a ``doubt`` note (or None). Returns the count."""
-    n = 0
-    for m in model["messages"]:
-        for s in m["signals"]:
-            s["doubt"] = _be_doubt(s["start_bit"], s["length"], s["byte_order"])
-            if s["doubt"]:
-                n += 1
-    return n
+# --------------------------------------------------------------------------- #
+# bit-position conversion (only at the DBC boundary)
+# --------------------------------------------------------------------------- #
+def _be_seq_cantools(pos: int) -> int:
+    """Map between the JSON big-endian ``startingBit`` (MSB-first sequential) and
+    the cantools/DBC Motorola start bit. Self-inverse: ``byte*8 + (7 - bit)``.
+
+    Validated against the Ziptron DBC: JSON 24 ↔ DBC 31, 48 ↔ 55, 42 ↔ 45, …
+    """
+    return (pos // 8) * 8 + (7 - pos % 8)
 
 
-def _merge_comment(user_comment, note) -> str:
-    parts = [p for p in [(user_comment or "").strip(),
-                         ("uCANdo: " + note) if note else ""] if p]
-    return " | ".join(parts)
+def _to_cantools_start(start_bit: int, big_endian: bool) -> int:
+    return _be_seq_cantools(start_bit) if big_endian else start_bit
+
+
+def _from_cantools_start(start: int, big_endian: bool) -> int:
+    return _be_seq_cantools(start) if big_endian else start
 
 
 # --------------------------------------------------------------------------- #
@@ -157,18 +132,11 @@ def dbc_to_model(text: str):
             if s.multiplexer_ids:                      # multiplexed payload signal
                 warnings.append(f"{m.name}.{s.name}: multiplexed signal skipped (v1)")
                 continue
-            cells = framedecode.signal_cells(m, s)
-            start_bit, contiguous = _cantools_cells_to_intelseq(cells, s.length)
-            if not contiguous:
-                warnings.append(
-                    f"{m.name}.{s.name}: non-contiguous layout (sub-byte big-endian) - "
-                    "start bit in JSON/CSV is approximate")
-            value_table = None
-            if s.choices:
-                value_table = {int(k): str(v) for k, v in s.choices.items()}
+            be = s.byte_order == "big_endian"
+            value_table = {int(k): str(v) for k, v in s.choices.items()} if s.choices else None
             sigs.append({
-                "name": s.name, "start_bit": start_bit, "length": s.length,
-                "byte_order": s.byte_order,
+                "name": s.name, "start_bit": _from_cantools_start(s.start, be),
+                "length": s.length, "byte_order": s.byte_order,
                 "is_signed": bool(s.is_signed),
                 "scale": _num(s.scale), "offset": _num(s.offset),
                 "min": None if s.minimum is None else _num(s.minimum),
@@ -184,26 +152,20 @@ def dbc_to_model(text: str):
 
 
 def model_to_dbc(model):
-    warnings = []
     db = Database()
     for m in model["messages"]:
         ct_sigs = []
         for s in m["signals"]:
             be = s["byte_order"] == "big_endian"
-            note = _be_doubt(s["start_bit"], s["length"], s["byte_order"])
-            if note:
-                warnings.append(f"{m['name']}.{s['name']}: {note}")
             conv = BaseConversion.factory(
                 scale=float(s.get("scale", 1) or 1),
                 offset=float(s.get("offset", 0) or 0), is_float=False)
             sig = Signal(
-                name=s["name"],
-                start=_intelseq_to_cantools_start(s["start_bit"], s["length"], be),
+                name=s["name"], start=_to_cantools_start(s["start_bit"], be),
                 length=s["length"], byte_order=s["byte_order"],
                 is_signed=bool(s.get("is_signed")), conversion=conv,
                 minimum=s.get("min"), maximum=s.get("max"),
-                unit=(s.get("unit") or None),
-                comment=(_merge_comment(s.get("comment"), note) or None))   # #6: annotate doubts
+                unit=(s.get("unit") or None), comment=(s.get("comment") or None))
             if s.get("value_table"):
                 try:
                     sig.choices = {int(k): str(v) for k, v in s["value_table"].items()}
@@ -213,7 +175,7 @@ def model_to_dbc(model):
         db.messages.append(Message(
             frame_id=m["frame_id"], name=m["name"], length=m["dlc"],
             signals=ct_sigs, is_extended_frame=bool(m.get("is_extended"))))
-    return db.as_dbc_string(), warnings
+    return db.as_dbc_string(), []
 
 
 # --------------------------------------------------------------------------- #
@@ -282,12 +244,8 @@ def model_to_csv(model):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(CSV_HEADER)
-    warnings = []
     for m in model["messages"]:
         for s in m["signals"]:
-            note = _be_doubt(s["start_bit"], s["length"], s["byte_order"])
-            if note:
-                warnings.append(f"{m['name']}.{s['name']}: {note}")
             w.writerow([
                 m["name"], f"0x{m['frame_id']:X}", m["frame_id"],
                 int(bool(m.get("is_extended"))), m["dlc"],
@@ -296,9 +254,9 @@ def model_to_csv(model):
                 int(bool(s.get("is_signed"))), _num(s.get("scale", 1)), _num(s.get("offset", 0)),
                 _blank(s.get("min")), _blank(s.get("max")), s.get("unit") or "",
                 _fmt_value_table(s.get("value_table")),
-                _merge_comment(s.get("comment"), note), int(s.get("ev_data") or 0),
+                s.get("comment") or "", int(s.get("ev_data") or 0),
             ])
-    return buf.getvalue(), warnings
+    return buf.getvalue(), []
 
 
 def csv_to_model(text: str):
@@ -381,13 +339,13 @@ def detect_format(filename: str, text: str) -> str:
 
 
 def parse(text: str, from_fmt: str | None = None, filename: str = ""):
-    """Parse a file into the canonical model (with per-signal ``doubt`` tags)."""
+    """Parse a file into the canonical model."""
     if from_fmt is None:
         from_fmt = detect_format(filename, text)
     if from_fmt not in _PARSERS:
         raise ValueError(f"unknown source format: {from_fmt}")
     model, warnings = _PARSERS[from_fmt](text)
-    inject_doubts(model)
+    _sort_model(model)
     summary = {
         "from": from_fmt,
         "messages": len(model["messages"]),
@@ -400,6 +358,7 @@ def serialize(model, to_fmt: str):
     """Serialize a (possibly edited/filtered) canonical model to ``to_fmt``."""
     if to_fmt not in _SERIALIZERS:
         raise ValueError(f"unknown target format: {to_fmt}")
+    _sort_model(model)
     content, warnings = _SERIALIZERS[to_fmt](model)
     return {"content": content, "warnings": warnings}
 

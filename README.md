@@ -12,8 +12,8 @@
 
 | Feature | Details |
 |---|---|
-| **JSON Signature support** | Frame Decoder **and** Converter read the cloud **Signature JSON** (decimal CAN IDs, Intel/LSB-first sequential start bits) — bit/byte convention validated against real MG ZS EV frames (`canOdometer = 75971`) |
-| **Format Converter** | New segment: **upload → preview → edit / select → download** among **DBC ⇄ JSON ⇄ CSV** in any direction. Source auto-detected; per-signal checkboxes; lossy fields reported; sub-byte big-endian flagged with inline comments |
+| **JSON Signature support** | Frame Decoder **and** Converter read the cloud **Signature JSON** (decimal CAN IDs; big-endian `startingBit` is MSB-first sequential = DBC Motorola layout) — bit/byte convention validated against the Ziptron DBC (`DTeInfo=287`, `HVBattSoCPercen=93`) |
+| **Format Converter** | New segment: **upload → preview → edit / select → download** among **DBC ⇄ JSON ⇄ CSV** in any direction. Source auto-detected; per-signal checkboxes; lossy fields reported. JSON↔DBC bit layout is exact |
 | **CSV with both CAN ID bases** | CSV carries `CAN ID (HEX)` **and** `CAN ID (Dec)`; `Motorola`/`Intel` byte order; value tables round-trip DBC ⇄ CSV |
 | **Smart single Upload** | One **Upload** button auto-detects `.dbc` vs `.json` (no separate buttons) |
 | **MSB/LSB bit highlighting** | Frame Decoder bit grid marks a signal's **MSB (gold)** and **LSB (green)**, endianness-aware, with a legend |

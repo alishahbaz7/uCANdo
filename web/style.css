@@ -42,6 +42,9 @@ button, input, select, textarea { font-family: inherit; }
 }
 .byteview th { color: var(--muted); }
 .data-table tr.sel td { background: var(--accent-soft); }
+/* Frame Decoder value-table description: bounded width, wraps (never overflows the grid) */
+.fd-desc { max-width: 240px; white-space: normal; word-break: break-word;
+  color: var(--green); font-weight: 500; font-size: 12px; line-height: 1.35; }
 
 /* Frame Decoder — 2-column layout */
 .fd-import-bar {

@@ -640,10 +640,8 @@ async function fdDecodeBody(idHex) {
 function fdRenderBody(f) {
   const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
   const sel = (fdSelSig >= 0 && f.signals[fdSelSig]) ? f.signals[fdSelSig] : null;
-  const cells = new Set((sel ? sel.cells : []).map((c) => c[0] + ":" + c[1]));
-  const msbKey = sel && sel.msb_cell ? sel.msb_cell[0] + ":" + sel.msb_cell[1] : null;
-  const lsbKey = sel && sel.lsb_cell ? sel.lsb_cell[0] + ":" + sel.lsb_cell[1] : null;
-  const single = msbKey && msbKey === lsbKey;   // 1-bit signal: MSB == LSB
+  const single = !!(sel && sel.msb_cell && sel.lsb_cell
+    && sel.msb_cell[0] === sel.lsb_cell[0] && sel.msb_cell[1] === sel.lsb_cell[1]);
   const idx = f.bytes.map((_, i) => `<td>${String(i).padStart(2, "0")}</td>`).join("");
   const val = f.bytes.map((b) => `<td>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("");
 
@@ -657,20 +655,16 @@ function fdRenderBody(f) {
       ? `<span title="Outside DBC range [${s.min ?? "?"}…${s.max ?? "?"}]"
            style="margin-left:5px;font-size:10px;background:#3a1c1c;color:var(--red);border-radius:3px;padding:1px 5px;vertical-align:middle">OOR</span>`
       : "";
-    // Value description column cell
+    // Value description (DBC VAL_ label) — wraps inside its column, never overflows
     const descCell = hasChoices
-      ? `<td style="color:var(--green);font-weight:600;letter-spacing:.02em">${
-          s.choice != null
-            ? `<span class="tag" style="background:var(--green-bg);color:var(--green);border-color:#2c5a39;font-size:12px">${s.choice}</span>`
-            : "<span style=\"color:var(--muted)\">—</span>"
-        }</td>`
+      ? `<td>${s.choice != null ? `<div class="fd-desc">${s.choice}</div>` : '<span style="color:var(--muted)">—</span>'}</td>`
       : "";
     return `<tr class="${si === fdSelSig ? "sel" : ""}" style="cursor:pointer" onclick="fdSelectSig(${si})" title="Click to highlight bits">
-      <td style="text-align:center;color:var(--muted)">${si + 1}</td>
-      <td style="font-weight:500">${s.name}</td>
-      <td class="mono" style="text-align:right" title="${s.raw} (dec)">${fdRawHex(s)}</td>
-      <td class="mono" style="text-align:right;color:${physColor}">${s.physical}${oorBadge}</td>
-      <td style="color:var(--muted);font-size:12px">${s.unit || "—"}</td>
+      <td style="text-align:center;color:var(--muted);vertical-align:top">${si + 1}</td>
+      <td style="font-weight:500;vertical-align:top;word-break:break-word">${s.name}</td>
+      <td class="mono" style="text-align:right;vertical-align:top" title="${s.raw} (dec)">${fdRawHex(s)}</td>
+      <td class="mono" style="text-align:right;vertical-align:top;color:${physColor}">${s.physical}${oorBadge}</td>
+      <td style="color:var(--muted);font-size:12px;vertical-align:top">${s.unit || "—"}</td>
       ${descCell}
     </tr>`;
   }).join("") || `<tr><td colspan="${hasChoices ? 6 : 5}" class="muted-line" style="padding:12px;text-align:center">no decoded signals</td></tr>`;
@@ -678,43 +672,94 @@ function fdRenderBody(f) {
   // Header: add Description column only when needed
   const descHead = hasChoices ? `<th style="color:var(--green)">Description</th>` : "";
 
-  const bitHead = COLS.map((c, ci) => {
-    const sub = ci === 0 ? `<br><span style="font-size:9px;letter-spacing:.04em;opacity:.65">MSB</span>` :
-                ci === 7 ? `<br><span style="font-size:9px;letter-spacing:.04em;opacity:.65">LSB</span>` : "";
-    return `<th>${c}${sub}</th>`;
-  }).join("");
   // Inline colours (cache-proof — don't depend on style.css being fresh).
   const C_HI = "#4ea1ff", C_MSB = "#e0a82e", C_LSB = "#46b86a";
-  let grid = `<table class="bitgrid"><thead><tr><th></th>${bitHead}</tr></thead><tbody>`;
+  // Distinct palette for the message-layout view (one colour per signal).
+  const PALETTE = ["#4ea1ff", "#46b86a", "#e0a82e", "#c264d6", "#e06c4e",
+                   "#3fb6c0", "#d65a8a", "#8a9a3f", "#6a78e0", "#cf7e3f"];
+  const sigColorAt = (i) => PALETTE[i % PALETTE.length];
+  const _lum = (h) => 0.299 * parseInt(h.slice(1, 3), 16)
+                    + 0.587 * parseInt(h.slice(3, 5), 16)
+                    + 0.114 * parseInt(h.slice(5, 7), 16);
+  const txtOn = (h) => (_lum(h) > 150 ? "#1b1d1f" : "#fff");
+
+  // Map every grid cell to its owning signal + remember each signal's MSB/LSB cell.
+  const owner = {}, msbOf = {}, lsbOf = {};
+  f.signals.forEach((s, i) => {
+    (s.cells || []).forEach((c) => { owner[c[0] + ":" + c[1]] = i; });
+    if (s.msb_cell) msbOf[s.msb_cell[0] + ":" + s.msb_cell[1]] = i;
+    if (s.lsb_cell) lsbOf[s.lsb_cell[0] + ":" + s.lsb_cell[1]] = i;
+  });
+  // Arrow glyph pointing from the LSB cell toward the MSB cell (bit direction).
+  const arrowFor = (s) => {
+    if (!s || !s.msb_cell || !s.lsb_cell) return "";
+    const dr = s.msb_cell[0] - s.lsb_cell[0];
+    const dc = COLS.indexOf(s.msb_cell[1]) - COLS.indexOf(s.lsb_cell[1]);
+    if (dr === 0 && dc === 0) return "";
+    if (Math.abs(dr) >= Math.abs(dc)) return dr < 0 ? "↑" : "↓";
+    return dc < 0 ? "←" : "→";
+  };
+
+  // Highlighted header cells (gray top row + left column, like CANdb++ Layout).
+  const hSty = "background:#2a2d31;color:#cdd3da;font-weight:600;border:1px solid var(--line);font-size:11px;text-align:center;font-family:var(--mono)";
+  const bitHead = COLS.map((c) => `<th style="${hSty};width:30px;height:24px">${c}</th>`).join("");
+
+  let grid = `<table class="bitgrid" style="border-collapse:collapse"><thead><tr>`
+    + `<th style="${hSty};width:26px;height:24px"></th>${bitHead}</tr></thead><tbody>`;
   for (let b = 0; b < f.bytes.length; b++) {
-    grid += `<tr><th>${b}</th>` + COLS.map((c) => {
-      const key = b + ":" + c, bit = (f.bytes[b] >> c) & 1;
-      let st = "";
-      if (!single && key === msbKey) st = `background:${C_MSB};color:#1b1d1f;font-weight:700`;
-      else if (!single && key === lsbKey) st = `background:${C_LSB};color:#fff;font-weight:700`;
-      else if (cells.has(key)) st = `background:${C_HI};color:#fff;font-weight:700`;
-      return `<td style="${st}">${bit}</td>`;
+    grid += `<tr><th style="${hSty};width:26px;height:30px">${b}</th>` + COLS.map((c) => {
+      const key = b + ":" + c, bit = (f.bytes[b] >> c) & 1, idx = b * 8 + c;
+      const si = owner[key];
+      const isMsb = si !== undefined && msbOf[key] === si;
+      const isLsb = si !== undefined && lsbOf[key] === si;
+      let bg = "transparent", tc = "var(--muted)", fw = "400", tag = "";
+      if (sel) {                                   // single-signal highlight mode
+        if (si === fdSelSig) {
+          fw = "700";
+          if (single) { bg = C_HI; tc = "#fff"; tag = "bit"; }
+          else if (isMsb) { bg = C_MSB; tc = "#1b1d1f"; tag = "msb"; }
+          else if (isLsb) { bg = C_LSB; tc = "#fff"; tag = "lsb " + arrowFor(sel); }
+          else { bg = C_HI; tc = "#fff"; }
+        }
+      } else if (si !== undefined) {               // message-layout mode (all signals)
+        const col = sigColorAt(si);
+        bg = col; tc = txtOn(col); fw = "600";
+        if (isMsb && isLsb) tag = "bit";
+        else if (isMsb) tag = "msb";
+        else if (isLsb) tag = "lsb " + arrowFor(f.signals[si]);
+      }
+      const idxSpan = `<span style="position:absolute;top:0;right:2px;font-size:8px;line-height:1.1;opacity:.5;font-weight:400">${idx}</span>`;
+      const tagSpan = tag ? `<span style="position:absolute;bottom:-1px;left:0;right:0;font-size:7px;line-height:1.2;font-weight:600;letter-spacing:.02em">${tag}</span>` : "";
+      return `<td style="position:relative;width:30px;height:30px;padding:0;border:1px solid var(--line);text-align:center;background:${bg};color:${tc};font-weight:${fw}">`
+        + `${idxSpan}<span style="font-size:12px;line-height:30px">${bit}</span>${tagSpan}</td>`;
     }).join("") + `</tr>`;
   }
   grid += `</tbody></table>`;
-  // Legend (inline-styled, only when a signal is highlighted)
+
+  // Legend — selected signal: MSB/bits/LSB + arrow; otherwise one chip per signal.
   const sw = (c) => `<i style="width:12px;height:12px;border-radius:3px;display:inline-block;background:${c}"></i>`;
   const chip = (c, label) => `<span style="display:inline-flex;align-items:center;gap:5px">${sw(c)}${label}</span>`;
-  const legendStyle = "display:flex;gap:14px;margin-top:8px;font-size:11px;color:var(--muted)";
-  const legend = sel
-    ? (single
-        ? `<div style="${legendStyle}">${chip(C_HI, "signal bit")}</div>`
-        : `<div style="${legendStyle}">${chip(C_MSB, "MSB")}${chip(C_HI, "signal bits")}${chip(C_LSB, "LSB")}</div>`)
-    : "";
+  const legendStyle = "display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--muted)";
+  let legend;
+  if (sel) {
+    legend = single
+      ? `<div style="${legendStyle}">${chip(C_HI, "signal bit")}</div>`
+      : `<div style="${legendStyle}">${chip(C_MSB, "MSB")}${chip(C_HI, "signal bits")}${chip(C_LSB, "LSB")}<span>arrow ${arrowFor(sel)} = LSB→MSB</span></div>`;
+  } else {
+    legend = `<div style="${legendStyle}">`
+      + f.signals.map((s, i) => chip(sigColorAt(i), s.name)).join("")
+      + (f.signals.length ? `<span style="opacity:.8">· msb/lsb + arrow show bit direction</span>` : "")
+      + `</div>`;
+  }
 
   $("fdDetailBody").innerHTML = `<div style="padding:12px 16px">
     <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Data Byte View (HEX)</div>
     <table class="byteview mono"><tbody><tr><th>Byte</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
-    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
-      <div style="flex:1;min-width:300px">
-        <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Signal Details</div>
-        <table class="data-table" style="min-width:380px">
-          <colgroup><col style="width:34px"><col><col style="width:80px"><col style="width:100px"><col style="width:52px">${hasChoices ? '<col style="width:110px">' : ""}</colgroup>
+    <div style="margin-top:16px">
+      <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Signal Details</div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <colgroup><col style="width:34px"><col><col style="width:84px"><col style="width:92px"><col style="width:48px">${hasChoices ? "<col>" : ""}</colgroup>
           <thead><tr>
             <th style="text-align:center">#</th><th>Signal</th>
             <th style="text-align:right">Raw</th>
@@ -725,11 +770,12 @@ function fdRenderBody(f) {
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <div>
-        <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Bit Layout — byte · bit 7(MSB)→0(LSB)</div>
-        ${grid}
-        ${legend}
-      </div>
+    </div>
+    <div style="margin-top:24px;border-top:1px solid var(--line);padding-top:16px">
+      <h3 style="font-size:15px;font-weight:600;color:var(--text);margin:0 0 2px">Bit Layout</h3>
+      <div class="muted-line" style="font-size:11px;margin-bottom:10px">Click a signal to isolate · arrows point LSB→MSB</div>
+      <div style="overflow-x:auto">${grid}</div>
+      ${legend}
     </div>
   </div>`;
 }
@@ -774,12 +820,9 @@ const cvParseVT = (raw) => {
   return any ? out : null;
 };
 const cvFmtVT = (vt) => vt ? Object.entries(vt).map(([k, v]) => `${k}:${v}`).join(";") : "";
-function cvBeDoubt(start, len, bo) {       // mirror of convert._be_doubt
-  if (bo !== "big_endian") return null;
-  const first = Math.floor(start / 8), last = Math.floor((start + len - 1) / 8);
-  return (last > first && !(start % 8 === 0 && len % 8 === 0))
-    ? `sub-byte big-endian (size ${len}) — verify bit layout in a DBC tool` : null;
-}
+// Big-endian startingBit maps exactly to the DBC Motorola position (validated),
+// so there is no longer any sub-byte ambiguity to flag.
+function cvBeDoubt() { return null; }
 
 $("btnCvUpload").addEventListener("click", () => $("cvFile").click());
 $("cvFile").addEventListener("change", async (e) => {

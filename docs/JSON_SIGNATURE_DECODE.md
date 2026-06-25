@@ -1,5 +1,30 @@
 # JSON Signature Decode — Design & Clarification
 
+> ## ✅ FINAL CONVENTION (corrected — validated against the Ziptron DBC)
+> The earlier sections below explored an **Intel/LSB-first** reading. That was a
+> wrong guess: it was only ever confirmed on the byte-aligned odometer, which
+> reads the same under either convention. The **Ziptron DBC** (message
+> `0x244`/580) gives definitive ground truth across many sub-byte signals:
+>
+> - **Big-endian (`reverse == 0`)** — `startingBit` is **MSB-first sequential**
+>   (bit 0 = byte0's **MSB**), and the value is read **MSB-first**. This is
+>   identical to the DBC/cantools **Motorola** layout:
+>   `cantools_start = (startingBit // 8) * 8 + (7 - startingBit % 8)` (self-inverse).
+> - **Little-endian (`reverse == 1`)** — `startingBit` is LSB-first sequential,
+>   value read LSB-first (Intel). *(No real samples yet; standard assumption.)*
+> - `signed == 1` → two's complement; physical = `raw * multiplier + offset`.
+>
+> **Proof** — Ziptron `0x244`, frame `52 51 00 47 C0 00 BA 56`, via cantools on the
+> real DBC: `DTeInfo = 287` (start 24, size 10) and `HVBattSoCPercen = 93`
+> (start 48, size 7). `jsondecode` reproduces both exactly. Mapping checks:
+> JSON 24↔DBC 31, 48↔55, 42↔45, 19↔20, 44↔43 — all consistent.
+>
+> Implemented in `canforge/jsondecode.py` and `canforge/convert.py`; there is no
+> sub-byte ambiguity, so JSON ⇄ DBC is bit-exact. The notes below are kept for
+> history but are **superseded** by this block.
+
+---
+
 **Goal:** Decode raw CAN frames against a lightweight **Signature JSON** (used on
 our cloud for visualization) and render the **same Frame Decoder output** we
 already produce from a `.dbc` — byte view, signal table (Raw / Physical / Unit),

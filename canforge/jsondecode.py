@@ -5,26 +5,28 @@ The Signature JSON is a limited DBC alternative used for cloud visualization::
     {"900": [{"fieldName","reverse","startingBit","size",
               "multiplier","offset","signed","evData"}, ...], ...}
 
-Bit/byte convention — **validated against real vehicle frames**
-(see ``docs/JSON_SIGNATURE_DECODE.md``):
+Bit/byte convention — **validated against the Ziptron DBC** (see
+``docs/JSON_SIGNATURE_DECODE.md``):
 
 * keys are CAN IDs in **decimal**;
-* ``startingBit`` is **Intel / LSB-first sequential**: bit 0 = byte0 LSB,
-  bit 7 = byte0 MSB, bit 8 = byte1 LSB, … bit 63 = byte7 MSB;
-* a signal occupies sequential bits ``[startingBit, startingBit+size-1]``;
-* ``reverse`` controls **multi-byte assembly only**: ``0`` = big-endian
-  (lowest-address byte most significant), ``1`` = little-endian;
+* for **big-endian** (``reverse == 0``) ``startingBit`` is **MSB-first
+  sequential**: bit 0 = byte0's MSB, bit 7 = byte0's LSB, bit 8 = byte1's MSB,
+  … and the value is read MSB-first. This equals the DBC/cantools Motorola
+  layout: cantools start = ``(startingBit//8)*8 + (7 - startingBit%8)``;
+* for **little-endian** (``reverse == 1``) ``startingBit`` is LSB-first
+  sequential (bit 0 = byte0's LSB) and the value is read LSB-first;
+* a signal occupies ``size`` consecutive bits from ``startingBit``;
 * ``signed == 1`` → two's complement over ``size`` bits;
 * physical = ``raw * multiplier + offset``.
 
-Validated samples: frame ``0205000000000200`` on id 900 → ``Seat_belt_passenger=1``;
-frame ``0128C30000000000`` on id 912 → ``canOdometer=75971``.
+Ground truth (Ziptron DBC, message 0x244/580, frame ``5251 0047 C000 BA56``):
+``DTeInfo=287`` (start 24, size 10) and ``HVBattSoCPercen=93`` (start 48, size 7)
+— both reproduced exactly. byte-aligned ``canOdometer=75971`` also holds.
 
-Self-contained (no cantools): the JSON carries no enums / min-max / units, so
-cantools adds nothing, and a direct bit-span extractor reproduces the cloud's
-values exactly (including sub-byte big-endian). The output dict shape matches
-:func:`canforge.framedecode.decode_frames`, so the Frame Decoder UI renders the
-same byte view / signal table / bit grid.
+Self-contained (no cantools): the JSON carries no enums / min-max / units, so a
+direct bit extractor reproduces the cloud/DBC values exactly. The output dict
+shape matches :func:`canforge.framedecode.decode_frames`, so the Frame Decoder
+UI renders the same byte view / signal table / bit grid.
 """
 
 from __future__ import annotations
@@ -79,44 +81,42 @@ def signature_messages(messages: dict) -> list:
     } for fid, m in messages.items()]
 
 
+def _bit(data: bytes, byte: int, bitpos: int) -> int:
+    return (data[byte] >> bitpos) & 1 if byte < len(data) else 0
+
+
 def _extract_raw(data: bytes, start: int, size: int, big_endian: bool) -> int:
-    """Extract an unsigned integer from the LSB-first sequential bit span."""
-    end = start + size - 1
-    if big_endian:
-        # Assemble touched bytes MSByte-first (lowest address = most significant).
-        raw = 0
-        for byte_idx in range(start // 8, end // 8 + 1):
-            base = byte_idx * 8
-            lo, hi = max(start, base), min(end, base + 7)
-            nbits = hi - lo + 1
-            field = (data[byte_idx] >> (lo % 8)) & ((1 << nbits) - 1)
-            raw = (raw << nbits) | field
-        return raw
-    # little-endian: sequential bit (start+i) is value bit i
+    """Extract an unsigned integer from the signal's bit span.
+
+    big-endian: ``startingBit`` is **MSB-first sequential** (bit 0 = byte0's MSB);
+    the value is read MSB-first (validated against the Ziptron DBC).
+    little-endian: ``startingBit`` is LSB-first sequential (bit 0 = byte0's LSB).
+    """
     raw = 0
+    if big_endian:
+        for i in range(size):
+            n = start + i                       # MSB-first sequential position
+            raw = (raw << 1) | _bit(data, n // 8, 7 - (n % 8))
+        return raw
     for i in range(size):
         n = start + i
-        raw |= ((data[n // 8] >> (n % 8)) & 1) << i
+        raw |= _bit(data, n // 8, n % 8) << i
     return raw
 
 
-def _cells(start: int, size: int) -> list:
+def _cells(start: int, size: int, big_endian: bool) -> list:
     """``[[byte, bitpos], …]`` occupied by the field (bitpos 0 = byte's LSB)."""
-    return [[n // 8, n % 8] for n in range(start, start + size)]
+    if big_endian:                              # MSB-first seq: position n -> bit 7-(n%8)
+        return [[(start + i) // 8, 7 - ((start + i) % 8)] for i in range(size)]
+    return [[(start + i) // 8, (start + i) % 8] for i in range(size)]
 
 
 def _msb_lsb_cells(start: int, size: int, big_endian: bool):
-    """Return ``(msb_cell, lsb_cell)`` — the [byte, bitpos] holding the value's
-    most- and least-significant bits, accounting for byte order."""
+    """Return ``(msb_cell, lsb_cell)`` — [byte, bitpos] of the value's MSB & LSB."""
     end = start + size - 1
-    if big_endian:
-        # MSByte = lowest address; within it the highest field bit is the MSB.
-        first_byte, last_byte = start // 8, end // 8
-        msb_seq = min(end, first_byte * 8 + 7)
-        lsb_seq = max(start, last_byte * 8)
-        return [msb_seq // 8, msb_seq % 8], [lsb_seq // 8, lsb_seq % 8]
-    # little-endian: bit `start` is the LSB, bit `end` is the MSB.
-    return [end // 8, end % 8], [start // 8, start % 8]
+    if big_endian:                              # MSB is the first bit, LSB the last
+        return [start // 8, 7 - (start % 8)], [end // 8, 7 - (end % 8)]
+    return [end // 8, end % 8], [start // 8, start % 8]   # LE: LSB at start
 
 
 def decode_frame(messages: dict, frame_id: int, data_hex: str) -> dict:
@@ -149,7 +149,7 @@ def decode_frame(messages: dict, frame_id: int, data_hex: str) -> dict:
             "min": None, "max": None, "out_of_range": False,
             "start_bit": s["start"], "length": s["size"],
             "byte_order": "big_endian" if s["big_endian"] else "little_endian",
-            "cells": _cells(s["start"], s["size"]),
+            "cells": _cells(s["start"], s["size"], s["big_endian"]),
             "msb_cell": msb, "lsb_cell": lsb,
         })
     return {
