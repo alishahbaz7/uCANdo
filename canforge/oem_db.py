@@ -178,7 +178,7 @@ class OemDatabase:
 
         # A real, decodable demo profile matching the virtual-bus simulator, so
         # auto-identify works end-to-end offline (and the flywheel is testable).
-        if ("CANForge", "Sim Vehicle") not in existing:
+        if ("uCANdo", "Sim Vehicle") not in existing:
             m = DbcModel()
             m.add_message(0x100, "ENGINE", length=8)
             m.add_signal(0x100, {"name": "EngineRPM", "start_bit": 7, "length": 16,
@@ -186,7 +186,7 @@ class OemDatabase:
             m.add_message(0x200, "COUNTER", length=4)
             m.add_signal(0x200, {"name": "RollingCounter", "start_bit": 7, "length": 8,
                                  "byte_order": "big_endian"})
-            self.add_profile("CANForge", "Sim Vehicle", model="virtual",
+            self.add_profile("uCANdo", "Sim Vehicle", model="virtual",
                              dbc=m.to_dbc_string(), status="shipped")
             added += 1
 

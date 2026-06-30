@@ -14,6 +14,7 @@ captured without holding every frame in memory.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -23,6 +24,8 @@ from typing import Optional
 import can
 
 from .hal import CANInterface
+
+_log = logging.getLogger("canforge.logger")
 
 RECENT_MAXLEN = 250
 FPS_WINDOW_S = 2.0
@@ -74,6 +77,11 @@ class CanLogger:
         self._record_count = 0
         self._record_start: Optional[float] = None
 
+        # One-shot error guards so a persistently-failing tap/writer can't flood
+        # the log at hundreds of frames per second.
+        self._tap_errors: set = set()
+        self._writer_error_logged = False
+
     # ----- lifecycle -------------------------------------------------------
     def start(self) -> None:
         if self._running:
@@ -95,8 +103,9 @@ class CanLogger:
         while self._running:
             try:
                 msg = self._iface.recv(timeout=0.2)
-            except Exception:
+            except Exception as exc:
                 # A read error usually means the bus went away; back off briefly.
+                _log.debug("recv error (bus may be down): %s", exc)
                 time.sleep(0.1)
                 continue
             if msg is None:
@@ -146,7 +155,9 @@ class CanLogger:
                     self._writer.on_message_received(msg)
                     self._record_count += 1
                 except Exception:
-                    pass
+                    if not self._writer_error_logged:
+                        self._writer_error_logged = True
+                        _log.warning("recording writer failed (further errors suppressed)", exc_info=True)
 
         # Taps run outside the lock so a slow consumer (e.g. DBC decode) never
         # stalls the receive loop or blocks UI snapshots.
@@ -154,7 +165,11 @@ class CanLogger:
             try:
                 tap(msg)
             except Exception:
-                pass
+                tid = id(tap)
+                if tid not in self._tap_errors:          # log each tap's first failure only
+                    self._tap_errors.add(tid)
+                    _log.warning("frame tap %s failed (further errors from it suppressed)",
+                                 getattr(tap, "__qualname__", repr(tap)), exc_info=True)
 
     def add_tap(self, fn) -> None:
         if fn not in self._taps:

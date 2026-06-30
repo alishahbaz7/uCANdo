@@ -9,6 +9,7 @@ Starts the FastAPI server and opens the local UI in the default browser.
 from __future__ import annotations
 
 import argparse
+import sys
 import threading
 import time
 import webbrowser
@@ -31,8 +32,13 @@ def main() -> None:
             webbrowser.open(url)
         threading.Thread(target=_open, daemon=True).start()
 
-    print(f"CANForge serving at {url}")
-    uvicorn.run("canforge.server:app", host=args.host, port=args.port, reload=args.reload)
+    print(f"uCANdo serving at {url}  (close this window to stop)")
+    if getattr(sys, "frozen", False):
+        # In a packaged build, import the app object directly (no reload import-string).
+        from canforge.server import app
+        uvicorn.run(app, host=args.host, port=args.port)
+    else:
+        uvicorn.run("canforge.server:app", host=args.host, port=args.port, reload=args.reload)
 
 
 if __name__ == "__main__":

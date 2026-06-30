@@ -9,16 +9,18 @@ a tap on the bus manager so they survive reconnects; subsystems that transmit
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 from collections import deque
 
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __app_name__, __version__
+from . import applog
 from .bus_manager import BusManager
 import can
 
@@ -46,19 +48,43 @@ from .scheduler import TxScheduler
 from .signals import SignalViewer
 from .storage import Storage
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WEB_DIR = os.path.join(ROOT, "web")
-DATA_DIR = os.path.join(ROOT, "data")
+import sys
+
+# Path resolution works both from source and from a PyInstaller bundle:
+#  • BUNDLE   = read-only assets (web/, packaged data). Frozen → sys._MEIPASS.
+#  • APP_HOME = writable area for logs/recordings/db. Frozen → next to the .exe,
+#               so user data persists across runs (the onefile temp dir is wiped).
+if getattr(sys, "frozen", False):
+    BUNDLE = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    APP_HOME = os.path.dirname(sys.executable)
+else:
+    BUNDLE = APP_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = BUNDLE
+WEB_DIR = os.path.join(BUNDLE, "web")
+DATA_DIR = os.path.join(APP_HOME, "data")
 LOG_DIR = os.path.join(DATA_DIR, "logs")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 DRIVER_DIR = os.path.join(DATA_DIR, "drivers")
 for d in (LOG_DIR, UPLOAD_DIR, DRIVER_DIR):
     os.makedirs(d, exist_ok=True)
 
+# Rotating error/activity log → data/ucando.log (captures crashes for diagnosis).
+applog.setup_logging(os.path.join(DATA_DIR, "ucando.log"))
+log = logging.getLogger("canforge.server")
+log.info("uCANdo %s starting up", __version__)
+
 app = FastAPI(title=f"{__app_name__} API", version=__version__)
 
+
+@app.exception_handler(Exception)
+async def _log_unhandled(request, exc):
+    """Last-resort handler: log the full traceback, return a graceful 500."""
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500,
+                        content={"ok": False, "error": "internal error (logged to data/ucando.log)"})
+
 # ----- foundation rails (persistence, config, plugins) ---------------------
-storage = Storage()
+storage = Storage(os.path.join(DATA_DIR, "canforge.db"))   # writable app home (frozen-safe)
 config = Config(storage)
 oem = OemDatabase(storage)
 oem.seed_builtins()               # demo profile + OEM placeholders (idempotent)
@@ -269,13 +295,18 @@ def drivers_launch(hw: str):
 @app.post("/api/connect")
 def connect(req: ConnectReq):
     try:
-        return {"ok": True, "connection": bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate)}
+        conn = bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate)
+        log.info("connected: hw=%s channel=%s bitrate=%s sim=%s",
+                 req.hw, req.channel, req.bitrate, req.simulate)
+        return {"ok": True, "connection": conn}
     except Exception as exc:
+        log.error("connect failed (hw=%s channel=%s): %s", req.hw, req.channel, exc)
         return _err(str(exc))
 
 
 @app.post("/api/disconnect")
 def disconnect():
+    log.info("disconnect requested")
     return {"ok": True, **bus.disconnect()}
 
 
@@ -683,7 +714,7 @@ def autore_analyze_log(req: AutoReAnalyzeReq):
         # numeric known-values only
         knowns = {k: float(v) for k, v in (req.known_values or {}).items()
                   if str(v).strip() not in ("", "None")}
-        populate_from_log(auto_session, req.path, known_values=knowns)
+        populate_from_log(auto_session, req.path, known_values=knowns, oem_db=oem)
         return {"ok": True, "report": auto_session.report()}
     except Exception as exc:
         return _err(str(exc))
@@ -1025,6 +1056,121 @@ def decode_frame(req: DecodeReq):
         return _err(str(exc))
 
 
+# ----- Frame decoder (BusMaster-style byte/bit view) -----------------------
+# Two interchangeable signal sources feed the SAME decode UI:
+#   • a DBC  → cantools DB, decoded by framedecode (full: enums/min-max/units)
+#   • a cloud Signature JSON → jsondecode (limited; no cantools needed)
+# Only one is active at a time; loading one clears the other.
+import cantools as _cantools           # noqa: E402  (local to this feature)
+from .framedecode import decode_frames as _decode_frames
+from . import jsondecode as _jsondecode
+
+_decode_db = None                      # cantools DB (DBC source)
+_decode_json = None                    # signature message map (JSON source)
+
+
+@app.post("/api/decode/dbc-import")
+async def decode_dbc_import(file: UploadFile = File(...)):
+    """Load a DBC for the frame decoder; returns its message/signal catalogue."""
+    global _decode_db, _decode_json
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        _decode_db = _cantools.database.load_string(text, database_format="dbc")
+        _decode_json = None            # DBC now active; drop any JSON source
+        msgs = [{"id_hex": f"{m.frame_id:X}", "name": m.name, "length": m.length,
+                 "signals": [s.name for s in m.signals]} for m in _decode_db.messages]
+        return {"ok": True, "dbc": file.filename, "messages": msgs}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/decode/json-import")
+async def decode_json_import(file: UploadFile = File(...)):
+    """Load a cloud Signature JSON for the frame decoder; returns its catalogue.
+
+    Format: ``{"<decimal_id>": [{fieldName, startingBit, size, multiplier,
+    offset, signed, reverse, evData}, ...], ...}``. See ``jsondecode`` and
+    ``docs/JSON_SIGNATURE_DECODE.md`` for the (validated) bit/byte convention.
+    """
+    global _decode_db, _decode_json
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        _decode_json = _jsondecode.load_signature(text)
+        _decode_db = None              # JSON now active; drop any DBC source
+        return {"ok": True, "json": file.filename,
+                "messages": _jsondecode.signature_messages(_decode_json)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+class DecodeFramesReq(BaseModel):
+    frames: list = []                  # [{id: "94"|148, data: "0006320040001C00"}]
+
+
+@app.post("/api/decode/frames")
+def decode_frames_route(req: DecodeFramesReq):
+    if _decode_json is not None:
+        return {"ok": True, "frames": _jsondecode.decode_frames(_decode_json, req.frames)}
+    if _decode_db is not None:
+        return {"ok": True, "frames": _decode_frames(_decode_db, req.frames)}
+    return _err("Upload a .dbc or .json first")
+
+
+# ----- Format converter (DBC ⇄ JSON ⇄ CSV) ---------------------------------
+from . import convert as _convert_mod
+
+
+@app.post("/api/convert")
+async def convert_route(to: str, file: UploadFile = File(...), src: str | None = None):
+    """One-shot convert an uploaded DBC / Signature-JSON / CSV to format ``to``.
+
+    Source format auto-detected from the filename/content unless ``src`` given.
+    Returns the converted text plus a summary and any (loss) warnings.
+    """
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        res = _convert_mod.convert(text, to_fmt=to, from_fmt=src, filename=file.filename or "")
+    except Exception as exc:
+        return _err(str(exc))
+    stem = (file.filename or "converted").rsplit(".", 1)[0] or "converted"
+    return {"ok": True, "filename": f"{stem}.{to}", "content": res["content"],
+            "warnings": res["warnings"], "summary": res["summary"]}
+
+
+@app.post("/api/convert/parse")
+async def convert_parse_route(file: UploadFile = File(...), src: str | None = None):
+    """Parse an uploaded file into the editable canonical model (workbench)."""
+    try:
+        text = (await file.read()).decode("utf-8", "replace")
+        res = _convert_mod.parse(text, from_fmt=src, filename=file.filename or "")
+    except Exception as exc:
+        return _err(str(exc))
+    stem = (file.filename or "converted").rsplit(".", 1)[0] or "converted"
+    return {"ok": True, "source_fmt": res["from"], "source_name": stem,
+            "model": res["model"], "warnings": res["warnings"], "summary": res["summary"]}
+
+
+class ConvertExportReq(BaseModel):
+    model: dict
+    to: str
+    source_name: str | None = "converted"
+
+
+@app.post("/api/convert/export")
+def convert_export_route(req: ConvertExportReq):
+    """Serialize an edited/filtered canonical model to ``to`` with a stamped name."""
+    import datetime
+    try:
+        res = _convert_mod.serialize(req.model, req.to)
+    except Exception as exc:
+        return _err(str(exc))
+    ts = datetime.datetime.now().strftime("%d%m%y_%H%M%S")
+    stem = (req.source_name or "converted").strip() or "converted"
+    prefix = "Signature_" if req.to == "json" else ""    # JSON = cloud Signature file
+    return {"ok": True, "filename": f"{prefix}{stem}_{ts}.{req.to}",
+            "content": res["content"], "warnings": res["warnings"]}
+
+
 # ===========================================================================
 # Dashboard (standard decoded values)
 # ===========================================================================
@@ -1108,5 +1254,20 @@ async def ws_live(ws: WebSocket):
 
 
 # ----- static UI (mounted last) --------------------------------------------
+# Serve index.html through a route so the single app __version__ is injected into
+# the asset URLs (?v=) — one version number drives both the UI chip and cache-busting.
+_INDEX_PATH = os.path.join(WEB_DIR, "index.html")
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/index.html", response_class=HTMLResponse)
+def _serve_index():
+    try:
+        with open(_INDEX_PATH, encoding="utf-8") as fh:
+            return HTMLResponse(fh.read().replace("__VER__", __version__))
+    except OSError:
+        return HTMLResponse("<h1>uCANdo</h1><p>UI not found.</p>", status_code=500)
+
+
 if os.path.isdir(WEB_DIR):
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

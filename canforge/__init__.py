@@ -1,4 +1,4 @@
-"""CANForge — Unified CAN Workbench.
+"""uCANdo — Unified CAN Workbench.
 
 A hardware-agnostic CAN bus utility for day-to-day automotive engineering:
 logging, replay, reverse engineering, DBC building, visualization and TX.
@@ -8,5 +8,5 @@ module above it is independent of whether a Neo VI, PCAN, Microchip/SLCAN
 adapter, or the development virtual bus is in use.
 """
 
-__version__ = "0.2"
-__app_name__ = "CANForge"
+__version__ = "1.0.0"
+__app_name__ = "uCANdo"

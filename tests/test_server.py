@@ -13,8 +13,17 @@ client = TestClient(app)
 
 def test_info_and_plugins():
     info = client.get("/api/info").json()
-    assert info["app"] == "CANForge"
+    assert info["app"] == "uCANdo"
     assert "plugins_loaded" in info
+
+
+def test_index_injects_single_version():
+    # One version number (__version__) drives both /api/info and the asset ?v= URLs.
+    from canforge import __version__
+    html = client.get("/").text
+    assert "__VER__" not in html                       # placeholder fully substituted
+    assert f"?v={__version__}" in html                 # assets cache-bust on the app version
+    assert client.get("/api/info").json()["version"] == __version__
 
     plugins = client.get("/api/plugins").json()
     assert {"re_engine", "decoder", "exporter", "oem_pack"} <= set(plugins)
@@ -138,7 +147,9 @@ def test_autore_analyze_confirm_save(tmp_path):
     rep = client.post("/api/autore/analyze-log", json={"path": p, "known_values": {}}).json()
     assert rep["ok"] is True
     a = rep["report"]["A"]
-    assert any(s["label"] == "Engine RPM" for s in a)
+    # RPM lands in the high tier (label "Engine RPM" from correlation or
+    # "EngineRPM" if a saved profile also matched via DB-match — either is fine).
+    assert any("RPM" in (s["label"] or "") for s in a)
 
     assert {"petrol", "ev"} <= set(client.get("/api/autore/protocols").json()["protocols"])
 
@@ -146,6 +157,25 @@ def test_autore_analyze_confirm_save(tmp_path):
     sv = client.post("/api/autore/save-profile",
                      json={"oem": "Test", "name": "AutoReProf", "tiers": ["A"]}).json()
     assert sv["ok"] is True and sv["profile"]["oem"] == "Test"
+
+
+def test_decode_dbc_frames_endpoint():
+    from canforge.dbc_builder import DbcModel
+    m = DbcModel()
+    m.add_message(0x94, "M94", length=8)
+    m.add_signal(0x94, {"name": "Speed", "start_bit": 3, "length": 12,
+                        "byte_order": "big_endian", "scale": 10, "offset": 0})
+    dbc_text = m.to_dbc_string()
+
+    imp = client.post("/api/decode/dbc-import",
+                      files={"file": ("t.dbc", dbc_text, "text/plain")}).json()
+    assert imp["ok"] and any(msg["id_hex"] == "94" for msg in imp["messages"])
+
+    dec = client.post("/api/decode/frames",
+                      json={"frames": [{"id": "94", "data": "0006320040001C00"}]}).json()
+    assert dec["ok"]
+    sig = next(s for s in dec["frames"][0]["signals"] if s["name"] == "Speed")
+    assert float(sig["physical"]) == 60.0 and len(sig["cells"]) == 12
 
 
 def test_oem_from_builder_and_delete():
