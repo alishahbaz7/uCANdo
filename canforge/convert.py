@@ -35,6 +35,8 @@ import cantools
 from cantools.database.can import Database, Message, Signal
 from cantools.database.conversion import BaseConversion
 
+from . import canplus
+
 CSV_HEADER = [
     "message_name", "CAN ID (HEX)", "CAN ID (Dec)", "is_extended", "dlc",
     "signal_name", "start_bit", "length", "byte_order", "signed", "scale",
@@ -318,7 +320,9 @@ def csv_to_model(text: str):
 # --------------------------------------------------------------------------- #
 # dispatch
 # --------------------------------------------------------------------------- #
-_PARSERS = {"dbc": dbc_to_model, "json": json_to_model, "csv": csv_to_model}
+# CanPlus XML is import-only (no serializer) — it has no place to round-trip to.
+_PARSERS = {"dbc": dbc_to_model, "json": json_to_model, "csv": csv_to_model,
+            "canplus": canplus.parse_to_model}
 _SERIALIZERS = {"dbc": model_to_dbc, "json": model_to_json, "csv": model_to_csv}
 
 
@@ -327,6 +331,8 @@ def detect_format(filename: str, text: str) -> str:
     for ext in ("dbc", "json", "csv"):
         if fn.endswith("." + ext):
             return ext
+    if "<CanData" in text[:5000]:        # CanPlus / telematics vehicle library
+        return "canplus"
     head = text.lstrip()
     if head.startswith("{"):
         return "json"

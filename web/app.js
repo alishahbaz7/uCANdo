@@ -991,7 +991,7 @@ $("btnFdFill").addEventListener("click", () => {
 
 // ----------------------- Converter workbench (upload · edit · select · export)
 let cvModel = null, cvSourceFmt = null, cvSourceName = null, cvEdited = false, cvEditMode = false;
-const CV_FMT = { dbc: "DBC", json: "JSON", csv: "CSV" };
+const CV_FMT = { dbc: "DBC", json: "JSON", csv: "CSV", canplus: "CanPlus XML" };
 // CAN IDs read in hex for DBC/CSV (engineer convention, matches the source);
 // JSON keeps decimal because its keys are native decimal. Display only — the
 // model frame_id stays an int, so conversions/exports are unchanged.
@@ -1802,8 +1802,8 @@ emptyHero("dashEmpty", {
 });
 emptyHero("cvEmpty", {
   title: "Convert & inspect CAN databases",
-  sub: "Upload a DBC, cloud Signature JSON, or CSV to preview its messages & signals — edit fields, pick the signals you want, and download in any format.",
-  cards: [{ icon: ICONS.upload, title: "Upload file", desc: "DBC · JSON · CSV — source auto-detected.", onclick: "cvUploadClick()", primary: true }],
+  sub: "Upload a DBC, cloud Signature JSON, CSV, or a CanPlus vehicle-library XML to preview its messages & signals — edit fields, pick the signals you want, and download in any format.",
+  cards: [{ icon: ICONS.upload, title: "Upload file", desc: "DBC · JSON · CSV · CanPlus XML — auto-detected.", onclick: "cvUploadClick()", primary: true }],
 });
 emptyHero("dtcEmpty", {
   title: "No trouble codes",

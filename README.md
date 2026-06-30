@@ -3,8 +3,20 @@
 > **India-first, fleet/telematics-focused CAN bus workbench.**
 > One tool. Any adapter. Log → Decode → Analyse → Reverse-engineer → Transmit.
 
+[![version](https://img.shields.io/badge/release-v1.0.0-brightgreen)](#release-history)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.11x-green)](https://fastapi.tiangolo.com/)
+
+---
+
+## What's New — v1.0.0 *(first release)*
+
+| Feature | Details |
+|---|---|
+| **Packaged Windows app** | Self-contained `uCANdo.exe` bundle (PyInstaller) — unzip & double-click, no Python/pip/internet. Runs on `127.0.0.1` only; user data persists in `data\` beside the exe. Build with `.\packaging\build.ps1` → `dist\uCANdo_v<ver>.zip` |
+| **CanPlus vehicle-library import** | Converter reads a telematics **`.Config.XML`** (`<CanData>`): decodes the 22-byte `VarDesc` records (VarID, multiplier, divider, offset — verified byte-exact) into a signal dictionary grouped by **frame-cluster**, exportable to DBC/JSON/CSV |
+| **RE finding documented** | The CanPlus CAN id + bit position are **obfuscated** (not recoverable from the file — proven across two vehicles); the relationship is established by matching signature signals to an OEM DBC. See `docs/CANPLUS_CONFIG_DECODE.md` |
+| **Animated idle hero** | Live `<canvas>` CAN-network on empty Dashboard/Converter/DTC views — glowing bus, streaking packets, hover-to-ripple mesh, quick-start cards |
 
 ---
 
@@ -144,7 +156,15 @@ Everything above the HAL is adapter-independent — modules hold a `CANInterface
 
 ## Release History
 
-### v0.4 — JSON signatures, Format Converter & UI overhaul *(current)*
+### v1.0.0 — First packaged release *(current)*
+- **Shareable Windows bundle** — PyInstaller onedir (`packaging/uCANdo.spec` + `build.ps1`); frozen-aware paths (bundled assets read-only, `data/` writable beside the exe). Localhost-only, offline. See `docs/RELEASE_PACKAGING.md`
+- **CanPlus `.Config.XML` import** (`canplus.py`) wired into the Converter as a 4th source format; 22-byte `VarDesc` decode verified byte-exact; signals grouped by frame-cluster
+- **Reverse-engineering write-up** (`docs/CANPLUS_CONFIG_DECODE.md`): proved the CAN id/bit position are obfuscated in the signature (no CRC fit; clusters span multiple ids across two vehicles) → relationship is via OEM-DBC name matching
+- **Animated idle/empty states** — live canvas CAN-network hero with hover-to-ripple mesh + quick-start cards
+- Multi-frame **Trace view** + CSV export; Converter sort + hex ids; Vector-style bit layout (carried up from the v0.4.x line)
+- Tests: 207 passing
+
+### v0.4 — JSON signatures, Format Converter & UI overhaul
 - **Frame Decoder** now reads the cloud **Signature JSON** as well as DBC (one smart Upload button, auto-detected)
 - **Converter** segment: DBC ⇄ JSON ⇄ CSV in any direction — upload → preview → edit/select signals → download
 - Self-contained JSON decoder (`jsondecode.py`) and format engine (`convert.py`); bit/byte convention validated on real vehicle frames

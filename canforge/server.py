@@ -48,9 +48,20 @@ from .scheduler import TxScheduler
 from .signals import SignalViewer
 from .storage import Storage
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WEB_DIR = os.path.join(ROOT, "web")
-DATA_DIR = os.path.join(ROOT, "data")
+import sys
+
+# Path resolution works both from source and from a PyInstaller bundle:
+#  • BUNDLE   = read-only assets (web/, packaged data). Frozen → sys._MEIPASS.
+#  • APP_HOME = writable area for logs/recordings/db. Frozen → next to the .exe,
+#               so user data persists across runs (the onefile temp dir is wiped).
+if getattr(sys, "frozen", False):
+    BUNDLE = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    APP_HOME = os.path.dirname(sys.executable)
+else:
+    BUNDLE = APP_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = BUNDLE
+WEB_DIR = os.path.join(BUNDLE, "web")
+DATA_DIR = os.path.join(APP_HOME, "data")
 LOG_DIR = os.path.join(DATA_DIR, "logs")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 DRIVER_DIR = os.path.join(DATA_DIR, "drivers")
@@ -73,7 +84,7 @@ async def _log_unhandled(request, exc):
                         content={"ok": False, "error": "internal error (logged to data/ucando.log)"})
 
 # ----- foundation rails (persistence, config, plugins) ---------------------
-storage = Storage()
+storage = Storage(os.path.join(DATA_DIR, "canforge.db"))   # writable app home (frozen-safe)
 config = Config(storage)
 oem = OemDatabase(storage)
 oem.seed_builtins()               # demo profile + OEM placeholders (idempotent)
