@@ -3,13 +3,26 @@
 > **India-first, fleet/telematics-focused CAN bus workbench.**
 > One tool. Any adapter. Log → Decode → Analyse → Reverse-engineer → Transmit.
 
-[![version](https://img.shields.io/badge/release-v1.0.0-brightgreen)](#release-history)
+[![version](https://img.shields.io/badge/release-v1.2.4-brightgreen)](#release-history)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.11x-green)](https://fastapi.tiangolo.com/)
 
 ---
 
-## What's New — v1.0.0 *(first release)*
+## What's New — v1.2 *(current)*
+
+| Feature | Details |
+|---|---|
+| **Vehicle Spy 3 log import** | New parser (`vspy.py`) reads Intrepid neoVI/Vehicle Spy CSV traces (metadata header + Network Description table + CAN/LIN/J1939-style data rows, short-DLC frames as blank trailing columns) — plugs straight into the existing `load_log_frames()` dispatch, so RE analysis, CANMatch, and OBD-correlate all work on Vehicle Spy logs with no further changes |
+| **Signal Viewer: log playback** | Upload a log + DBC and decode the *whole* capture once, then scrub it like a video: play/pause, ±speed, a scrubber bar, and a trailing time-window strip chart — instead of only live-bus decoding |
+| **Frame Decoder: load from log** | Trace mode can pull real captured frames (with real timestamps) straight from an uploaded log, instead of only pasted payloads |
+| **Log coverage diagnostics** | Decode results split into *decoded*, *unknown to this DBC* (expected — the id just isn't in the file), and *in the DBC but failed to decode* (a real problem, with the actual error) — replaces one opaque "X/Y decoded" count |
+| **Decode fix: `allow_truncated`** | A frame with a shorter real DLC than the DBC declares no longer drops the whole frame — recovers every signal that still fits, matching the convention already used in the Frame Decoder |
+| **Signal Viewer UX** | Select-all / none for the signal checklist; switching or clearing the DBC now actually empties stale strip charts instead of leaving orphaned ones behind |
+
+---
+
+## What's New — v1.0.0
 
 | Feature | Details |
 |---|---|
@@ -156,7 +169,15 @@ Everything above the HAL is adapter-independent — modules hold a `CANInterface
 
 ## Release History
 
-### v1.0.0 — First packaged release *(current)*
+### v1.2 — Vehicle Spy log import & offline signal playback *(current)*
+- **Vehicle Spy 3 CSV import** (`vspy.py`) — parses Intrepid neoVI/Vehicle Spy captures into the canonical `load_log_frames()` shape; sniffed automatically alongside `.asc`/`.blf`/`.trc`
+- **Signal Viewer log playback** — decode a whole log once server-side, then play/pause/scrub/speed it client-side against the loaded DBC; VCR-style transport bar (`sigPbScrub`, `sigPbSpeed`, play/step controls)
+- **Log coverage diagnostics** — per-decode breakdown of unknown-id vs decode-error counts (with the actual exception) so gaps in coverage are explainable instead of a single number
+- **Decode fix** — `SignalViewer` now passes `allow_truncated=True` (matching `framedecode.py`), recovering signals from frames shorter than the DBC's declared length that were previously dropped whole
+- **Signal Viewer UX** — select/deselect-all signal checkboxes; loading or clearing a DBC now clears stale strip-chart selections from the previous DBC
+- Tests: 220 passing (`test_vspy.py`, `test_log_signals.py` added)
+
+### v1.0.0 — First packaged release
 - **Shareable Windows bundle** — PyInstaller onedir (`packaging/uCANdo.spec` + `build.ps1`); frozen-aware paths (bundled assets read-only, `data/` writable beside the exe). Localhost-only, offline. See `docs/RELEASE_PACKAGING.md`
 - **CanPlus `.Config.XML` import** (`canplus.py`) wired into the Converter as a 4th source format; 22-byte `VarDesc` decode verified byte-exact; signals grouped by frame-cluster
 - **Reverse-engineering write-up** (`docs/CANPLUS_CONFIG_DECODE.md`): proved the CAN id/bit position are obfuscated in the signature (no CRC fit; clusters span multiple ids across two vehicles) → relationship is via OEM-DBC name matching

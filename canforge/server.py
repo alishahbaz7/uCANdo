@@ -1116,6 +1116,72 @@ def decode_frames_route(req: DecodeFramesReq):
     return _err("Upload a .dbc or .json first")
 
 
+# ----- Log import (Vehicle Spy 3 / any python-can log) → Frame Decoder Trace
+class LogPathReq(BaseModel):
+    path: str
+
+
+class LogTraceReq(BaseModel):
+    path: str
+    id: int
+    ext: bool = False
+
+
+@app.post("/api/log/catalogue")
+def log_catalogue(req: LogPathReq):
+    """Every arbitration ID found in an uploaded log, with counts + time span."""
+    from .reverse import load_log_frames
+    try:
+        frames = load_log_frames(req.path)
+    except Exception as exc:
+        return _err(str(exc))
+    messages = []
+    for (arb_id, ext), data in frames.items():
+        ts = data["timestamps"]
+        messages.append({
+            "id": arb_id, "id_hex": f"{arb_id:X}", "ext": ext,
+            "count": len(data["payloads"]),
+            "first_ts": ts[0] if ts else None, "last_ts": ts[-1] if ts else None,
+        })
+    messages.sort(key=lambda m: m["id"])
+    return {"ok": True, "messages": messages}
+
+
+@app.post("/api/log/trace")
+def log_trace(req: LogTraceReq):
+    """Every captured occurrence of one ID, as {label, data} pairs — the same
+    shape the Frame Decoder's Trace view already accepts, so the frontend
+    decodes it with the ordinary /api/decode/frames call, real log payloads
+    in real capture order."""
+    from .reverse import load_log_frames
+    try:
+        frames = load_log_frames(req.path)
+    except Exception as exc:
+        return _err(str(exc))
+    bucket = frames.get((req.id, req.ext))
+    if bucket is None:
+        return _err(f"id 0x{req.id:X} not found in this log")
+    rows = [{"label": f"{ts:.3f}", "data": payload.hex().upper()}
+            for ts, payload in zip(bucket["timestamps"], bucket["payloads"])]
+    return {"ok": True, "frames": rows}
+
+
+@app.post("/api/log/signals")
+def log_signals(req: LogPathReq):
+    """Decode an uploaded log end-to-end against whatever DBC is currently
+    loaded into the Signal Viewer — the offline counterpart to its live bus
+    decode, so the same strip charts / signal picker work from a file."""
+    from .reverse import load_log_frames, flatten_frames_by_id
+    try:
+        flat = flatten_frames_by_id(load_log_frames(req.path))
+    except Exception as exc:
+        return _err(str(exc))
+    result = viewer.decode_frames_offline(flat)
+    if not result["loaded"]:
+        return _err("Load a DBC into the Signal Viewer first")
+    return {"ok": True, **result}
+
+
 # ----- Format converter (DBC ⇄ JSON ⇄ CSV) ---------------------------------
 from . import convert as _convert_mod
 

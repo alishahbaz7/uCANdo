@@ -374,11 +374,33 @@
           <input type="file" id="sigDbcFile" accept=".dbc" hidden />
           <button class="btn ghost" id="btnSigImport">Upload .dbc</button>
           <button class="btn ghost" id="btnSigClear">Clear charts</button>
+          <span style="width:1px;height:22px;background:var(--line);margin:0 2px"></span>
+          <input type="file" id="sigLogFile" accept=".csv,.asc,.blf,.trc,.log" hidden />
+          <button class="btn ghost" id="btnSigLogUpload" title="Decode a log file against the DBC above and chart it, instead of live traffic">Upload log for playback</button>
+          <button class="btn ghost hidden" id="btnSigLogBack">Back to live</button>
           <span style="flex:1"></span>
           <span id="sigAlarmBanner"></span>
           <span id="sigStatus" class="muted-line"></span>
         </div>
-        <div class="panel" style="margin-bottom:12px">
+        <div class="panel" id="sigCoveragePanel" style="margin-bottom:12px" hidden>
+          <div class="panel-head"><span>Log coverage</span>
+            <button class="btn-mini" id="btnSigCoverageToggle">Show breakdown</button></div>
+          <div id="sigCoverageBody" class="muted-line hidden" style="padding:10px 14px;font-size:12px"></div>
+        </div>
+        <div class="panel" id="sigPlaybackBar" style="margin-bottom:12px" hidden>
+          <div class="panel-head"><span>Playback</span><span id="sigPlaybackTime" class="muted-line"></span></div>
+          <div style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button class="icon-btn" id="btnPbStart" title="Jump to start"></button>
+            <button class="icon-btn" id="btnPbSlower" title="Slower"></button>
+            <button class="icon-btn" id="btnPbPlay" title="Play / pause"></button>
+            <button class="icon-btn" id="btnPbFaster" title="Faster"></button>
+            <button class="icon-btn" id="btnPbEnd" title="Jump to end"></button>
+            <span id="sigPbSpeed" class="muted-line" style="width:34px;text-align:center">1x</span>
+            <input type="range" id="sigPbScrub" min="0" max="1000" value="0" style="flex:1;min-width:200px" />
+            <span id="sigPbWindow" class="muted-line" style="white-space:nowrap"></span>
+          </div>
+        </div>
+        <div class="panel" id="sigCompAlarmPanel" style="margin-bottom:12px" hidden>
           <div class="panel-head"><span>Computed signals &amp; alarms</span></div>
           <div style="padding:10px 14px;display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
             <div style="flex:1;min-width:280px">
@@ -404,7 +426,12 @@
         </div>
         <div class="signals-grid">
           <div class="panel">
-            <div class="panel-head"><span>Signals</span></div>
+            <div class="panel-head"><span>Signals</span>
+              <span>
+                <button class="btn-mini" id="btnSigSelAll">Select all</button>
+                <button class="btn-mini" id="btnSigSelNone">None</button>
+              </span>
+            </div>
             <div class="table-wrap" id="sigList" style="padding:8px"></div>
           </div>
           <div class="panel">

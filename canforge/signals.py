@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
 
 import cantools
 
@@ -82,7 +82,10 @@ class SignalViewer:
         with self._lock:
             self._frames_seen += 1
         try:
-            decoded = self._db.decode_message(msg.arbitration_id, bytes(msg.data))
+            # allow_truncated: some messages legitimately vary DLC frame-to-frame
+            # (e.g. state-only sends fewer bytes) — decode what's present rather
+            # than dropping the frame outright (matches framedecode.py's convention).
+            decoded = self._db.decode_message(msg.arbitration_id, bytes(msg.data), allow_truncated=True)
         except Exception:
             return
         t = msg.timestamp or time.time()
@@ -120,6 +123,75 @@ class SignalViewer:
                     fn(latest_copy)
                 except Exception:
                     pass
+
+    def decode_frames_offline(self, frames: list[dict]) -> dict:
+        """Decode a whole log (chronologically ordered) against the loaded
+        DBC, for a signal-vs-time plot from an uploaded file rather than the
+        live bus. Mirrors :meth:`consume`'s decode/skip rules exactly, but is
+        read-only w.r.t. ``self._db`` and never touches the live ring buffers
+        (``_series``/``_latest``/``_t0``) — a connected live session, if any,
+        is unaffected. Unbounded (no ``maxlen`` cap): the log is already a
+        fixed, finite file, not an ever-growing live stream.
+
+        ``frames``: ``[{"id", "data", "timestamp"}, ...]`` — see
+        :func:`canforge.reverse.flatten_frames_by_id`.
+
+        A DBC only ever covers *some* of a real bus's traffic, so most logs
+        decode a minority of their frames — that is expected, not a bug.
+        To make that legible instead of a mystery number, frames are split
+        three ways: decoded, **unknown** (id has no message in this DBC —
+        the normal case), and **errored** (id *is* defined but decode still
+        raised — a real problem, e.g. a DBC/vehicle mismatch), each reported
+        with counts so the caller can tell which case they're in.
+        """
+        with self._lock:
+            db = self._db
+        if db is None:
+            return {"loaded": False, "series": {}}
+        known_ids = {m.frame_id for m in db.messages}
+        series: dict[str, list] = {}
+        t0 = None
+        frames_seen = frames_decoded = 0
+        unknown_counts: Counter = Counter()
+        error_counts: dict[int, dict] = {}
+        for fr in frames:
+            frames_seen += 1
+            fid = fr["id"]
+            if fid not in known_ids:
+                unknown_counts[fid] += 1
+                continue
+            try:
+                # allow_truncated: a message's real DLC can be shorter than its
+                # widest signal on some frames (e.g. state-only sends) — decode
+                # what's present rather than dropping the frame outright.
+                decoded = db.decode_message(fid, bytes(fr["data"]), allow_truncated=True)
+            except Exception as exc:
+                err = error_counts.setdefault(fid, {"count": 0, "error": str(exc)})
+                err["count"] += 1
+                continue
+            t = fr["timestamp"]
+            if t0 is None:
+                t0 = t
+            rel = round(t - t0, 4)
+            mname = db.get_message_by_frame_id(fid).name
+            decoded_any = False
+            for sig_name, value in decoded.items():
+                if not isinstance(value, (int, float)):
+                    try:
+                        value = float(value)
+                    except Exception:
+                        continue
+                series.setdefault(f"{mname}.{sig_name}", []).append((rel, float(value)))
+                decoded_any = True
+            frames_decoded += decoded_any
+        return {
+            "loaded": True, "frames_seen": frames_seen, "frames_decoded": frames_decoded,
+            "series": series,
+            "unknown_ids": [{"id_hex": f"{i:X}", "count": c}
+                            for i, c in sorted(unknown_counts.items(), key=lambda kv: -kv[1])],
+            "decode_errors": [{"id_hex": f"{i:X}", "count": v["count"], "error": v["error"]}
+                              for i, v in sorted(error_counts.items(), key=lambda kv: -kv[1]["count"])],
+        }
 
     def add_value_subscriber(self, fn) -> None:
         if fn not in self._value_subscribers:

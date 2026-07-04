@@ -33,6 +33,11 @@ const ICONS = {
   clipboard: _ico('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>'),
   grid: _ico('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>'),
   alert: _ico('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  // playback transport (log-signal scrubbing)
+  skipBack: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
+  skipFwd: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
+  rewind: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 4 5 12 12 20 12 4" fill="currentColor"/><polygon points="19 4 12 12 19 20 19 4" fill="currentColor"/></svg>',
+  fastFwd: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 4 19 12 12 20 12 4" fill="currentColor"/><polygon points="5 4 12 12 5 20 5 4" fill="currentColor"/></svg>',
 };
 // Back-compat aliases used by the topbar renderer
 const ICON_POWER = ICONS.power, ICON_RECORD = ICONS.record, ICON_STOP = ICONS.stop;
@@ -55,7 +60,7 @@ const VIEW_META = {
   convert: { t: "Converter", d: "Convert a signal database among DBC, Signature JSON, and CSV in any direction." },
   dbc: { t: "DBC Builder", d: "Edit messages and signals, then round-trip to a .dbc file." },
   oem: { t: "OEM Database", d: "Store, fingerprint, and auto-apply vehicle DBC profiles (CANMatch)." },
-  signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms." },
+  signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms — or upload a log to chart it offline." },
   scheduler: { t: "TX Scheduler", d: "Transmit cyclic or one-shot frames on the bus." },
   automation: { t: "Automation", d: "Rules, scheduled jobs, restbus simulation, and scripting." },
   dtc: { t: "DTC Codes", d: "Read and clear trouble codes — OBD-II, UDS, and J1939." },
@@ -517,6 +522,11 @@ let fdTraceFrames = [];         // last decoded trace frames (reused on option t
 let fdTraceRaw = false;         // false → physical value, true → raw (hex)
 let fdTraceCollapse = true;     // collapse runs of identical consecutive frames
 let fdRenderedKey = null;       // "<id>:<mode>" the header was last built for
+// Trace can also source from an uploaded log (Vehicle Spy CSV, .asc/.blf/.trc/...)
+// instead of pasted payloads — same decode/render pipeline either way.
+let fdLogPath = null;           // server-side path of the last uploaded log
+let fdLogName = "";             // its filename, for the hint line
+let fdLogCatalogue = [];        // [{id, id_hex, ext, count, first_ts, last_ts}]
 // Display the CAN ID in its source's native base. `o` is a catalogue row or a decoded frame.
 const fdIdLabel = (o) => fdSource === "json" ? `${o.id}` : `0x${o.id_hex}`;
 // Group a clean hex string into space-separated bytes: "0128C3" → "01 28 C3".
@@ -646,10 +656,15 @@ function renderFdDetail() {
       });
     } else {
       const ph = `Paste one payload per line — e.g.&#10;525100FFC000BE56&#10;525100498000BE56&#10;(optional leading index/timestamp: '12.34, 5251…')`;
+      const inLog = fdLogCatalogue.find((m) => m.id === f.id);
       $("fdDetailHeader").innerHTML = head + `
         <div class="fd-trace-bar">
           <textarea id="fdTraceInput" class="fd-trace-ta" spellcheck="false" autocomplete="off" placeholder="${ph}">${fdTraceText[f.id_hex] || ""}</textarea>
           <div class="fd-trace-tools">
+            <input type="file" id="fdLogFile" hidden accept=".csv,.asc,.blf,.trc,.log" />
+            <button id="fdLogUploadBtn" class="mini" onclick="$('fdLogFile').click()">Upload log…</button>
+            <button id="fdLogLoadBtn" class="mini" ${inLog ? "" : "disabled"} onclick="fdLoadFromLog('${f.id_hex}')"
+              title="${inLog ? `${inLog.count} frame(s) of this ID in ${fdLogName}` : "Upload a log with this ID first"}">Load from log${inLog ? ` (${inLog.count})` : ""}</button>
             <button id="fdTraceRawBtn" class="mini ${fdTraceRaw ? "active" : ""}" onclick="fdTraceToggleRaw()">Raw (hex)</button>
             <button id="fdTraceColBtn" class="mini ${fdTraceCollapse ? "active" : ""}" onclick="fdTraceToggleCollapse()">Collapse duplicates</button>
             <button id="fdTraceCsvBtn" class="mini" onclick="fdTraceExport()">Download CSV</button>
@@ -661,6 +676,9 @@ function renderFdDetail() {
         fdTraceText[f.id_hex] = ta.value;
         clearTimeout(fdTimer);
         fdTimer = setTimeout(() => fdDecodeTrace(f.id_hex), 300);
+      });
+      $("fdLogFile").addEventListener("change", (e) => {
+        const file = e.target.files[0]; if (file) fdUploadLog(file);
       });
     }
   }
@@ -735,9 +753,15 @@ async function fdDecodeTrace(idHex) {
   if (!lines.length) {
     fdTraceFrames = [];
     if ($("fdTraceHint")) $("fdTraceHint").textContent = "";
-    $("fdDetailBody").innerHTML = `<div class="muted-line" style="padding:16px;font-size:13px">Paste payloads above — one per line — to build the trace.</div>`;
+    $("fdDetailBody").innerHTML = `<div class="muted-line" style="padding:16px;font-size:13px">Paste payloads above — one per line — or <b>Upload log…</b> to build the trace.</div>`;
     return;
   }
+  await fdDecodeTraceLines(idHex, lines);
+}
+
+// Shared by paste-mode and log-mode: decode {label, data} pairs against the
+// loaded DBC/JSON and render. `lines` is capped upstream by each caller.
+async function fdDecodeTraceLines(idHex, lines) {
   const r = await POST("/api/decode/frames", { frames: lines.map((l) => ({ id: idHex, data: l.data })) });
   if (!r.ok || !r.frames) return;
   fdTraceFrames = r.frames.map((fr, i) => ({
@@ -747,6 +771,32 @@ async function fdDecodeTrace(idHex) {
   }));
   fdRenderTrace();
 }
+
+// Upload a CAN log (Vehicle Spy 3 CSV, .asc/.blf/.trc/...) and catalogue its
+// arbitration IDs, so Trace can load real captured frames for the open message.
+// Only reachable from within Trace mode (the file input lives in its markup).
+async function fdUploadLog(file) {
+  setStatus(`Uploading ${file.name}…`);
+  const up = await apiUpload("/api/upload", file);
+  if (!up || !up.ok) { setStatus(`Log upload failed: ${(up && up.error) || "unknown error"}`); return; }
+  const cat = await POST("/api/log/catalogue", { path: up.path });
+  if (!cat.ok) { setStatus(`Could not read log: ${cat.error}`); return; }
+  fdLogPath = up.path; fdLogName = file.name; fdLogCatalogue = cat.messages;
+  const totalFrames = cat.messages.reduce((n, m) => n + m.count, 0);
+  setStatus(`${file.name} — ${cat.messages.length} IDs, ${totalFrames} frames`);
+  fdRenderedKey = null; renderFdDetail();     // rebuild the header so "Load from log" reflects the new catalogue
+}
+
+// Pull every captured occurrence of the open message's ID from the uploaded
+// log (real timestamps as row labels) and decode it through the usual path.
+window.fdLoadFromLog = async function fdLoadFromLog(idHex) {
+  if (!fdLogPath || !fdDetail) return;
+  const r = await POST("/api/log/trace", { path: fdLogPath, id: fdDetail.id, ext: false });
+  if (!r.ok) { setStatus(`Load from log failed: ${r.error}`); return; }
+  const lines = r.frames.slice(0, 2000);
+  setStatus(`Loaded ${r.frames.length} frame(s) of 0x${idHex} from ${fdLogName}`);
+  await fdDecodeTraceLines(idHex, lines);
+};
 
 function fdRenderTrace() {
   const frames = fdTraceFrames, body = $("fdDetailBody");
@@ -1270,18 +1320,63 @@ $("btnDbcToViewer").addEventListener("click", async () => {
 // ------------------------------------------------------------- Signal Viewer
 const sigSelected = new Set();
 const SIG_COLORS = ["#4ea1ff", "#46b86a", "#e2a055", "#c46bde", "#e25555", "#3fc7c7", "#d4d04e"];
-$("btnSigUseBuilder").addEventListener("click", async () => { await POST("/api/signals/use-builder"); refreshSigList(); });
+// Log-playback mode: chart a decoded-once log instead of polling live traffic.
+// null = live (the original behaviour); set by "Upload log for playback" below.
+let sigLogSeries = null;
+let sigLogName = "";
+let sigLogCoverage = null;           // {unknown_ids, decode_errors} from the last upload
+// Playback transport — purely client-side windowing over the already-decoded
+// sigLogSeries; no network calls while scrubbing/playing.
+let sigPlaybackT = 0;                 // current playhead, seconds relative to log start
+let sigPlaybackMaxT = 0;
+let sigWindowSec = 5;                 // trailing window width each chart displays
+let sigPlaying = false;
+let sigPlaySpeed = 1;
+let sigPlayRAF = null, sigPlayLastTs = null;
+const SIG_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+
+function sigResetLogMode() {
+  sigLogSeries = null; sigLogName = ""; sigLogCoverage = null;
+  sigPlaying = false;
+  if (sigPlayRAF) { cancelAnimationFrame(sigPlayRAF); sigPlayRAF = null; }
+  $("btnPbPlay").innerHTML = ICONS.play;
+  $("btnSigLogBack").classList.add("hidden");
+  $("sigPlaybackBar").hidden = true;
+  $("sigCoveragePanel").hidden = true;
+}
+// A signal key selected under one DBC almost never exists in the next one —
+// left alone, its chart card lingers forever with no checkbox left to clear it.
+function sigClearSelection() {
+  sigSelected.clear();
+  renderChartShells();
+}
+$("btnSigUseBuilder").addEventListener("click", async () => { sigResetLogMode(); sigClearSelection(); await POST("/api/signals/use-builder"); refreshSigList(); });
 $("btnSigImport").addEventListener("click", () => $("sigDbcFile").click());
-$("sigDbcFile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) { await apiUpload("/api/signals/import", f); refreshSigList(); } });
-$("btnSigClear").addEventListener("click", () => POST("/api/signals/clear"));
+$("sigDbcFile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) { sigResetLogMode(); sigClearSelection(); await apiUpload("/api/signals/import", f); refreshSigList(); } });
+$("btnSigClear").addEventListener("click", () => { sigClearSelection(); POST("/api/signals/clear"); });
+let sigAllSignals = [];   // cached from the last /api/signals fetch — lets Select all/None re-render without a round-trip
 async function refreshSigList() {
   const info = await api("/api/signals");
   $("sigStatus").textContent = info.loaded ? `${info.signals.length} signals · ${info.messages} messages` : "No DBC loaded";
-  $("sigList").innerHTML = (info.signals || []).map((s, i) => `
+  // Computed channels & alarms reference signal keys that don't exist yet without a DBC loaded — hide, don't show an unusable panel.
+  $("sigCompAlarmPanel").hidden = !(info.loaded && info.signals.length > 0);
+  sigAllSignals = info.signals || [];
+  renderSigCheckboxes();
+}
+function renderSigCheckboxes() {
+  $("sigList").innerHTML = sigAllSignals.map((s, i) => `
     <label class="sig-item"><input type="checkbox" data-key="${s.key}" ${sigSelected.has(s.key) ? "checked" : ""} onchange="toggleSig('${s.key}')"/>
     <span class="sig-swatch" style="background:${SIG_COLORS[i % SIG_COLORS.length]}"></span>${s.key} ${s.unit ? "(" + s.unit + ")" : ""}</label>`).join("");
 }
 window.toggleSig = (key) => { sigSelected.has(key) ? sigSelected.delete(key) : sigSelected.add(key); renderChartShells(); };
+$("btnSigSelAll").addEventListener("click", () => {
+  sigAllSignals.forEach((s) => sigSelected.add(s.key));
+  renderSigCheckboxes(); renderChartShells();
+});
+$("btnSigSelNone").addEventListener("click", () => {
+  sigSelected.clear();
+  renderSigCheckboxes(); renderChartShells();
+});
 function renderChartShells() {
   $("charts").innerHTML = [...sigSelected].map((k, i) => `
     <div class="chart-card"><div class="chart-title"><span>${k}</span><span id="cv-${cssId(k)}-v"></span></div>
@@ -1289,11 +1384,115 @@ function renderChartShells() {
 }
 const cssId = (k) => k.replace(/[^a-zA-Z0-9]/g, "_");
 async function pollSignals() {
-  pollDerived();
+  if (!sigLogSeries) pollDerived();     // alarms/computed are live-only — not evaluated during log playback
   if (!sigSelected.size) return;
+  if (sigLogSeries) {
+    // Trailing window ending at the playhead — a 50k-frame log squished onto
+    // one chart is unreadable, so only the last `sigWindowSec` are drawn.
+    const winStart = Math.max(0, sigPlaybackT - sigWindowSec);
+    for (const key of sigSelected) {
+      const pts = (sigLogSeries[key] || []).filter((p) => p[0] >= winStart && p[0] <= sigPlaybackT);
+      drawChart(key, pts);
+    }
+    return;
+  }
   const res = await api("/api/signals/series?keys=" + encodeURIComponent([...sigSelected].join(",")));
   for (const key of sigSelected) drawChart(key, res.series[key] || []);
 }
+
+// ----- log playback: upload a log, decode it against the loaded DBC, scrub it
+$("btnSigLogUpload").addEventListener("click", () => $("sigLogFile").click());
+$("sigLogFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  setStatus(`Uploading ${file.name}…`);
+  const up = await apiUpload("/api/upload", file);
+  if (!up || !up.ok) { setStatus(`Log upload failed: ${(up && up.error) || "unknown error"}`); return; }
+  const r = await POST("/api/log/signals", { path: up.path });
+  if (!r.ok) { setStatus(`Could not decode log: ${r.error}`); return; }
+
+  sigLogSeries = r.series; sigLogName = file.name;
+  sigLogCoverage = { unknown_ids: r.unknown_ids || [], decode_errors: r.decode_errors || [] };
+  const unknownFrames = sigLogCoverage.unknown_ids.reduce((n, u) => n + u.count, 0);
+  const errorFrames = sigLogCoverage.decode_errors.reduce((n, u) => n + u.count, 0);
+  $("sigStatus").textContent = `${file.name} — ${r.frames_decoded}/${r.frames_seen} frames decoded (playback, not live)`;
+  $("btnSigLogBack").classList.remove("hidden");
+  sigRenderCoverage(unknownFrames, errorFrames);
+
+  sigPlaybackMaxT = Math.max(0, ...Object.values(sigLogSeries).flatMap((pts) => pts.map((p) => p[0])), 0);
+  sigWindowSec = Math.min(20, Math.max(2, sigPlaybackMaxT * 0.05)) || 5;
+  sigPlaybackT = Math.min(sigWindowSec, sigPlaybackMaxT);   // start with one populated window, not blank
+  $("sigPbScrub").max = String(Math.round(sigPlaybackMaxT * 1000) || 1);
+  $("sigPbScrub").value = String(Math.round(sigPlaybackT * 1000));
+  $("sigPlaybackBar").hidden = false;
+  sigUpdatePlaybackLabel();
+  pollSignals();
+});
+$("btnSigLogBack").addEventListener("click", () => { sigResetLogMode(); refreshSigList(); });
+
+function sigRenderCoverage(unknownFrames, errorFrames) {
+  const c = sigLogCoverage;
+  $("sigCoverageBody").classList.add("hidden");            // collapsed by default on every fresh upload
+  $("btnSigCoverageToggle").textContent = "Show breakdown";
+  if (!c.unknown_ids.length && !c.decode_errors.length) { $("sigCoveragePanel").hidden = true; return; }
+  $("sigCoveragePanel").hidden = false;
+  const rows = [];
+  if (errorFrames) rows.push(`<div style="color:var(--red);margin-bottom:6px">⚠ ${errorFrames} frame(s) from ${c.decode_errors.length} ID(s) ARE in this DBC but failed to decode — likely a DBC/vehicle mismatch:</div>`);
+  rows.push(...c.decode_errors.map((e) => `<div style="padding-left:10px;color:var(--red)">0x${e.id_hex} × ${e.count} — ${e.error}</div>`));
+  if (unknownFrames) rows.push(`<div style="margin:6px 0">${unknownFrames} frame(s) from ${c.unknown_ids.length} ID(s) have no message in this DBC (expected for a partial DBC):</div>`);
+  rows.push(`<div style="padding-left:10px;display:flex;flex-wrap:wrap;gap:6px">${
+    c.unknown_ids.map((u) => `<span class="tag" style="font-size:11px">0x${u.id_hex} ×${u.count}</span>`).join("")}</div>`);
+  $("sigCoverageBody").innerHTML = rows.join("");
+}
+$("btnSigCoverageToggle").addEventListener("click", () => {
+  const body = $("sigCoverageBody"); const show = body.classList.toggle("hidden");
+  $("btnSigCoverageToggle").textContent = show ? "Show breakdown" : "Hide breakdown";
+});
+
+// ----- transport controls -----
+$("btnPbStart").innerHTML = ICONS.skipBack;
+$("btnPbEnd").innerHTML = ICONS.skipFwd;
+$("btnPbSlower").innerHTML = ICONS.rewind;
+$("btnPbFaster").innerHTML = ICONS.fastFwd;
+$("btnPbPlay").innerHTML = ICONS.play;
+function sigUpdatePlaybackLabel() {
+  $("sigPlaybackTime").textContent = `${sigPlaybackT.toFixed(1)}s / ${sigPlaybackMaxT.toFixed(1)}s`;
+  $("sigPbWindow").textContent = `window ${sigWindowSec.toFixed(1)}s`;
+}
+function sigSeekTo(t) {
+  sigPlaybackT = Math.max(0, Math.min(sigPlaybackMaxT, t));
+  $("sigPbScrub").value = String(Math.round(sigPlaybackT * 1000));
+  sigUpdatePlaybackLabel();
+  pollSignals();
+}
+$("sigPbScrub").addEventListener("input", () => sigSeekTo((+$("sigPbScrub").value) / 1000));
+$("btnPbStart").addEventListener("click", () => sigSeekTo(0));
+$("btnPbEnd").addEventListener("click", () => sigSeekTo(sigPlaybackMaxT));
+function sigSpeedStep(delta) {
+  const i = Math.min(SIG_SPEEDS.length - 1, Math.max(0, SIG_SPEEDS.indexOf(sigPlaySpeed) + delta));
+  sigPlaySpeed = SIG_SPEEDS[i];
+  $("sigPbSpeed").textContent = sigPlaySpeed + "x";
+}
+$("btnPbSlower").addEventListener("click", () => sigSpeedStep(-1));
+$("btnPbFaster").addEventListener("click", () => sigSpeedStep(1));
+function sigPlayTick(now) {
+  if (!sigPlaying) return;
+  if (sigPlayLastTs == null) sigPlayLastTs = now;
+  const dt = (now - sigPlayLastTs) / 1000;
+  sigPlayLastTs = now;
+  sigSeekTo(sigPlaybackT + dt * sigPlaySpeed);
+  if (sigPlaybackT >= sigPlaybackMaxT) { sigPlaying = false; $("btnPbPlay").innerHTML = ICONS.play; sigPlayRAF = null; return; }
+  sigPlayRAF = requestAnimationFrame(sigPlayTick);
+}
+$("btnPbPlay").addEventListener("click", () => {
+  if (!sigLogSeries) return;
+  sigPlaying = !sigPlaying;
+  $("btnPbPlay").innerHTML = sigPlaying ? ICONS.pause : ICONS.play;
+  if (sigPlaying) {
+    if (sigPlaybackT >= sigPlaybackMaxT) sigPlaybackT = 0;   // replay from the top if already at the end
+    sigPlayLastTs = null;
+    sigPlayRAF = requestAnimationFrame(sigPlayTick);
+  } else if (sigPlayRAF) { cancelAnimationFrame(sigPlayRAF); sigPlayRAF = null; }
+});
 
 // ----- computed signals & alarms -----
 let computedDefs = [], alarmDefs = [];

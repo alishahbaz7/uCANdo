@@ -116,7 +116,19 @@ def load_log_frames(path: str, max_frames_per_id: int = 20000) -> dict:
 
     Returns ``{ (arb_id, ext): {"timestamps": [...], "payloads": [...]} }``.
     This is the single point of log I/O; engines stay pure and bus-free.
+
+    Dispatches to :mod:`canforge.vspy` for Vehicle Spy 3 (Intrepid neoVI)
+    exports — a CSV dialect ``can.LogReader`` doesn't understand — detected by
+    sniffing the first line; every other extension keeps using python-can.
     """
+    with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+        head = f.readline()
+    if head.strip().lower().startswith("vehicle spy"):
+        from . import vspy
+        with open(path, "r", encoding="utf-8-sig") as f:
+            text = f.read()
+        return vspy.to_frames_by_id(vspy.parse_frames(text), max_frames_per_id)
+
     frames: dict[tuple[int, bool], dict] = defaultdict(
         lambda: {"timestamps": [], "payloads": []})
     with can.LogReader(path) as reader:
@@ -127,6 +139,22 @@ def load_log_frames(path: str, max_frames_per_id: int = 20000) -> dict:
                 bucket["payloads"].append(bytes(msg.data))
                 bucket["timestamps"].append(msg.timestamp)
     return dict(frames)
+
+
+def flatten_frames_by_id(frames_by_id: dict) -> list[dict]:
+    """``load_log_frames()``'s per-ID buckets -> one chronological frame list.
+
+    Each item: ``{"id", "ext", "timestamp", "data"}``. Used for whole-log
+    playback (e.g. Signal Viewer decode) where signals from different IDs
+    need to share a single time axis.
+    """
+    flat = [
+        {"id": arb_id, "ext": ext, "timestamp": ts, "data": payload}
+        for (arb_id, ext), bucket in frames_by_id.items()
+        for ts, payload in zip(bucket["timestamps"], bucket["payloads"])
+    ]
+    flat.sort(key=lambda f: f["timestamp"])
+    return flat
 
 
 class BasicEngine:
