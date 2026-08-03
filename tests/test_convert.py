@@ -28,12 +28,12 @@ def test_dbc_to_json_and_back_preserves_layout():
     r = cv.convert(DBC, "json", filename="x.dbc")
     assert r["summary"] == {"from": "dbc", "to": "json", "messages": 2, "signals": 3}
     d = json.loads(r["content"])
-    # CAN IDs are decimal keys
-    assert set(d.keys()) == {"256", "912"}
-    odo = d["912"][0]
+    # DBC-sourced: CAN IDs keep their hex reading, zero-padded to the 32-bit field
+    assert set(d.keys()) == {"00000100", "00000390"}      # 0x100 = 256, 0x390 = 912
+    odo = d["00000390"][0]
     assert odo["fieldName"] == "canOdometer"
     assert odo["reverse"] == 0 and odo["startingBit"] == 0 and odo["size"] == 24
-    rpm = [s for s in d["256"] if s["fieldName"] == "Rpm"][0]
+    rpm = [s for s in d["00000100"] if s["fieldName"] == "Rpm"][0]
     assert rpm["reverse"] == 1 and rpm["startingBit"] == 0      # little-endian
     assert rpm["multiplier"] == 0.25
     # →JSON is lossy: units / min-max / value table dropped → reported
@@ -79,9 +79,11 @@ def test_json_to_dbc_to_json_preserves_validated_signals():
     }
     dbc = cv.convert(json.dumps(sig), "dbc", filename="s.json")["content"]
     back = json.loads(cv.convert(dbc, "json", filename="s.dbc")["content"])
-    assert back["912"][0] == {"fieldName": "canOdometer", "reverse": 0, "startingBit": 0,
-                              "size": 24, "evData": 0, "multiplier": 1, "offset": 0, "signed": 0}
-    assert back["900"][0]["startingBit"] == 8 and back["900"][0]["reverse"] == 0
+    # A DBC hop cannot carry the source key base (or evData), so the output is
+    # DBC-native: hex keys and evData=1. The ids themselves are unchanged.
+    assert back["00000390"][0] == {"fieldName": "canOdometer", "reverse": 0, "startingBit": 0,
+                                   "size": 24, "evData": 1, "multiplier": 1, "offset": 0, "signed": 0}
+    assert back["00000384"][0]["startingBit"] == 8 and back["00000384"][0]["reverse"] == 0
 
 
 def test_big_endian_startingbit_maps_to_dbc_motorola_exactly():
@@ -94,7 +96,8 @@ def test_big_endian_startingbit_maps_to_dbc_motorola_exactly():
     dbc = cv.convert(json.dumps(sig), "dbc", filename="s.json")["content"]
     assert "dte : 31|10@0+" in dbc and "soc : 55|7@0+" in dbc
     back = json.loads(cv.convert(dbc, "json", filename="s.dbc")["content"])
-    assert {s["fieldName"]: s["startingBit"] for s in back["905"]} == {"dte": 24, "soc": 48}
+    # DBC-sourced -> hex keys (905 = 0x389); the bit layout round-trips exactly
+    assert {s["fieldName"]: s["startingBit"] for s in back["00000389"]} == {"dte": 24, "soc": 48}
 
 
 def test_messages_and_signals_sorted_ascending():
@@ -152,7 +155,8 @@ def test_serialize_subset_only():
     ]
     out = cv.serialize(p["model"], "json")["content"]
     d = json.loads(out)
-    assert list(d.keys()) == ["912"] and d["912"][0]["fieldName"] == "canOdometer"
+    assert list(d.keys()) == ["00000390"]            # DBC-sourced -> hex key
+    assert d["00000390"][0]["fieldName"] == "canOdometer"
 
 
 def test_value_table_survives_dbc_to_csv_to_dbc():
@@ -241,3 +245,103 @@ def test_overlapping_signals_report_can_id_and_bit_spans():
     # JSON and CSV have no such constraint - they still export
     assert cv.serialize(model, "json")["content"]
     assert cv.serialize(model, "csv")["content"]
+
+
+# ----- DBC -> JSON export conventions (cloud signature) ---------------------
+DUP_DBC = """\
+VERSION ""
+
+BU_:
+
+BO_ 288 HSC_Odometer: 5 Vector__XXX
+ SG_ Odometer : 7|32@0+ (0.015625,0) [0|67108864] "km" Vector__XXX
+ SG_ Checksum : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 647 HSC_Pack: 8 Vector__XXX
+ SG_ PackVoltage : 7|16@0+ (0.1,0) [0|1000] "V" Vector__XXX
+ SG_ Checksum : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 666 HSC_Pack2: 8 Vector__XXX
+ SG_ PackVoltage : 7|16@0+ (0.1,0) [0|1000] "V" Vector__XXX
+"""
+
+
+def test_dbc_to_json_keys_are_padded_hex():
+    d = json.loads(cv.convert(DUP_DBC, "json", filename="x.dbc")["content"])
+    # 288 = 0x120, 647 = 0x287, 666 = 0x29A — hex, zero-padded to the 32-bit field,
+    # so a DBC read as 0x120 on the bus is not renumbered to "288" in the signature.
+    assert set(d.keys()) == {"00000120", "00000287", "0000029A"}
+
+
+def test_dbc_to_json_sets_ev_flag():
+    d = json.loads(cv.convert(DUP_DBC, "json", filename="x.dbc")["content"])
+    assert all(s["evData"] == 1 for sigs in d.values() for s in sigs)
+
+
+def test_duplicate_signal_names_get_can_id_suffix():
+    r = cv.convert(DUP_DBC, "json", filename="x.dbc")
+    d = json.loads(r["content"])
+    names = {k: [s["fieldName"] for s in v] for k, v in d.items()}
+    # Qualified by *message name* (minus the shared HSC_ bus tag), not the CAN id:
+    # "which frame did this come from" is the useful question, and a DBC already
+    # guarantees signal names are unique within a message.
+    assert names["00000120"] == ["Odometer", "Checksum_Odometer"]
+    assert names["00000287"] == ["PackVoltage_Pack", "Checksum_Pack"]
+    assert names["0000029A"] == ["PackVoltage_Pack2"]
+    # Odometer appears once, so it keeps its bare name
+    assert "Odometer" in names["00000120"]
+    assert any("Duplicate signal names" in w for w in r["warnings"])
+
+
+def test_qualifier_falls_back_to_hex_id_without_message_names():
+    # A JSON source auto-names messages MSG_<id>, which qualifies nothing — the
+    # hex CAN id must be used instead.
+    sig = {
+        "0000012A": [{"fieldName": "Dup", "reverse": 0, "startingBit": 0, "size": 8,
+                      "multiplier": 1, "offset": 0, "signed": 0, "evData": 1}],
+        "00000287": [{"fieldName": "Dup", "reverse": 0, "startingBit": 0, "size": 8,
+                      "multiplier": 1, "offset": 0, "signed": 0, "evData": 1}],
+    }
+    d = json.loads(cv.convert(json.dumps(sig), "json", filename="s.json")["content"])
+    got = sorted(s["fieldName"] for v in d.values() for s in v)
+    assert got == ["Dup_12A", "Dup_287"]
+
+
+def test_qualifier_strip_skipped_when_it_would_collide():
+    # Stripping the first segment must not create an ambiguous qualifier.
+    dbc = """\
+VERSION ""
+
+BU_:
+
+BO_ 256 HSC_Pack: 8 Vector__XXX
+ SG_ V : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 512 MSC_Pack: 8 Vector__XXX
+ SG_ V : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+"""
+    d = json.loads(cv.convert(dbc, "json", filename="x.dbc")["content"])
+    got = sorted(s["fieldName"] for v in d.values() for s in v)
+    # both strip to "Pack", so the full names are kept
+    assert got == ["V_HSC_Pack", "V_MSC_Pack"]
+
+
+def test_json_decimal_keys_survive_a_csv_round_trip():
+    # CSV cannot know the source base, so it must not flip decimal keys to hex.
+    sig = {"905": [{"fieldName": "a", "reverse": 0, "startingBit": 0, "size": 8,
+                    "multiplier": 1, "offset": 0, "signed": 0, "evData": 1}]}
+    csv_text = cv.convert(json.dumps(sig), "csv", filename="s.json")["content"]
+    back = json.loads(cv.convert(csv_text, "json", filename="s.csv")["content"])
+    assert list(back.keys()) == ["905"]
+    assert back["905"][0]["evData"] == 1        # CSV is the evData-preserving hop
+
+
+def test_dlc_and_evdata_losses_are_reported():
+    # Both were silent before: a 5-byte message reads back as 8, and evData is
+    # zeroed by a DBC hop. Every other lossy field was already reported.
+    w = cv.convert(DUP_DBC, "json", filename="x.dbc")["warnings"]
+    assert any("no DLC field" in x and "0x120 (DLC 5)" in x for x in w)
+    sig = {"905": [{"fieldName": "a", "reverse": 0, "startingBit": 0, "size": 8,
+                    "multiplier": 1, "offset": 0, "signed": 0, "evData": 1}]}
+    w2 = cv.convert(json.dumps(sig), "dbc", filename="s.json")["warnings"]
+    assert any("evData" in x for x in w2)

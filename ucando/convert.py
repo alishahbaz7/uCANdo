@@ -144,18 +144,34 @@ def dbc_to_model(text: str):
                 "min": None if s.minimum is None else _num(s.minimum),
                 "max": None if s.maximum is None else _num(s.maximum),
                 "unit": s.unit or "", "value_table": value_table,
-                "comment": s.comment or "", "ev_data": 0,
+                # A DBC has no evData field. These databases are EV vehicle packs
+                # and the cloud consumes them with the flag set, so default it on
+                # rather than emitting 0 for every signal (which is what silently
+                # zeroed a whole signature before).
+                "comment": s.comment or "", "ev_data": 1,
             })
         messages.append({
             "name": m.name, "frame_id": m.frame_id,
             "is_extended": bool(m.is_extended_frame), "dlc": m.length, "signals": sigs,
         })
-    return {"messages": messages}, warnings
+    # CAN IDs in a DBC are written decimal (`BO_ 288`) but *read* as hex by everyone
+    # working on the bus, and the cloud signature keys are hex. Record that so the
+    # JSON export does not silently renumber 0x120 into "288" - see model_to_json.
+    return {"messages": messages, "id_base": 16}, warnings
 
 
 def model_to_dbc(model):
     try:
-        return _model_to_dbc(model), []
+        content = _model_to_dbc(model)
+        # A DBC has no field for evData, so it is dropped here and comes back as 0
+        # on the next JSON/CSV export. Every other lossy field is reported, so this
+        # one must be too: it was silently zeroing a flag set on *every* signal of
+        # a real cloud signature. CSV carries evData, so it is the lossless hop.
+        warnings = []
+        if any(s.get("ev_data") for m in model["messages"] for s in m["signals"]):
+            warnings.append("DBC has no field for: evData - dropped (a round trip "
+                            "through DBC returns evData=0; convert via CSV to keep it).")
+        return content, warnings
     except Exception as exc:
         # A DBC cannot hold overlapping signals, but a source JSON/CSV can carry
         # them (an off-by-one startingBit is the usual cause). cantools reports
@@ -249,11 +265,78 @@ def json_to_model(text: str):
             "is_extended": frame_id > 0x7FF,
             "dlc": min(64, max(8, -(-max_end // 8))), "signals": sigs,
         })
-    return {"messages": messages}, warnings
+    # Round-trip the key base the file was written in, so JSON -> JSON keeps it.
+    return {"messages": messages, "id_base": base}, warnings
+
+
+def json_id_key(frame_id: int, base: int) -> str:
+    """CAN id as a JSON object key: ``"00000120"`` for hex, ``"288"`` for decimal.
+
+    Hex is zero-padded to 8 digits — the 32-bit id field, and the form the cloud
+    signatures use. Decoders detect the base per file (``detect_id_base``), so
+    either key style reads back to the same id.
+    """
+    return f"{frame_id:08X}" if base == 16 else str(frame_id)
+
+
+def _qualifiers(model) -> dict:
+    """``{frame_id: qualifier}`` used to disambiguate a repeated signal name.
+
+    Prefers the **message name** over the CAN id, because it says *why* the two
+    signals differ: ``PackVoltage_HvPower`` vs ``PackVoltage_HvBattery2`` beats
+    ``PackVoltage_287`` vs ``PackVoltage_29A`` for anyone reading a dashboard. A
+    DBC already guarantees signal names are unique *within* a message, so the
+    message name is guaranteed to disambiguate.
+
+    A leading **bus tag** is stripped as noise: ``HSC_HvPower`` → ``HvPower``. A
+    vehicle has only a handful of buses, so *few distinct first segments across many
+    messages* is the tell (``mg_commute_ev_2026`` is 54 × ``HSC_`` + 1 × ``MSC_`` —
+    requiring *every* name to share one prefix would have missed it). The strip is
+    kept only if the shortened names stay unique, so it can never make a qualifier
+    ambiguous. Falls back to the compact hex id for messages with no real name — a
+    JSON source auto-names them ``MSG_<id>``, which would qualify nothing.
+    """
+    names = {m["frame_id"]: (m.get("name") or "") for m in model["messages"]}
+    real = {fid: n for fid, n in names.items() if n and not n.startswith("MSG_")}
+    use = real
+    heads = {n.split("_", 1)[0] for n in real.values()}
+    if len(real) > len(heads) <= 3 and all("_" in n for n in real.values()):
+        short = {fid: n.split("_", 1)[1] for fid, n in real.items()}
+        if all(short.values()) and len(set(short.values())) == len(short):
+            use = short                      # unambiguous after the strip
+    return {fid: use.get(fid) or f"{fid:X}" for fid in names}
+
+
+def _dedupe_signal_names(model) -> tuple[dict, list]:
+    """``{(frame_id, name): unique_name}`` for names that repeat across messages.
+
+    JSON consumers key on ``fieldName``, so two signals sharing a name collide even
+    though the DBC scopes names per message. A repeated name becomes
+    ``<name>_<qualifier>`` (see :func:`_qualifiers`); names that appear once are
+    left untouched. Signal name stays first so the family still sorts together.
+    """
+    seen = {}
+    for m in model["messages"]:
+        for s in m["signals"]:
+            seen.setdefault(s["name"], []).append(m["frame_id"])
+    qual = _qualifiers(model)
+    renames, notes = {}, []
+    for name, ids in seen.items():
+        if len(ids) < 2:
+            continue
+        for fid in ids:
+            renames[(fid, name)] = f"{name}_{qual[fid]}"
+        notes.append(f"{name} x{len(ids)} -> " +
+                     ", ".join(f"{name}_{qual[i]}" for i in ids))
+    return renames, notes
 
 
 def model_to_json(model):
-    out, dropped = {}, set()
+    out, dropped, dlc_lost = {}, set(), []
+    # Key base follows the source (hex for DBC/CSV, as-read for JSON) so a 0x120
+    # message is not renumbered into "288" on the way out.
+    base = model.get("id_base", 10)
+    renames, rename_notes = _dedupe_signal_names(model)
     for m in model["messages"]:
         if not m["name"].startswith("MSG_"):
             dropped.add("message names")
@@ -268,17 +351,31 @@ def model_to_json(model):
             if s.get("comment"):
                 dropped.add("comments")
             arr.append({
-                "fieldName": s["name"],
+                "fieldName": renames.get((m["frame_id"], s["name"]), s["name"]),
                 "reverse": 0 if s["byte_order"] == "big_endian" else 1,
                 "startingBit": s["start_bit"], "size": s["length"],
                 "evData": int(s.get("ev_data") or 0),
                 "multiplier": _num(s.get("scale", 1)), "offset": _num(s.get("offset", 0)),
                 "signed": int(bool(s.get("is_signed"))),
             })
-        out[str(m["frame_id"])] = arr
+        out[json_id_key(m["frame_id"], base)] = arr
+        # JSON carries no DLC; a reader must synthesise it as max(8, ceil(max_end/8)).
+        # Name the messages where that guess will *not* reproduce the real DLC, so a
+        # short-DLC frame (MG Commute 0x120 is 5 bytes, 0x348 is 6) is not silently
+        # widened to 8 without anyone noticing.
+        end = max((s["start_bit"] + s["length"] for s in m["signals"]), default=0)
+        if m.get("dlc") and m["dlc"] != min(64, max(8, -(-end // 8))):
+            dlc_lost.append(f"0x{m['frame_id']:X} (DLC {m['dlc']})")
     warnings = []
     if dropped:
         warnings.append("JSON has no field for: " + ", ".join(sorted(dropped)) + " - dropped.")
+    if dlc_lost:
+        shown = ", ".join(dlc_lost[:8]) + (f", +{len(dlc_lost) - 8} more" if len(dlc_lost) > 8 else "")
+        warnings.append("JSON has no DLC field - these messages will read back as 8 "
+                        "bytes: " + shown + ".")
+    if rename_notes:
+        warnings.append("Duplicate signal names qualified by their message (JSON keys "
+                        "on fieldName): " + "; ".join(rename_notes) + ".")
     return json.dumps(out, indent=2), warnings
 
 
@@ -357,6 +454,9 @@ def csv_to_model(text: str):
             "comment": (row.get("comment") or "").strip(),
             "ev_data": int(float(row["ev_data"])) if (row.get("ev_data") or "").strip() else 0,
         })
+    # Deliberately no id_base: a CSV carries *both* a hex and a decimal id column,
+    # so it cannot say which base the data came from. Claiming hex here would flip
+    # a decimal-keyed JSON to hex on a JSON -> CSV -> JSON round trip.
     return {"messages": [by_id[i] for i in order]}, warnings
 
 

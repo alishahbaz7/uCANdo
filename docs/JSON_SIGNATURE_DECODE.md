@@ -74,9 +74,63 @@ pads. Deciding per **file** is what rescues mixed-width hex files — in
 is `0x15`, not decimal 15. The Converter reports the detected base as a warning,
 since a mis-detection would otherwise silently shift every CAN ID.
 
-**Export stays decimal.** `model_to_json` always writes decimal keys (the
-canonical model has no base field), so a hex-keyed file round-trips to decimal —
-same IDs, different notation. The warning says so.
+**Export follows the source.** The canonical model carries an `id_base`, so
+`model_to_json` writes keys in the base the data came from:
+
+| source | `id_base` | JSON keys written | why |
+|---|---|---|---|
+| DBC | 16 | `00000120` | a DBC stores `BO_ 288` but everyone reads that id as `0x120`, and the cloud keys are hex — writing `"288"` silently renumbers it |
+| JSON | as detected | unchanged | a decimal file stays decimal, a hex file stays hex |
+| CSV | *unset* → 10 | `288` | a CSV carries **both** a hex and a decimal id column, so it cannot say which base the data came from; claiming hex would flip a decimal JSON to hex on a JSON → CSV → JSON round trip |
+
+Hex keys are zero-padded to 8 digits (the 32-bit id field). A **DBC hop cannot
+preserve the base** — `JSON(decimal) → DBC → JSON` returns hex, because a DBC has
+nowhere to record it. The ids are identical either way; only the notation moves,
+and readers detect the base per file.
+
+### §1c — export also normalises names and the EV flag
+
+Two more things the JSON needs that a DBC cannot express:
+
+- **`evData` defaults to 1** on DBC-sourced signals. A DBC has no such field, so
+  this used to emit `0` for every signal and silently zeroed a flag that was set
+  on all 45 signals of a real signature. **CSV is the lossless hop** — it has an
+  `ev_data` column, so `JSON → CSV → JSON` preserves it while `JSON → DBC → JSON`
+  cannot (now reported as a warning).
+- **Duplicate signal names are qualified by their message.** A DBC scopes signal
+  names per message, but JSON consumers key on `fieldName`, so a repeat collides.
+  The qualifier is the **message name**, not the CAN id: `PackVoltage_HvPower` says
+  *why* it differs from `PackVoltage_HvBattery2`, where `PackVoltage_287` vs
+  `PackVoltage_284` does not. It is also guaranteed to work rather than merely
+  likely to — a DBC already enforces signal-name uniqueness *within* a message —
+  and it survives a signal moving to a different frame between model years.
+
+  In `mg_commute_ev_2026.dbc`: `Checksum` ×4 → `Checksum_SeatBelt`,
+  `Checksum_HvPower`, `Checksum_BatteryTemps`, `Checksum_BatterySoc`;
+  `PackVoltage` ×3 → `PackVoltage_HvBattery2`, `PackVoltage_HvPower`,
+  `PackVoltage_HvBattery1`; likewise `RollingCounter` ×3. Names appearing once are
+  left alone, and the renames are reported, not silent.
+
+  Two refinements in `_qualifiers`:
+
+  - A leading **bus tag** is stripped as noise (`HSC_HvPower` → `HvPower`). The
+    test is *few distinct first segments across many messages* — a vehicle has a
+    handful of buses — **not** "every name shares one prefix", which would have
+    missed this DBC entirely (54 × `HSC_` + 1 × `MSC_Hvac`).
+  - The strip is kept **only if the shortened names stay unique**, so it can never
+    make a qualifier ambiguous. Where it would (`HSC_Pack` + `MSC_Pack` both → 
+    `Pack`), the full message names are used.
+
+  Falls back to the compact hex id when there is no real message name — a JSON
+  source auto-names messages `MSG_<id>`, which would qualify nothing.
+
+  Note the signal name stays **first** (`PackVoltage_HvPower`, not
+  `HvPower_PackVoltage`) so a signal family still sorts together.
+
+  **Filter before serialising.** The qualifier fires on duplicates *in the model
+  being written*, so exporting a subset only renames what actually collides in that
+  file — the 23-ID Commute subset needed it for `PackVoltage` alone, while
+  `Checksum` and `RollingCounter` appear once each there and keep bare names.
 
 ### §1b — short payloads pad on the *right*
 

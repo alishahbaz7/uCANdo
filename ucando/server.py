@@ -9,6 +9,7 @@ a tap on the bus manager so they survive reconnects; subsystems that transmit
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import logging
 import os
@@ -50,7 +51,7 @@ from .guided import list_protocols
 from .reverse import analyze_log
 from .scheduler import TxScheduler
 from .signals import SignalViewer
-from .storage import Storage
+from .storage import Storage, adopt_legacy_db
 
 import sys
 
@@ -65,7 +66,9 @@ else:
     BUNDLE = APP_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Writable state (DB, logs, uploads) can be relocated — tests point this at a
 # temp dir so a test run never writes into the developer's real database.
-APP_HOME = os.environ.get("UCANDO_HOME") or APP_HOME
+# CANFORGE_HOME is the pre-v1.4.1 name, still honoured so existing shortcuts,
+# service definitions and CI configs keep working after the rename.
+APP_HOME = os.environ.get("UCANDO_HOME") or os.environ.get("CANFORGE_HOME") or APP_HOME
 ROOT = BUNDLE
 WEB_DIR = os.path.join(BUNDLE, "web")
 DATA_DIR = os.path.join(APP_HOME, "data")
@@ -91,7 +94,16 @@ async def _log_unhandled(request, exc):
                         content={"ok": False, "error": "internal error (logged to data/ucando.log)"})
 
 # ----- foundation rails (persistence, config, plugins) ---------------------
-storage = Storage(os.path.join(DATA_DIR, "ucando.db"))   # writable app home (frozen-safe)
+DB_PATH = os.path.join(DATA_DIR, "ucando.db")            # writable app home (frozen-safe)
+try:
+    _adopted = adopt_legacy_db(DB_PATH)                  # pre-v1.4.1 data lived in canforge.db
+    if _adopted:
+        log.info("Adopted pre-rename database %s → %s", _adopted, DB_PATH)
+except Exception:
+    # Never let a migration failure stop the app from starting — a locked or
+    # corrupt legacy file should cost the old data, not the whole session.
+    log.exception("Could not adopt the pre-rename database; starting a fresh one")
+storage = Storage(DB_PATH)
 config = Config(storage)
 oem = OemDatabase(storage)
 OEM_PACKS_DIR = os.path.join(BUNDLE, "oem_packs")
@@ -1491,6 +1503,35 @@ async def ws_live(ws: WebSocket):
 # Serve index.html through a route so the single app __version__ is injected into
 # the asset URLs (?v=) — one version number drives both the UI chip and cache-busting.
 _INDEX_PATH = os.path.join(WEB_DIR, "index.html")
+_ASSETS = ("app.js", "style.css")
+
+
+def _asset_token() -> str:
+    """Cache-busting token for the ``?v=`` on the asset URLs.
+
+    ``__version__`` alone is not enough: it only moves at release, so every UI
+    edit in between kept the *same* URL and the browser reused its cached copy —
+    the static mount sends only ETag/Last-Modified (no ``Cache-Control``), and
+    browsers then apply heuristic freshness and may not revalidate at all. The
+    symptom is an edit that is live server-side but invisible in the page.
+
+    Folding in a digest of every asset's size+mtime makes any edit a new URL. A
+    digest rather than ``max(mtime)``: with a max, editing an asset that is *not*
+    the newest leaves the token unchanged and the stale-cache bug returns for that
+    file. In a frozen build the stamps are fixed at build time, so the token stays
+    stable per release.
+    """
+    parts = []
+    for name in _ASSETS:
+        try:
+            st = os.stat(os.path.join(WEB_DIR, name))
+        except OSError:
+            continue
+        parts.append(f"{name}:{st.st_size}:{st.st_mtime_ns}")
+    if not parts:
+        return __version__
+    digest = hashlib.sha1("|".join(parts).encode()).hexdigest()[:8]
+    return f"{__version__}-{digest}"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1498,7 +1539,11 @@ _INDEX_PATH = os.path.join(WEB_DIR, "index.html")
 def _serve_index():
     try:
         with open(_INDEX_PATH, encoding="utf-8") as fh:
-            return HTMLResponse(fh.read().replace("__VER__", __version__))
+            # no-store: this page *carries* the ?v= tokens, so it must never be
+            # cached itself — a stale index pins the browser to stale asset URLs
+            # and no amount of editing app.js would ever reach the page.
+            return HTMLResponse(fh.read().replace("__VER__", _asset_token()),
+                                headers={"Cache-Control": "no-store"})
     except OSError:
         return HTMLResponse("<h1>uCANdo</h1><p>UI not found.</p>", status_code=500)
 

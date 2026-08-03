@@ -668,10 +668,12 @@ function _fdLoaded(filename, messages) {
   fdMessages = messages; fdPayloads = {};
   fdMessages.forEach((m) => (fdPayloads[m.id_hex] = "00".repeat(m.length)));
   // Paste-dump example IDs match the active source's base (decimal for JSON).
+  // Both accepted shapes are shown: one record per line, or `id:payload` pairs
+  // separated by semicolons (a whole-bus snapshot pastes as a single line).
   const fill = $("fdFill");
   if (fill) fill.placeholder = fdSource === "json"
-    ? "912  0128C30000000000\n900  0205000000000200"
-    : "163  0205000000000200\n94   0006320040001C00";
+    ? "912  0128C30000000000\n900  0205000000000200\nor   0000038F:0128C3…;00000384:0205…"
+    : "163  0205000000000200\n94   0006320040001C00\nor   163:0205…;94:000632…";
   $("fdDbcStatus").textContent = `${filename} — ${fdMessages.length} messages`;
   $("fdMsgCount").textContent = `${fdMessages.length} IDs`;
   fdDetail = null; fdCurrentDetailId = null;
@@ -703,9 +705,16 @@ function renderFdCatalogue() {
     </tr></thead><tbody>` +
     fdMessages.map((m, i) => {
       const sigList = m.signals.join(", ") || "—";
+      // Echo the payload under the name once it carries something other than the
+      // all-zero default, so a paste-fill is visible at a glance instead of only
+      // after clicking each row.
+      const p = fdPayloads[m.id_hex] || "";
+      const loaded = p && !/^0+$/.test(p);
+      const payloadLine = loaded
+        ? `<div class="fd-cat-payload">${spaceHex(p.toUpperCase())}</div>` : "";
       return `<tr data-id="${m.id_hex}">
         <td>${i + 1}</td>
-        <td class="mono" style="font-weight:500">${fdIdLabel(m)}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${m.name}</span></td>
+        <td class="mono" style="font-weight:500">${fdIdLabel(m)}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${m.name}</span>${payloadLine}</td>
         <td style="text-align:center">${m.length}</td>
         <td class="muted-line" style="font-size:12px" title="${sigList}">${m.signals.length}: ${sigList}</td>
       </tr>`;
@@ -1137,25 +1146,66 @@ function fdRenderBody(f) {
     </div>
   </div>`;
 }
+// One `<id><sep><payload>` record per entry. Records are separated by newlines
+// **or** semicolons, and the id from its payload by whitespace, comma or colon —
+// so a one-line cloud snapshot ("000000E1:000040A0...;00000120:0002FEA2...")
+// pastes as readily as a hand-typed two-column dump.
+function fdParseFill(text) {
+  return text.split(/[;\n]+/)
+    .map((rec) => rec.trim().split(/[\s,:]+/).filter(Boolean))
+    .filter((t) => t.length >= 2);
+}
+// Which base the *pasted* ids are in. It need not match the base the catalogue
+// displays: a JSON signature lists decimal ids, yet a snapshot of the same bus
+// is dumped as 8-digit zero-padded hex. Same rule as jsondecode.detect_id_base —
+// only unambiguous evidence (a 0x prefix, a hex letter, or zero-padding) wins,
+// since "163" alone is legal in both bases; otherwise trust the source.
+function fdDetectIdBase(ids, fallback) {
+  for (const s of ids) {
+    if (/^0x/i.test(s) || /[a-f]/i.test(s)) return 16;
+    if (s.length > 1 && s[0] === "0") return 16;
+  }
+  return fallback;
+}
 $("btnFdFill").addEventListener("click", () => {
-  // ID base follows the active source: decimal for JSON, hex for DBC.
-  const idBase = fdSource === "json" ? 10 : 16;
-  let matched = 0;
-  for (const ln of $("fdFill").value.split("\n")) {
-    const t = ln.trim().split(/[\s,]+/); if (t.length < 2) continue;
+  const recs = fdParseFill($("fdFill").value);
+  // ID base follows the active source (decimal for JSON, hex for DBC) unless the
+  // paste itself proves otherwise.
+  const fallback = fdSource === "json" ? 10 : 16;
+  const idBase = fdDetectIdBase(recs.map((t) => t[0]), fallback);
+  let matched = 0, firstFilled = null;
+  const unknown = [];
+  for (const t of recs) {
     const id = parseInt(t[0], idBase); if (isNaN(id)) continue;
     const idHex = id.toString(16).toUpperCase();
     if (idHex in fdPayloads) {
       // join remaining tokens so spaced payloads ("01 28 C3") work, hex-only
       fdPayloads[idHex] = t.slice(1).join("").replace(/[^0-9a-fA-F]/g, "");
       matched++;
+      if (!firstFilled) firstFilled = idHex;
+    } else {
+      unknown.push(t[0]);
     }
   }
   renderFdCatalogue();
-  // Refresh the open message so its input + decode reflect the filled payload.
-  const openId = fdCurrentDetailId;
-  if (openId && openId in fdPayloads) { fdCurrentDetailId = null; fdDecodeOne(openId); }
-  setStatus(`Payloads filled from dump — ${matched} message${matched === 1 ? "" : "s"} matched`);
+  // Show a decode straight away. Filling only mutates fdPayloads, so without this
+  // the whole action is invisible — the catalogue looks identical and the detail
+  // pane still reads "Click a message row", which reads as a dead button.
+  const openId = fdCurrentDetailId && fdCurrentDetailId in fdPayloads
+    ? fdCurrentDetailId : firstFilled;
+  if (openId) { fdCurrentDetailId = null; fdDecodeOne(openId); }
+  // Say what was read *and* what was skipped — a silent 0-match paste otherwise
+  // looks like a broken button when it is really a base or definition mismatch.
+  const idsIn = idBase === 16 ? "hex" : "decimal";
+  let msg = `${matched}/${recs.length} matched · ids read as ${idsIn}`;
+  if (unknown.length) {
+    const shown = unknown.slice(0, 6).join(", ");
+    msg += ` · not in this definition: ${shown}${unknown.length > 6 ? `, +${unknown.length - 6} more` : ""}`;
+  }
+  if (!recs.length) msg = "nothing to read — expected `id payload` per line, or `id:payload;id:payload`";
+  const out = $("fdFillMsg");
+  if (out) { out.textContent = msg; out.style.color = matched ? "var(--ok, #4ade80)" : "var(--bad, #f87171)"; }
+  setStatus("Fill payloads — " + msg);
 });
 
 // ----------------------- Converter workbench (upload · edit · select · export)
@@ -1355,7 +1405,10 @@ function cvUpdateLoss() {
 $("btnCvDownload").addEventListener("click", async () => {
   if (!cvModel) return;
   const to = $("cvTo").value;
-  const fm = { messages: [] };
+  // Carry id_base: the export writes JSON keys in the source's base (hex for a
+  // DBC/CSV), and this model is rebuilt from scratch, so dropping it here would
+  // silently renumber 0x120 back into "288".
+  const fm = { messages: [], id_base: cvModel.id_base };
   cvModel.messages.forEach((m) => {
     const sigs = m.signals.filter((s) => s._sel).map((s) => {
       const { _sel, doubt, ...clean } = s; return clean;

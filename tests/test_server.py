@@ -22,7 +22,7 @@ def test_index_injects_single_version():
     from ucando import __version__
     html = client.get("/").text
     assert "__VER__" not in html                       # placeholder fully substituted
-    assert f"?v={__version__}" in html                 # assets cache-bust on the app version
+    assert f"?v={__version__}-" in html                # version, then an asset digest
     assert client.get("/api/info").json()["version"] == __version__
 
     plugins = client.get("/api/plugins").json()
@@ -217,3 +217,28 @@ def test_sniffer_live_through_bus():
         client.post("/api/re/sniff/stop")
         sender.shutdown()
         client.post("/api/disconnect")
+
+
+def test_asset_token_changes_when_any_asset_changes():
+    """The ?v= token must move on *any* UI edit, or the browser serves stale JS.
+
+    The static mount sends only ETag/Last-Modified, so with an unchanged URL a
+    browser may apply heuristic freshness and never revalidate — an edit that is
+    live server-side stays invisible in the page. Guards against reverting to
+    max(mtime), under which editing a non-newest asset left the token unchanged.
+    """
+    import os
+    from ucando.server import WEB_DIR, _ASSETS, _asset_token
+
+    base = _asset_token()
+    for name in _ASSETS:
+        path = os.path.join(WEB_DIR, name)
+        if not os.path.exists(path):
+            continue
+        st = os.stat(path)
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 7_000_000_000))
+        try:
+            assert _asset_token() != base, f"editing {name} did not change the token"
+        finally:
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert _asset_token() == base          # exact restore (ns precision preserved)

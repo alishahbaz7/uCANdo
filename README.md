@@ -184,7 +184,23 @@ Everything above the HAL is adapter-independent — modules hold a `CANInterface
 
 ## Release History
 
-### v1.4 — VIN identify, OEM pack library & Signature-JSON hardening *(current)*
+### v1.4.1 — One name everywhere: **uCANdo** *(current)*
+The product was renamed CANForge → uCANdo back in v0.3, but the repository and the Python package never followed, so three names were in play at once. They are now one:
+
+| | Was | Now |
+|---|---|---|
+| Repository / folder | `CAN-utlity` | `uCANdo` |
+| Python package | `canforge/` | `ucando/` |
+| CLI | `python -m canforge.cli` | `python -m ucando.cli` |
+| Database | `data/canforge.db` | `data/ucando.db` |
+| Env var | `CANFORGE_HOME` | `UCANDO_HOME` |
+
+- **Breaking for external scripts only** — anything doing `import canforge` or `python -m canforge.cli` must switch to `ucando`. Nothing inside the app changed behaviour; the package rename went through `git mv`, so file history is intact.
+- **Your existing database is adopted automatically.** On first start under the new name, `storage.adopt_legacy_db` copies `data/canforge.db` → `data/ucando.db` via sqlite's backup API — not a file copy, so an uncheckpointed WAL comes across too — and leaves the original in place as a backup. Without this, the rename would have looked like total data loss: a new empty DB beside a perfectly good old one.
+- **`CANFORGE_HOME` is still honoured** as a fallback for `UCANDO_HOME`, so existing shortcuts, service definitions and CI configs keep working.
+- Tests: 279 passing (3 added for the migration: WAL carry-over, never clobbering an existing DB, no-op with no legacy file)
+
+### v1.4 — VIN identify, OEM pack library & Signature-JSON hardening
 - **VIN identification** (`vin.py`) — parse an ISO 3779 VIN into WMI / VDS / VIS, glob-match it against pack patterns, and identify a vehicle *before* touching CAN. `/api/oem/identify-vin`
 - **OEM pack library restructured** to `<Make>/<Model>/<Fuel>_<Year>/` with the filename repeating the path (`oem_packs/README.md` documents the rule); `oem_db.iter_packs` walks the tree, so adding a vehicle is a folder, not a code change. Hyundai Aura moved into the new layout; MG (Comet, Commute, Windsor Pro, ZS), Mahindra and Suzuki added
 - **MG Commute EV 2026 decoded** (`docs/MG_COMMUTE_DECODE.md`) — Tier-A signals confirmed against dash photos: Odometer (`0x120`, 32-bit ×1/64 km), StateOfCharge, RangeToEmpty, GearSelector, PackVoltage/PackCurrent/CellVoltMax, plus a checksum model verified on 410/410 frames
@@ -242,7 +258,7 @@ Everything above the HAL is adapter-independent — modules hold a `CANInterface
 - Physical value: scale-aware decimal formatting, OOR badge, choice label
 - Payload input: hex-only validation, byte counter, maxlength = DLC×2
 - DBC export: timestamped filename (`DDMMYY_HHMMSS.dbc`)
-- Rebranded: uCANdo → **uCANdo**
+- Rebranded: CANForge → **uCANdo** *(the product name; the Python package followed in v1.4.1)*
 - UI: Segoe UI Variable Display, dark scrollbars, 2-col layout, unified buttons
 
 ### v0.2 — Auto-RE + Hardware bring-up

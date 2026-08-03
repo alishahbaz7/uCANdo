@@ -218,7 +218,12 @@
         <div id="fdFillBox" class="hidden">
           <textarea id="fdFill" spellcheck="false"
             placeholder="163  0205000000000200&#10;94   0006320040001C00"></textarea>
-          <button class="btn" id="btnFdFill" style="margin-top:6px">Fill payloads</button>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+            <button class="btn" id="btnFdFill">Fill payloads</button>
+            <!-- result shown here, beside the button: the bottom status bar is
+                 usually scrolled out of view, which made a working fill look dead -->
+            <span id="fdFillMsg" class="muted-line"></span>
+          </div>
         </div>
         <!-- 2-column split: message catalogue | decode detail -->
         <div class="fd-layout">

@@ -99,6 +99,43 @@ DEFAULT_DB_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ucando.db"
 )
 
+# Database filenames this app used before it settled on "ucando.db" (v1.4.1).
+LEGACY_DB_NAMES: tuple[str, ...] = ("canforge.db",)
+
+
+def adopt_legacy_db(path: str, legacy_names: tuple[str, ...] = LEGACY_DB_NAMES) -> Optional[str]:
+    """Seed ``path`` from a pre-rename database sitting beside it, if any.
+
+    The app was called CANForge until v1.4.1, so an install from an earlier
+    build keeps its OEM profiles, vehicles and settings in ``data/canforge.db``.
+    Without this, the rename would look like total data loss: the new name has
+    no file, so a brand-new empty database would be created next to a perfectly
+    good old one. Returns the legacy path that was adopted, else ``None``.
+
+    The copy goes through sqlite's backup API rather than the filesystem
+    deliberately — a legacy WAL that was never checkpointed carries the most
+    recent writes, and a plain file copy of the ``.db`` alone would drop them.
+    The original is left untouched, so it stays a usable backup.
+    """
+    if path == ":memory:" or os.path.exists(path):
+        return None
+    folder = os.path.dirname(os.path.abspath(path))
+    for name in legacy_names:
+        legacy = os.path.join(folder, name)
+        if not os.path.exists(legacy):
+            continue
+        src = sqlite3.connect(legacy)
+        try:
+            dst = sqlite3.connect(path)
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        return legacy
+    return None
+
 
 class Storage:
     """Thread-safe SQLite wrapper with small per-table conveniences."""
