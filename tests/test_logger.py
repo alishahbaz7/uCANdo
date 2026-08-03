@@ -2,9 +2,9 @@
 
 import can
 
-from canforge.contracts import check_snapshot
-from canforge.hal import create_interface
-from canforge.logger import CanLogger
+from ucando.contracts import check_snapshot
+from ucando.hal import create_interface
+from ucando.logger import CanLogger
 from tests.conftest import wait_until
 
 

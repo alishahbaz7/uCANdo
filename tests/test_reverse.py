@@ -1,6 +1,6 @@
 """Reverse-engineering analysis (pure-stdlib)."""
 
-from canforge.reverse import analyze_id, _classify_byte, _entropy
+from ucando.reverse import analyze_id, _classify_byte, _entropy
 from collections import Counter
 
 

@@ -12,11 +12,11 @@ import can
 import pytest
 from fastapi.testclient import TestClient
 
-from canforge import convert as cv
-from canforge import jsondecode as jd
-from canforge.dbc_builder import DbcModel
-from canforge.framedecode import decode_frame, decode_frames
-from canforge.server import app
+from ucando import convert as cv
+from ucando import jsondecode as jd
+from ucando.dbc_builder import DbcModel
+from ucando.framedecode import decode_frame, decode_frames
+from ucando.server import app
 from tests.conftest import wait_until
 
 client = TestClient(app)
@@ -53,7 +53,7 @@ def test_json_scale_offset_applied():
 
 
 def test_json_short_payload_padded_no_crash():
-    # a short payload is left-padded (dropped leading zeros restored) — must not crash
+    # a short payload is right-padded (byte 0 stays byte 0) — must not crash
     m = jd.load_signature(json.dumps({"100": [_sig(size=8, reverse=1)]}))
     assert "error" not in jd.decode_frame(m, 100, "04")
 

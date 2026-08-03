@@ -2,7 +2,7 @@
 
 import can
 
-from canforge.dtc import DtcMonitor, decode_obd_dtc
+from ucando.dtc import DtcMonitor, decode_obd_dtc
 
 
 def _all_codes(snap):

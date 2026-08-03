@@ -2,7 +2,7 @@
 
 import can
 
-from canforge.re_engines.diff import StateSniffer, diff_frames, _group_bits
+from ucando.re_engines.diff import StateSniffer, diff_frames, _group_bits
 
 
 def _frames(payloads):

@@ -5,7 +5,7 @@ import uuid
 import can
 from fastapi.testclient import TestClient
 
-from canforge.server import app
+from ucando.server import app
 from tests.conftest import wait_until
 
 client = TestClient(app)
@@ -19,10 +19,10 @@ def test_info_and_plugins():
 
 def test_index_injects_single_version():
     # One version number (__version__) drives both /api/info and the asset ?v= URLs.
-    from canforge import __version__
+    from ucando import __version__
     html = client.get("/").text
     assert "__VER__" not in html                       # placeholder fully substituted
-    assert f"?v={__version__}" in html                 # assets cache-bust on the app version
+    assert f"?v={__version__}-" in html                # version, then an asset digest
     assert client.get("/api/info").json()["version"] == __version__
 
     plugins = client.get("/api/plugins").json()
@@ -160,7 +160,7 @@ def test_autore_analyze_confirm_save(tmp_path):
 
 
 def test_decode_dbc_frames_endpoint():
-    from canforge.dbc_builder import DbcModel
+    from ucando.dbc_builder import DbcModel
     m = DbcModel()
     m.add_message(0x94, "M94", length=8)
     m.add_signal(0x94, {"name": "Speed", "start_bit": 3, "length": 12,
@@ -184,6 +184,16 @@ def test_oem_from_builder_and_delete():
          "signals": [{"name": "s", "start_bit": 0, "length": 8, "byte_order": "little_endian"}]}]})
     r = client.post("/api/oem/from-builder", json={"oem": "Test", "name": "Prof321"}).json()
     assert r["ok"] and r["profile"]["oem"] == "Test"
+
+    # The Profiles list shows counts; the click-through shows what they're made of.
+    row = next(p for p in client.get("/api/oem/profiles").json()["profiles"]
+               if p["id"] == r["id"])
+    assert (row["msg_count"], row["signal_count"]) == (1, 1)
+    d = client.get(f"/api/oem/profile/{r['id']}/signals").json()
+    assert d["ok"] and [m["id_hex"] for m in d["messages"]] == ["321"]
+    assert [s["name"] for s in d["messages"][0]["signals"]] == ["s"]
+    assert client.get("/api/oem/profile/999999/signals").status_code == 404
+
     assert client.post(f"/api/oem/profile/delete?pid={r['id']}").json()["ok"]
 
 
@@ -207,3 +217,28 @@ def test_sniffer_live_through_bus():
         client.post("/api/re/sniff/stop")
         sender.shutdown()
         client.post("/api/disconnect")
+
+
+def test_asset_token_changes_when_any_asset_changes():
+    """The ?v= token must move on *any* UI edit, or the browser serves stale JS.
+
+    The static mount sends only ETag/Last-Modified, so with an unchanged URL a
+    browser may apply heuristic freshness and never revalidate — an edit that is
+    live server-side stays invisible in the page. Guards against reverting to
+    max(mtime), under which editing a non-newest asset left the token unchanged.
+    """
+    import os
+    from ucando.server import WEB_DIR, _ASSETS, _asset_token
+
+    base = _asset_token()
+    for name in _ASSETS:
+        path = os.path.join(WEB_DIR, name)
+        if not os.path.exists(path):
+            continue
+        st = os.stat(path)
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 7_000_000_000))
+        try:
+            assert _asset_token() != base, f"editing {name} did not change the token"
+        finally:
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert _asset_token() == base          # exact restore (ns precision preserved)

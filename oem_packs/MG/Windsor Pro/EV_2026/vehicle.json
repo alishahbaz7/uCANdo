@@ -1,0 +1,17 @@
+{
+  "vin_patterns": ["MZ72D5FEF*"],
+  "vin_pattern_confidence": "low",
+  "notes": [
+    "Derived from a SINGLE observed VIN on the 2026-08-01 capture vehicle. One",
+    "VIN cannot tell us which characters are model-discriminating and which are",
+    "unit-specific, so this prefix may be either too narrow (missing other",
+    "Windsor Pro builds) or too wide (also matching the standard Windsor).",
+    "Collect VINs from several cars of each model to tighten it.",
+    "Only characters 1-9 are stored: manufacturer + model/body/powertrain. The",
+    "unit-identifying tail (plant, serial) is deliberately omitted, so this",
+    "identifies a MODEL, not a car.",
+    "Position 10 on this VIN is '8', which ISO 3779 reads as model year 2008 —",
+    "the vehicle is a confirmed 2026. JSW MG Motor India does not follow the ISO",
+    "year code, so year must never be inferred from the VIN for this marque."
+  ]
+}

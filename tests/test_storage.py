@@ -1,6 +1,7 @@
 """Persistence layer and config."""
 
-from canforge.config import DEFAULTS, Config
+from ucando.config import DEFAULTS, Config
+from ucando.storage import Storage, adopt_legacy_db
 
 
 def test_schema_tables_exist(storage):
@@ -46,3 +47,44 @@ def test_profiles(storage):
     cfg.save_profile("bench-1", {"hw": "pcan", "channel": "PCAN_USBBUS1"})
     assert cfg.load_profile("bench-1")["hw"] == "pcan"
     assert "bench-1" in cfg.list_profiles()
+
+
+# ----- pre-rename database adoption (CANForge → uCANdo, v1.4.1) -------------
+
+def test_adopt_legacy_db_carries_data_over_including_the_wal(tmp_path):
+    """A canforge.db beside the new path is adopted, uncheckpointed writes too."""
+    legacy = tmp_path / "canforge.db"
+    old = Storage(str(legacy))
+    old.insert("vehicles", name="Aura", oem="Hyundai", model="Aura", year=2023)
+    old.set_setting("default_channel", "ucando")
+    # `old` is deliberately left open: those commits are still sitting in the
+    # -wal file, which is precisely what a plain file copy would have dropped.
+
+    new = tmp_path / "ucando.db"
+    assert adopt_legacy_db(str(new)) == str(legacy)
+
+    adopted = Storage(str(new))
+    assert [r["name"] for r in adopted.list("vehicles")] == ["Aura"]
+    assert adopted.get_setting("default_channel") == "ucando"
+    assert legacy.exists()                      # original kept as a backup
+    old.close()
+    adopted.close()
+
+
+def test_adopt_legacy_db_never_clobbers_an_existing_db(tmp_path):
+    legacy = Storage(str(tmp_path / "canforge.db"))
+    legacy.insert("vehicles", name="stale")
+    current = Storage(str(tmp_path / "ucando.db"))
+    current.insert("vehicles", name="current")
+
+    assert adopt_legacy_db(str(tmp_path / "ucando.db")) is None
+    assert [r["name"] for r in current.list("vehicles")] == ["current"]
+    legacy.close()
+    current.close()
+
+
+def test_adopt_legacy_db_is_a_noop_without_a_legacy_file(tmp_path):
+    new = tmp_path / "ucando.db"
+    assert adopt_legacy_db(str(new)) is None
+    assert not new.exists()                     # no empty file left behind
+    assert adopt_legacy_db(":memory:") is None

@@ -1,6 +1,6 @@
 """DBC Builder — RE candidate conversion and DBC round-trip via cantools."""
 
-from canforge.dbc_builder import DbcModel, re_candidate_to_signal
+from ucando.dbc_builder import DbcModel, re_candidate_to_signal
 
 
 def test_re_candidate_bit_conversion():

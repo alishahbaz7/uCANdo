@@ -33,6 +33,11 @@ const ICONS = {
   clipboard: _ico('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>'),
   grid: _ico('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>'),
   alert: _ico('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  // playback transport (log-signal scrubbing)
+  skipBack: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
+  skipFwd: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
+  rewind: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 4 5 12 12 20 12 4" fill="currentColor"/><polygon points="19 4 12 12 19 20 19 4" fill="currentColor"/></svg>',
+  fastFwd: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 4 19 12 12 20 12 4" fill="currentColor"/><polygon points="5 4 12 12 5 20 5 4" fill="currentColor"/></svg>',
 };
 // Back-compat aliases used by the topbar renderer
 const ICON_POWER = ICONS.power, ICON_RECORD = ICONS.record, ICON_STOP = ICONS.stop;
@@ -55,7 +60,7 @@ const VIEW_META = {
   convert: { t: "Converter", d: "Convert a signal database among DBC, Signature JSON, and CSV in any direction." },
   dbc: { t: "DBC Builder", d: "Edit messages and signals, then round-trip to a .dbc file." },
   oem: { t: "OEM Database", d: "Store, fingerprint, and auto-apply vehicle DBC profiles (CANMatch)." },
-  signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms." },
+  signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms — or upload a log to chart it offline." },
   scheduler: { t: "TX Scheduler", d: "Transmit cyclic or one-shot frames on the bus." },
   automation: { t: "Automation", d: "Rules, scheduled jobs, restbus simulation, and scripting." },
   dtc: { t: "DTC Codes", d: "Read and clear trouble codes — OBD-II, UDS, and J1939." },
@@ -89,6 +94,42 @@ document.querySelectorAll(".nav").forEach((btn) => {
     if (view === "scheduler") pollTx();
   });
 });
+
+// ---- feature availability -------------------------------------------------
+// Views that can do nothing without a bus. They stay CLICKABLE — a disabled
+// nav item hides what the tool can do and reads as broken; a dimmed one with a
+// stated reason teaches instead.
+const LIVE_ONLY_VIEWS = {
+  dashboard: "Decoding live OBD-II / J1939 values needs a connected bus.",
+  logger: "Capturing frames needs a connected bus.",
+  replay: "Transmitting a log onto the bus needs a connected bus.",
+  scheduler: "Transmitting frames needs a connected bus.",
+  automation: "Rules, jobs, restbus and scripting all act on a live bus.",
+  dtc: "Reading or clearing trouble codes needs a connected bus.",
+  decoder: "Live protocol interpretation needs a connected bus.",
+};
+function applyAvailability() {
+  const off = !state.connected;
+  document.querySelectorAll(".nav").forEach((btn) => {
+    const reason = LIVE_ONLY_VIEWS[btn.dataset.view];
+    btn.classList.toggle("nav-unavail", !!reason && off);
+    btn.title = reason && off ? reason + " Click to open anyway." : "";
+  });
+  for (const [view, reason] of Object.entries(LIVE_ONLY_VIEWS)) {
+    const section = $("view-" + view);
+    if (!section) continue;
+    let gate = section.querySelector(".view-gate");
+    if (!gate) {
+      gate = document.createElement("div");
+      gate.className = "view-gate";
+      gate.innerHTML = `<span>${ICONS.alert}</span><span class="gate-msg"></span>` +
+        `<button class="btn-mini" onclick="document.getElementById('btnConnect').click()">Connect a bus</button>`;
+      section.insertBefore(gate, section.firstChild);
+    }
+    gate.querySelector(".gate-msg").textContent = reason;
+    gate.hidden = !off;
+  }
+}
 
 function startPolling(view) {
   if (pollTimer) clearInterval(pollTimer);
@@ -144,8 +185,10 @@ $("btnClear").addEventListener("click", () => POST("/api/logger/clear"));
 const fmtPeriod = (ms) => (!ms ? "—" : ms >= 1000 ? (ms / 1000).toFixed(2) + " s" : ms.toFixed(1) + " ms");
 
 function renderLogger(snap) {
+  const wasConnected = state.connected;
   state.connected = !!snap.connected;
   state.recording = !!snap.recording;
+  if (wasConnected !== state.connected) applyAvailability();
   const chip = $("hwChip");
   chip.dataset.state = state.connected ? "on" : "off";
   $("hwChipText").textContent = state.connected ? "Connected" : "Not connected";
@@ -352,21 +395,109 @@ window.promoteCorr = async (idHex) => {
 };
 
 // ----------------------------------------------------------- OEM CAN Database
+// Profiles is a two-level table: one row per vehicle, plus an expandable detail
+// row listing the messages/signals that profile decodes. Detail is fetched on
+// demand and cached — a pack DBC is far too big to ship inside the list call.
+let oemProfiles = [];
+const oemOpen = new Set();        // pids currently expanded
+const oemDetail = {};             // pid -> /signals payload
+
 async function renderOem() {
   const { profiles } = await api("/api/oem/profiles");
-  $("oemTable").querySelector("tbody").innerHTML = (profiles || []).map((p) => {
-    const apply = p.id_count ? `<button class="btn-mini" onclick="oemApply(${p.id})">Apply</button>` : "";
-    return `<tr><td>${p.oem}</td><td>${p.name}</td><td class="muted-line">${p.model || "—"}</td>
-      <td>${p.id_count}</td><td><span class="tag">${p.status}</span></td>
-      <td>${apply} <button class="btn-mini" onclick="oemDelete(${p.id})">${ICONS.close}</button></td></tr>`;
-  }).join("") || `<tr><td colspan="6" class="muted-line" style="padding:14px">No profiles.</td></tr>`;
+  oemProfiles = profiles || [];
+  const live = new Set(oemProfiles.map((p) => p.id));
+  for (const pid of [...oemOpen]) if (!live.has(pid)) oemOpen.delete(pid);
+  oemDrawProfiles();
 }
+
+// Make/Model/Year now have their own columns, so the profile name only still
+// carries the fuel and — for a vehicle tapped at two points — the bus segment.
+function oemVariant(p) {
+  let s = ` ${p.name} `;
+  for (const part of [p.model, p.year]) if (part) s = s.split(part).join(" ");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function oemDrawProfiles() {
+  const tb = $("oemTable").querySelector("tbody");
+  if (!oemProfiles.length) {
+    tb.innerHTML = `<tr><td colspan="7" class="muted-line" style="padding:14px">No profiles.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = oemProfiles.map((p) => {
+    const open = oemOpen.has(p.id);
+    // With no model recorded the cell falls back to the profile name, so the
+    // variant sub-line would just repeat it.
+    const variant = p.model ? oemVariant(p) : "";
+    return `<tr>
+      <td>${escAttr(p.oem)}</td>
+      <td><button class="oem-model" onclick="oemToggle(${p.id})" title="Show the signals this profile decodes">
+          ${ICONS[open ? "chevronUp" : "chevronDown"]}<span>${escAttr(p.model || p.name)}</span></button>
+        ${variant ? `<span class="muted-line">${escAttr(variant)}</span>` : ""}</td>
+      <td>${p.id_count}</td>
+      <td>${p.msg_count ? `${p.msg_count} <span class="muted-line">· ${p.signal_count} sig</span>`
+                        : `<span class="muted-line">none</span>`}</td>
+      <td>${p.year || `<span class="muted-line">—</span>`}</td>
+      <td><span class="tag">${p.status}</span></td>
+      <td style="white-space:nowrap">${p.msg_count
+        ? `<button class="btn-mini" onclick="oemApply(${p.id})" title="Load this profile's DBC into the Signal Viewer and decode the live bus with it">Apply</button>`
+        : ""}
+        <button class="btn-mini" onclick="oemDelete(${p.id})" title="Delete this profile from the database">${ICONS.close}</button></td>
+    </tr>${open ? oemDetailRow(p) : ""}`;
+  }).join("");
+}
+
+function oemDetailRow(p) {
+  const d = oemDetail[p.id];
+  let body;
+  if (!d) body = `<div class="muted-line" style="padding:8px 2px">Loading signals…</div>`;
+  else if (d.error) body = `<div class="muted-line" style="padding:8px 2px">Could not read this profile's DBC — ${escAttr(d.error)}</div>`;
+  else if (!d.messages.length) body = `<div class="muted-line" style="padding:8px 2px">Fingerprint only — this profile identifies the vehicle but decodes nothing yet.</div>`;
+  else body = d.messages.map((m) => `<div class="cv-msg">
+      <div class="cv-msg-head">
+        <span class="mono">0x${m.id_hex}</span><strong>${escAttr(m.name)}</strong>
+        <span class="muted-line">${m.length} byte${m.length === 1 ? "" : "s"}${m.is_extended ? " · 29-bit" : ""}</span>
+        <span class="muted-line">${m.signals.length} signal${m.signals.length === 1 ? "" : "s"}</span>
+      </div>
+      ${m.signals.length ? `<div class="table-wrap"><table class="data-table cv-sigtable"><thead><tr>
+        <th>Signal</th><th>Start</th><th>Len</th><th>Layout</th><th>Scale</th><th>Offset</th><th>Range</th><th>Unit</th>
+      </tr></thead><tbody>${m.signals.map((s) => `<tr>
+        <td>${escAttr(s.name)}</td><td class="mono">${s.start_bit}</td><td class="mono">${s.length}</td>
+        <td class="muted-line">${String(s.byte_order || "").startsWith("big") ? "Motorola" : "Intel"}${s.is_signed ? " · signed" : ""}</td>
+        <td class="mono">${s.scale}</td><td class="mono">${s.offset}</td>
+        <td class="muted-line">${s.minimum == null && s.maximum == null ? "—" : `${s.minimum ?? "—"} … ${s.maximum ?? "—"}`}</td>
+        <td class="muted-line">${escAttr(s.unit || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    </div>`).join("");
+  return `<tr class="oem-detail"><td colspan="7">${body}</td></tr>`;
+}
+
+window.oemToggle = async (id) => {
+  if (oemOpen.has(id)) { oemOpen.delete(id); return void oemDrawProfiles(); }
+  oemOpen.add(id);
+  oemDrawProfiles();                     // open immediately, then fill in
+  if (oemDetail[id]) return;
+  const d = await api(`/api/oem/profile/${id}/signals`);
+  oemDetail[id] = d.ok ? d : { error: d.error || "request failed", messages: [] };
+  if (oemOpen.has(id)) oemDrawProfiles();
+};
 window.oemApply = async (id) => {
   const r = await POST("/api/oem/apply?pid=" + id);
   setStatus(r.ok ? `Applied profile → Signal Viewer (${r.signals ? r.signals.length : 0} signals)` : "Apply: " + r.error);
 };
-window.oemDelete = async (id) => { await POST("/api/oem/profile/delete?pid=" + id); renderOem(); };
+window.oemDelete = async (id) => {
+  const p = oemProfiles.find((x) => x.id === id) || {};
+  if (!confirm(`Delete profile "${p.oem || ""} ${p.name || id}"?\n\nShipped vehicle packs are restored from oem_packs/ on the next restart.`)) return;
+  await POST("/api/oem/profile/delete?pid=" + id);
+  delete oemDetail[id]; oemOpen.delete(id);
+  renderOem();
+};
 $("btnOemRefresh").addEventListener("click", renderOem);
+$("btnOemPrune").addEventListener("click", async () => {
+  const r = await POST("/api/oem/prune");
+  setStatus(r.removed ? `Removed ${r.removed} empty profile${r.removed > 1 ? "s" : ""}` : "Nothing to clean — every profile has signals");
+  for (const k of Object.keys(oemDetail)) delete oemDetail[k];
+  renderOem();
+});
 $("btnOemIdentify").addEventListener("click", async () => {
   const r = await api("/api/oem/identify");
   if (!r.ok) return void ($("oemIdentStatus").textContent = r.error);
@@ -382,13 +513,6 @@ $("btnOemAutoApply").addEventListener("click", async () => {
   if (r.ok && r.applied) setStatus(`Auto-applied "${r.applied.name}" (${(r.match.score * 100).toFixed(0)}%) → Signal Viewer`);
   else setStatus(r.reason ? "No confident decodable match" : ("Auto-apply: " + (r.error || "?")));
   $("btnOemIdentify").click();
-});
-$("btnOemFromBuilder").addEventListener("click", async () => {
-  const oem = $("oemSaveOem").value.trim(), name = $("oemSaveName").value.trim();
-  if (!oem || !name) return void setStatus("Enter OEM and profile name");
-  const r = await POST("/api/oem/from-builder", { oem, name });
-  if (r.ok) { setStatus(`Saved profile "${name}"`); renderOem(); }
-  else setStatus("Save: " + r.error);
 });
 
 // --------------------------------------------------------------- Automation
@@ -517,6 +641,11 @@ let fdTraceFrames = [];         // last decoded trace frames (reused on option t
 let fdTraceRaw = false;         // false → physical value, true → raw (hex)
 let fdTraceCollapse = true;     // collapse runs of identical consecutive frames
 let fdRenderedKey = null;       // "<id>:<mode>" the header was last built for
+// Trace can also source from an uploaded log (Vehicle Spy CSV, .asc/.blf/.trc/...)
+// instead of pasted payloads — same decode/render pipeline either way.
+let fdLogPath = null;           // server-side path of the last uploaded log
+let fdLogName = "";             // its filename, for the hint line
+let fdLogCatalogue = [];        // [{id, id_hex, ext, count, first_ts, last_ts}]
 // Display the CAN ID in its source's native base. `o` is a catalogue row or a decoded frame.
 const fdIdLabel = (o) => fdSource === "json" ? `${o.id}` : `0x${o.id_hex}`;
 // Group a clean hex string into space-separated bytes: "0128C3" → "01 28 C3".
@@ -539,10 +668,12 @@ function _fdLoaded(filename, messages) {
   fdMessages = messages; fdPayloads = {};
   fdMessages.forEach((m) => (fdPayloads[m.id_hex] = "00".repeat(m.length)));
   // Paste-dump example IDs match the active source's base (decimal for JSON).
+  // Both accepted shapes are shown: one record per line, or `id:payload` pairs
+  // separated by semicolons (a whole-bus snapshot pastes as a single line).
   const fill = $("fdFill");
   if (fill) fill.placeholder = fdSource === "json"
-    ? "912  0128C30000000000\n900  0205000000000200"
-    : "163  0205000000000200\n94   0006320040001C00";
+    ? "912  0128C30000000000\n900  0205000000000200\nor   0000038F:0128C3…;00000384:0205…"
+    : "163  0205000000000200\n94   0006320040001C00\nor   163:0205…;94:000632…";
   $("fdDbcStatus").textContent = `${filename} — ${fdMessages.length} messages`;
   $("fdMsgCount").textContent = `${fdMessages.length} IDs`;
   fdDetail = null; fdCurrentDetailId = null;
@@ -574,9 +705,16 @@ function renderFdCatalogue() {
     </tr></thead><tbody>` +
     fdMessages.map((m, i) => {
       const sigList = m.signals.join(", ") || "—";
+      // Echo the payload under the name once it carries something other than the
+      // all-zero default, so a paste-fill is visible at a glance instead of only
+      // after clicking each row.
+      const p = fdPayloads[m.id_hex] || "";
+      const loaded = p && !/^0+$/.test(p);
+      const payloadLine = loaded
+        ? `<div class="fd-cat-payload">${spaceHex(p.toUpperCase())}</div>` : "";
       return `<tr data-id="${m.id_hex}">
         <td>${i + 1}</td>
-        <td class="mono" style="font-weight:500">${fdIdLabel(m)}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${m.name}</span></td>
+        <td class="mono" style="font-weight:500">${fdIdLabel(m)}&thinsp;<span style="color:var(--muted);font-weight:400;font-family:inherit">· ${m.name}</span>${payloadLine}</td>
         <td style="text-align:center">${m.length}</td>
         <td class="muted-line" style="font-size:12px" title="${sigList}">${m.signals.length}: ${sigList}</td>
       </tr>`;
@@ -646,10 +784,15 @@ function renderFdDetail() {
       });
     } else {
       const ph = `Paste one payload per line — e.g.&#10;525100FFC000BE56&#10;525100498000BE56&#10;(optional leading index/timestamp: '12.34, 5251…')`;
+      const inLog = fdLogCatalogue.find((m) => m.id === f.id);
       $("fdDetailHeader").innerHTML = head + `
         <div class="fd-trace-bar">
           <textarea id="fdTraceInput" class="fd-trace-ta" spellcheck="false" autocomplete="off" placeholder="${ph}">${fdTraceText[f.id_hex] || ""}</textarea>
           <div class="fd-trace-tools">
+            <input type="file" id="fdLogFile" hidden accept=".csv,.asc,.blf,.trc,.log" />
+            <button id="fdLogUploadBtn" class="mini" onclick="$('fdLogFile').click()">Upload log…</button>
+            <button id="fdLogLoadBtn" class="mini" ${inLog ? "" : "disabled"} onclick="fdLoadFromLog('${f.id_hex}')"
+              title="${inLog ? `${inLog.count} frame(s) of this ID in ${fdLogName}` : "Upload a log with this ID first"}">Load from log${inLog ? ` (${inLog.count})` : ""}</button>
             <button id="fdTraceRawBtn" class="mini ${fdTraceRaw ? "active" : ""}" onclick="fdTraceToggleRaw()">Raw (hex)</button>
             <button id="fdTraceColBtn" class="mini ${fdTraceCollapse ? "active" : ""}" onclick="fdTraceToggleCollapse()">Collapse duplicates</button>
             <button id="fdTraceCsvBtn" class="mini" onclick="fdTraceExport()">Download CSV</button>
@@ -661,6 +804,9 @@ function renderFdDetail() {
         fdTraceText[f.id_hex] = ta.value;
         clearTimeout(fdTimer);
         fdTimer = setTimeout(() => fdDecodeTrace(f.id_hex), 300);
+      });
+      $("fdLogFile").addEventListener("change", (e) => {
+        const file = e.target.files[0]; if (file) fdUploadLog(file);
       });
     }
   }
@@ -735,9 +881,15 @@ async function fdDecodeTrace(idHex) {
   if (!lines.length) {
     fdTraceFrames = [];
     if ($("fdTraceHint")) $("fdTraceHint").textContent = "";
-    $("fdDetailBody").innerHTML = `<div class="muted-line" style="padding:16px;font-size:13px">Paste payloads above — one per line — to build the trace.</div>`;
+    $("fdDetailBody").innerHTML = `<div class="muted-line" style="padding:16px;font-size:13px">Paste payloads above — one per line — or <b>Upload log…</b> to build the trace.</div>`;
     return;
   }
+  await fdDecodeTraceLines(idHex, lines);
+}
+
+// Shared by paste-mode and log-mode: decode {label, data} pairs against the
+// loaded DBC/JSON and render. `lines` is capped upstream by each caller.
+async function fdDecodeTraceLines(idHex, lines) {
   const r = await POST("/api/decode/frames", { frames: lines.map((l) => ({ id: idHex, data: l.data })) });
   if (!r.ok || !r.frames) return;
   fdTraceFrames = r.frames.map((fr, i) => ({
@@ -747,6 +899,32 @@ async function fdDecodeTrace(idHex) {
   }));
   fdRenderTrace();
 }
+
+// Upload a CAN log (Vehicle Spy 3 CSV, .asc/.blf/.trc/...) and catalogue its
+// arbitration IDs, so Trace can load real captured frames for the open message.
+// Only reachable from within Trace mode (the file input lives in its markup).
+async function fdUploadLog(file) {
+  setStatus(`Uploading ${file.name}…`);
+  const up = await apiUpload("/api/upload", file);
+  if (!up || !up.ok) { setStatus(`Log upload failed: ${(up && up.error) || "unknown error"}`); return; }
+  const cat = await POST("/api/log/catalogue", { path: up.path });
+  if (!cat.ok) { setStatus(`Could not read log: ${cat.error}`); return; }
+  fdLogPath = up.path; fdLogName = file.name; fdLogCatalogue = cat.messages;
+  const totalFrames = cat.messages.reduce((n, m) => n + m.count, 0);
+  setStatus(`${file.name} — ${cat.messages.length} IDs, ${totalFrames} frames`);
+  fdRenderedKey = null; renderFdDetail();     // rebuild the header so "Load from log" reflects the new catalogue
+}
+
+// Pull every captured occurrence of the open message's ID from the uploaded
+// log (real timestamps as row labels) and decode it through the usual path.
+window.fdLoadFromLog = async function fdLoadFromLog(idHex) {
+  if (!fdLogPath || !fdDetail) return;
+  const r = await POST("/api/log/trace", { path: fdLogPath, id: fdDetail.id, ext: false });
+  if (!r.ok) { setStatus(`Load from log failed: ${r.error}`); return; }
+  const lines = r.frames.slice(0, 2000);
+  setStatus(`Loaded ${r.frames.length} frame(s) of 0x${idHex} from ${fdLogName}`);
+  await fdDecodeTraceLines(idHex, lines);
+};
 
 function fdRenderTrace() {
   const frames = fdTraceFrames, body = $("fdDetailBody");
@@ -968,25 +1146,66 @@ function fdRenderBody(f) {
     </div>
   </div>`;
 }
+// One `<id><sep><payload>` record per entry. Records are separated by newlines
+// **or** semicolons, and the id from its payload by whitespace, comma or colon —
+// so a one-line cloud snapshot ("000000E1:000040A0...;00000120:0002FEA2...")
+// pastes as readily as a hand-typed two-column dump.
+function fdParseFill(text) {
+  return text.split(/[;\n]+/)
+    .map((rec) => rec.trim().split(/[\s,:]+/).filter(Boolean))
+    .filter((t) => t.length >= 2);
+}
+// Which base the *pasted* ids are in. It need not match the base the catalogue
+// displays: a JSON signature lists decimal ids, yet a snapshot of the same bus
+// is dumped as 8-digit zero-padded hex. Same rule as jsondecode.detect_id_base —
+// only unambiguous evidence (a 0x prefix, a hex letter, or zero-padding) wins,
+// since "163" alone is legal in both bases; otherwise trust the source.
+function fdDetectIdBase(ids, fallback) {
+  for (const s of ids) {
+    if (/^0x/i.test(s) || /[a-f]/i.test(s)) return 16;
+    if (s.length > 1 && s[0] === "0") return 16;
+  }
+  return fallback;
+}
 $("btnFdFill").addEventListener("click", () => {
-  // ID base follows the active source: decimal for JSON, hex for DBC.
-  const idBase = fdSource === "json" ? 10 : 16;
-  let matched = 0;
-  for (const ln of $("fdFill").value.split("\n")) {
-    const t = ln.trim().split(/[\s,]+/); if (t.length < 2) continue;
+  const recs = fdParseFill($("fdFill").value);
+  // ID base follows the active source (decimal for JSON, hex for DBC) unless the
+  // paste itself proves otherwise.
+  const fallback = fdSource === "json" ? 10 : 16;
+  const idBase = fdDetectIdBase(recs.map((t) => t[0]), fallback);
+  let matched = 0, firstFilled = null;
+  const unknown = [];
+  for (const t of recs) {
     const id = parseInt(t[0], idBase); if (isNaN(id)) continue;
     const idHex = id.toString(16).toUpperCase();
     if (idHex in fdPayloads) {
       // join remaining tokens so spaced payloads ("01 28 C3") work, hex-only
       fdPayloads[idHex] = t.slice(1).join("").replace(/[^0-9a-fA-F]/g, "");
       matched++;
+      if (!firstFilled) firstFilled = idHex;
+    } else {
+      unknown.push(t[0]);
     }
   }
   renderFdCatalogue();
-  // Refresh the open message so its input + decode reflect the filled payload.
-  const openId = fdCurrentDetailId;
-  if (openId && openId in fdPayloads) { fdCurrentDetailId = null; fdDecodeOne(openId); }
-  setStatus(`Payloads filled from dump — ${matched} message${matched === 1 ? "" : "s"} matched`);
+  // Show a decode straight away. Filling only mutates fdPayloads, so without this
+  // the whole action is invisible — the catalogue looks identical and the detail
+  // pane still reads "Click a message row", which reads as a dead button.
+  const openId = fdCurrentDetailId && fdCurrentDetailId in fdPayloads
+    ? fdCurrentDetailId : firstFilled;
+  if (openId) { fdCurrentDetailId = null; fdDecodeOne(openId); }
+  // Say what was read *and* what was skipped — a silent 0-match paste otherwise
+  // looks like a broken button when it is really a base or definition mismatch.
+  const idsIn = idBase === 16 ? "hex" : "decimal";
+  let msg = `${matched}/${recs.length} matched · ids read as ${idsIn}`;
+  if (unknown.length) {
+    const shown = unknown.slice(0, 6).join(", ");
+    msg += ` · not in this definition: ${shown}${unknown.length > 6 ? `, +${unknown.length - 6} more` : ""}`;
+  }
+  if (!recs.length) msg = "nothing to read — expected `id payload` per line, or `id:payload;id:payload`";
+  const out = $("fdFillMsg");
+  if (out) { out.textContent = msg; out.style.color = matched ? "var(--ok, #4ade80)" : "var(--bad, #f87171)"; }
+  setStatus("Fill payloads — " + msg);
 });
 
 // ----------------------- Converter workbench (upload · edit · select · export)
@@ -1186,7 +1405,10 @@ function cvUpdateLoss() {
 $("btnCvDownload").addEventListener("click", async () => {
   if (!cvModel) return;
   const to = $("cvTo").value;
-  const fm = { messages: [] };
+  // Carry id_base: the export writes JSON keys in the source's base (hex for a
+  // DBC/CSV), and this model is rebuilt from scratch, so dropping it here would
+  // silently renumber 0x120 back into "288".
+  const fm = { messages: [], id_base: cvModel.id_base };
   cvModel.messages.forEach((m) => {
     const sigs = m.signals.filter((s) => s._sel).map((s) => {
       const { _sel, doubt, ...clean } = s; return clean;
@@ -1270,30 +1492,792 @@ $("btnDbcToViewer").addEventListener("click", async () => {
 // ------------------------------------------------------------- Signal Viewer
 const sigSelected = new Set();
 const SIG_COLORS = ["#4ea1ff", "#46b86a", "#e2a055", "#c46bde", "#e25555", "#3fc7c7", "#d4d04e"];
-$("btnSigUseBuilder").addEventListener("click", async () => { await POST("/api/signals/use-builder"); refreshSigList(); });
+// Log-playback mode: chart a decoded-once log instead of polling live traffic.
+// null = live (the original behaviour); set by "Upload log for playback" below.
+let sigLogSeries = null;
+let sigLogName = "";
+let sigLogCoverage = null;           // {unknown_ids, decode_errors} from the last upload
+let sigLiveSeries = null;            // last /api/signals/series payload (live mode)
+let sigLiveMaxT = 0;
+// Per-signal statistics + staleness model, rebuilt whenever the data source
+// changes. Keyed by "MSG.SIGNAL" — see sigBuildMeta().
+let sigMeta = {};
+let sigViewMode = "table";           // "table" | "chart" — table is the default
+// Playback transport — purely client-side windowing over the already-decoded
+// sigLogSeries; no network calls while scrubbing/playing.
+let sigPlaybackT = 0;                 // current playhead, seconds relative to log start
+let sigPlaybackMaxT = 0;
+// One "time resolution" zoom drives BOTH views: the chart window width and the
+// table's row interval scale together, so zooming means the same thing in each.
+let sigBaseWindow = 5;                // unzoomed chart window (s)
+let sigBaseGrid = 0.05;               // unzoomed table row interval (s)
+let sigZoomExp = 0;                   // window/grid multiplier = 2**sigZoomExp
+let sigWindowSec = 5;                 // derived: sigBaseWindow * 2**sigZoomExp
+let sigGridSec = 0.05;                // derived: sigBaseGrid   * 2**sigZoomExp
+let sigScrubLo = 0, sigScrubHi = 0;   // scrubber sub-range (pages as the playhead moves)
+let sigAutoScroll = true;             // keep the playhead row in view on the next render
+let sigPlaying = false;
+let sigPlaySpeed = 1;
+let sigPlayRAF = null, sigPlayLastTs = null;
+const SIG_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+const SIG_ZOOM_MIN = -6, SIG_ZOOM_MAX = 8;
+const SIG_STALE_FACTOR = 3;           // grey a held value older than 3x its own period
+const SIG_MAX_ROWS = 400;             // rows actually written to the DOM
+const SIG_RAW_ROWS = 4000;            // rows built before the changes-only filter
+const SIG_FULL_SCALE = [255, 4095, 65535, 16777215, 4294967295];   // unscaled-signal tells
+
+function sigResetLogMode() {
+  sigLogSeries = null; sigLogName = ""; sigLogCoverage = null;
+  sigPlaying = false;
+  sigZoomExp = 0;
+  sigMeta = {};
+  sigTilePrev = {};
+  if (sigPlayRAF) { cancelAnimationFrame(sigPlayRAF); sigPlayRAF = null; }
+  $("btnPbPlay").innerHTML = ICONS.play;
+  $("btnSigLogBack").classList.add("hidden");
+  $("sigPlaybackBar").hidden = true;
+  $("sigCoveragePanel").hidden = true;
+  $("sigSummaryPanel").hidden = true;
+  $("sigExportWrap").classList.add("hidden");
+  sigApplyPlaybackGating();
+}
+
+// ----- per-signal period, staleness and statistics ------------------------
+// A signal is "stale" when its held value is older than a few times ITS OWN
+// nominal period — not when a row happens to carry no fresh frame. On a 10 ms
+// grid a healthy 100 ms signal would otherwise strobe grey 9 rows out of 10,
+// which is both unreadable and untrue.
+function sigBuildMeta(series) {
+  const dbc = {};
+  sigAllSignals.forEach((s) => (dbc[s.key] = s));
+  const meta = {};
+  let minPeriod = Infinity;
+  for (const key of Object.keys(series || {})) {
+    const pts = series[key];
+    if (!pts || !pts.length) continue;
+    // Median inter-sample gap (sampled — logs can hold 100k points per signal).
+    const step = Math.max(1, Math.floor(pts.length / 400));
+    const gaps = [];
+    for (let i = step; i < pts.length; i += step) gaps.push((pts[i][0] - pts[i - step][0]) / step);
+    gaps.sort((a, b) => a - b);
+    const period = gaps.length ? gaps[gaps.length >> 1] : 0;
+    let mn = Infinity, mx = -Infinity, decimals = 0;
+    const distinct = new Set();
+    const dstep = Math.max(1, Math.floor(pts.length / 2000));
+    for (let i = 0; i < pts.length; i++) {
+      const v = pts[i][1];
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+      if (distinct.size <= 64) distinct.add(v);
+      if (i % dstep === 0 && decimals < 4) {
+        const s = String(v), dot = s.indexOf(".");
+        if (dot >= 0) decimals = Math.max(decimals, Math.min(4, s.length - dot - 1));
+      }
+    }
+    const d = dbc[key] || {};
+    meta[key] = {
+      period, staleAfter: period > 0 ? period * SIG_STALE_FACTOR : 1,
+      min: mn, max: mx, distinct: distinct.size, count: pts.length, decimals,
+      first: pts[0][0], last: pts[pts.length - 1][0],
+      unit: d.unit || "",
+      dbcMin: d.minimum == null ? null : d.minimum,
+      dbcMax: d.maximum == null ? null : d.maximum,
+    };
+    if (period > 0) minPeriod = Math.min(minPeriod, period);
+  }
+  // The finest row interval worth offering is the fastest signal in the data,
+  // floored at 10 ms so a 1 ms message can't demand a million-row grid.
+  // Rounded to 0.1 ms: an unrounded median (0.0999999...) makes the row budget
+  // overshoot by one and reports a "99 ms" grid for a 100 ms signal.
+  sigBaseGrid = Math.round(Math.max(0.01, isFinite(minPeriod) ? minPeriod : 0.1) * 10000) / 10000;
+  return meta;
+}
+
+// Index of the last sample at or before t, or -1 if the signal hasn't started.
+function sigIndexAt(pts, t) {
+  let lo = 0, hi = pts.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid][0] <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return ans;
+}
+
+const sigActiveSeries = () => sigLogSeries || sigLiveSeries || {};
+// Log playback centres the window on the playhead so you see the approach AND
+// the aftermath of every transition; live has no future, so it stays trailing.
+function sigWindowBounds() {
+  if (!sigLogSeries) return [Math.max(0, sigLiveMaxT - sigWindowSec), sigLiveMaxT];
+  const half = sigWindowSec / 2;
+  return [sigPlaybackT - half, sigPlaybackT + half];
+}
+// The row the table locks onto: the playhead in playback, "now" when live.
+const sigAnchorT = (t1) => (sigLogSeries ? sigPlaybackT : t1);
+// A signal key selected under one DBC almost never exists in the next one —
+// left alone, its chart card lingers forever with no checkbox left to clear it.
+function sigClearSelection() {
+  sigSelected.clear();
+  renderChartShells();
+}
+$("btnSigUseBuilder").addEventListener("click", async () => { sigResetLogMode(); sigClearSelection(); await POST("/api/signals/use-builder"); refreshSigList(); });
 $("btnSigImport").addEventListener("click", () => $("sigDbcFile").click());
-$("sigDbcFile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) { await apiUpload("/api/signals/import", f); refreshSigList(); } });
-$("btnSigClear").addEventListener("click", () => POST("/api/signals/clear"));
+$("sigDbcFile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) { sigResetLogMode(); sigClearSelection(); await apiUpload("/api/signals/import", f); refreshSigList(); } });
+$("btnSigClear").addEventListener("click", () => { sigClearSelection(); POST("/api/signals/clear"); });
+let sigAllSignals = [];   // cached from the last /api/signals fetch — lets Select all/None re-render without a round-trip
 async function refreshSigList() {
   const info = await api("/api/signals");
   $("sigStatus").textContent = info.loaded ? `${info.signals.length} signals · ${info.messages} messages` : "No DBC loaded";
-  $("sigList").innerHTML = (info.signals || []).map((s, i) => `
-    <label class="sig-item"><input type="checkbox" data-key="${s.key}" ${sigSelected.has(s.key) ? "checked" : ""} onchange="toggleSig('${s.key}')"/>
-    <span class="sig-swatch" style="background:${SIG_COLORS[i % SIG_COLORS.length]}"></span>${s.key} ${s.unit ? "(" + s.unit + ")" : ""}</label>`).join("");
+  sigAllSignals = info.signals || [];
+  sigRebuildColorIndex();
+  sigApplyPlaybackGating();      // owns the Computed & alarms panel's visibility
+  renderSigCheckboxes();
 }
-window.toggleSig = (key) => { sigSelected.has(key) ? sigSelected.delete(key) : sigSelected.add(key); renderChartShells(); };
+// A signal's colour follows the signal, not its position in whatever subset is
+// on screen — filtering or deselecting must never repaint the survivors.
+let sigColorIdx = {};
+function sigRebuildColorIndex() {
+  sigColorIdx = {};
+  sigAllSignals.forEach((s, i) => (sigColorIdx[s.key] = i));
+}
+function sigColorOf(key) {
+  let i = sigColorIdx[key];
+  if (i === undefined) {           // computed channels etc. aren't in the DBC list
+    i = 0;
+    for (let c = 0; c < key.length; c++) i = (i * 31 + key.charCodeAt(c)) >>> 0;
+  }
+  return SIG_COLORS[i % SIG_COLORS.length];
+}
+function renderSigCheckboxes() {
+  const q = ($("sigFilter").value || "").trim().toLowerCase();
+  let shown = q ? sigAllSignals.filter((s) => s.key.toLowerCase().includes(q)) : sigAllSignals.slice();
+  // Pinned to the top of the list too, so the list mirrors the column order.
+  shown = shown.filter((s) => sigPinned.has(s.key)).concat(shown.filter((s) => !sigPinned.has(s.key)));
+  $("sigList").innerHTML = shown.map((s) => {
+    const k = escAttr(s.key), pinned = sigPinned.has(s.key);
+    return `<div class="sig-item">
+      <input type="checkbox" data-key="${k}" ${sigSelected.has(s.key) ? "checked" : ""} onchange="toggleSig('${k}')"/>
+      <span class="sig-swatch" style="background:${sigColorOf(s.key)}"></span>
+      <span class="sig-item-name" onclick="toggleSig('${k}')">${k}${s.unit ? " (" + escAttr(s.unit) + ")" : ""}</span>
+      <button class="pin${pinned ? " on" : ""}" title="${pinned ? "Unpin" : "Pin to the front of every view"}"
+        onclick="togglePin('${k}')">${pinned ? "★" : "☆"}</button></div>`;
+  }).join("") || `<div class="muted-line">No signal matches “${escAttr(q)}”.</div>`;
+}
+// Pinned signals lead every view — with 30 columns selected, the one you care
+// about is otherwise scrolled off the right edge.
+const sigPinned = new Set();
+function sigOrderedKeys() {
+  const sel = [...sigSelected];
+  return sel.filter((k) => sigPinned.has(k)).concat(sel.filter((k) => !sigPinned.has(k)));
+}
+window.togglePin = (key) => {
+  sigPinned.has(key) ? sigPinned.delete(key) : sigPinned.add(key);
+  sigSelected.add(key);            // pinning something implies wanting to see it
+  renderSigCheckboxes();
+  sigSelectionChanged();
+};
+function sigSelectionChanged() {
+  if (sigViewMode === "chart") renderChartShells();
+  sigAutoScroll = true;
+  sigRenderData(true);
+}
+window.toggleSig = (key) => { sigSelected.has(key) ? sigSelected.delete(key) : sigSelected.add(key); sigSelectionChanged(); };
+$("btnSigSelAll").addEventListener("click", () => {
+  sigAllSignals.forEach((s) => sigSelected.add(s.key));
+  renderSigCheckboxes(); sigSelectionChanged();
+});
+$("btnSigSelNone").addEventListener("click", () => {
+  sigSelected.clear();
+  renderSigCheckboxes(); sigSelectionChanged();
+});
 function renderChartShells() {
-  $("charts").innerHTML = [...sigSelected].map((k, i) => `
-    <div class="chart-card"><div class="chart-title"><span>${k}</span><span id="cv-${cssId(k)}-v"></span></div>
-    <canvas class="chart" id="cv-${cssId(k)}" data-key="${k}" data-color="${SIG_COLORS[i % SIG_COLORS.length]}"></canvas></div>`).join("");
+  $("charts").innerHTML = sigOrderedKeys().map((k) => `
+    <div class="chart-card"><div class="chart-title"><span>${escAttr(k)}</span><span id="cv-${cssId(k)}-v"></span></div>
+    <canvas class="chart" id="cv-${cssId(k)}" data-key="${escAttr(k)}" data-color="${sigColorOf(k)}"></canvas></div>`).join("");
 }
 const cssId = (k) => k.replace(/[^a-zA-Z0-9]/g, "_");
+
 async function pollSignals() {
-  pollDerived();
-  if (!sigSelected.size) return;
-  const res = await api("/api/signals/series?keys=" + encodeURIComponent([...sigSelected].join(",")));
-  for (const key of sigSelected) drawChart(key, res.series[key] || []);
+  if (!sigLogSeries) {
+    pollDerived();     // alarms/computed are live-only — not evaluated during log playback
+    if (!sigSelected.size) { sigRenderData(true); return; }
+    const res = await api("/api/signals/series?keys=" + encodeURIComponent([...sigSelected].join(",")));
+    sigLiveSeries = res.series || {};
+    sigLiveMaxT = 0;
+    for (const k of Object.keys(sigLiveSeries)) {
+      const pts = sigLiveSeries[k];
+      if (pts && pts.length) sigLiveMaxT = Math.max(sigLiveMaxT, pts[pts.length - 1][0]);
+    }
+    sigMeta = sigBuildMeta(sigLiveSeries);
+    if (!sigWindowSec) sigApplyZoom();
+  }
+  sigRenderData(true);
 }
+
+// Scrubbing and playback drive renders far faster than a table can be rebuilt,
+// so the heavy work is throttled while the cheap transport chrome stays at full
+// rate. `force` is the 400 ms poll tick, which must never be dropped.
+let sigLastRender = 0;
+function sigRenderData(force) {
+  const now = performance.now();
+  if (!force && now - sigLastRender < 80) return;
+  sigLastRender = now;
+  if (sigViewMode === "table") renderSigTable();
+  else if (sigViewMode === "tiles") renderSigTiles();
+  else renderSigCharts();
+}
+
+// ----- tiles ---------------------------------------------------------------
+// A stat tile per signal: name on top, the value at the playhead as the hero,
+// min/max over the whole log underneath. Carries the same four states as the
+// table (fresh / held / not-seen / out-of-range) so both views read alike.
+let sigTilePrev = {};
+function renderSigTiles() {
+  const host = $("sigTiles"), keys = sigOrderedKeys();
+  if (!keys.length) {
+    host.innerHTML = `<div class="muted-line">Select signals on the left to show tiles.</div>`;
+    $("sigTileHint").textContent = "";
+    return;
+  }
+  const series = sigActiveSeries();
+  const [, t1] = sigWindowBounds();
+  const at = sigAnchorT(t1);
+  let held = 0, oor = 0;
+  host.innerHTML = `<div class="tile-grid">${keys.map((k) => {
+    const m = sigMeta[k] || {}, pts = series[k] || [];
+    const idx = sigIndexAt(pts, at);
+    const swatch = `<span class="sig-swatch" style="background:${sigColorOf(k)}"></span>`;
+    const name = `<div class="sig-tile-name">${swatch}<span title="${escAttr(k)}">${escAttr(k)}</span>` +
+      `${sigPinned.has(k) ? '<span class="pin on" style="margin-left:auto">★</span>' : ""}</div>`;
+    if (idx < 0) {
+      return `<div class="sig-tile unseen">${name}<div class="sig-tile-val">not seen yet</div>
+        <div class="sig-tile-foot"><span>—</span><span>—</span></div></div>`;
+    }
+    const v = pts[idx][1], dec = m.decimals ?? 2;
+    const stale = (at - pts[idx][0]) > (m.staleAfter || 1);
+    const bad = (m.dbcMin != null && v < m.dbcMin) || (m.dbcMax != null && v > m.dbcMax);
+    const changed = sigTilePrev[k] !== undefined && sigTilePrev[k] !== v;
+    sigTilePrev[k] = v;
+    if (stale) held++;
+    if (bad) oor++;
+    const cls = ["sig-tile", stale ? "held" : "", bad ? "oor" : "", changed && !stale ? "changed" : ""].filter(Boolean).join(" ");
+    const tip = stale ? ' title="held — this message stopped arriving"' : (bad ? ' title="outside the range this DBC declares"' : "");
+    return `<div class="${cls}"${tip}>${name}
+      <div class="sig-tile-val">${v.toFixed(dec)}${m.unit ? `<span class="u">${escAttr(m.unit)}</span>` : ""}</div>
+      <div class="sig-tile-foot"><span>min ${m.min.toFixed(dec)}</span><span>max ${m.max.toFixed(dec)}</span></div></div>`;
+  }).join("")}</div>`;
+  $("sigTileHint").innerHTML = `<span class="sig-legend"><span>${keys.length} signals</span>` +
+    (held ? `<span style="opacity:.6">${held} held</span>` : "") +
+    (oor ? `<span class="sum-bad">${oor} outside DBC range</span>` : "") +
+    `<span>at t=${at.toFixed(2)}s</span></span>`;
+}
+
+function renderSigCharts() {
+  if (!sigSelected.size) return;
+  const series = sigActiveSeries();
+  const [t0, t1] = sigWindowBounds();
+  for (const key of sigSelected) {
+    const pts = series[key] || [];
+    // Carry one sample either side of the window so the trace spans the full
+    // width instead of stopping short at the first/last in-window sample.
+    let i0 = sigIndexAt(pts, t0); i0 = i0 < 0 ? 0 : i0;
+    const iEnd = sigIndexAt(pts, t1);
+    const slice = iEnd < 0 ? [] : pts.slice(i0, Math.min(pts.length - 1, iEnd + 1) + 1);
+    drawChart(key, slice, t0, t1);
+  }
+}
+
+// ----- the time x signal matrix -------------------------------------------
+// Rows are built lazily for the visible window only: each column keeps a
+// forward cursor into its own already-sorted series, so cost is (rows x
+// columns) regardless of how long the log is. Nothing is materialised.
+function sigBuildRows(keys, t0, t1, grid, changesOnly) {
+  const series = sigActiveSeries();
+  const cols = keys.map((k) => ({ pts: series[k] || [], meta: sigMeta[k] || {} }));
+  const anchor = sigAnchorT(t1);                     // guarantees an exact playhead row
+  const cursor = new Array(cols.length).fill(-2);    // -2 = not yet located
+  const prev = new Array(cols.length).fill(undefined);
+  const rows = [];
+  const kStart = Math.ceil((t0 - anchor) / grid), kEnd = Math.floor((t1 - anchor) / grid);
+  for (let k = kStart; k <= kEnd; k++) {
+    const t = anchor + k * grid;
+    if (t < 0) continue;                              // before the log starts
+    const cells = [];
+    let anyChange = false;
+    for (let c = 0; c < cols.length; c++) {
+      const { pts, meta } = cols[c];
+      let i = cursor[c];
+      if (i === -2 || i < 0) i = sigIndexAt(pts, t);
+      else while (i + 1 < pts.length && pts[i + 1][0] <= t) i++;
+      cursor[c] = i;
+      if (i < 0) { cells.push({ s: "none" }); continue; }   // signal not seen yet
+      const v = pts[i][1];
+      const stale = (t - pts[i][0]) > (meta.staleAfter || 1);
+      const changed = prev[c] !== undefined && v !== prev[c];
+      if (changed) anyChange = true;
+      prev[c] = v;
+      cells.push({ v, s: stale ? "stale" : "fresh", ch: changed });
+    }
+    rows.push({ t, cells, anyChange });
+  }
+  return changesOnly ? rows.filter((r, i) => i === 0 || r.anyChange) : rows;
+}
+
+function renderSigTable() {
+  const wrap = $("sigTableWrap"), keys = sigOrderedKeys();
+  if (!keys.length) {
+    wrap.innerHTML = `<div style="padding:16px" class="muted-line">Select signals on the left to build the table.</div>`;
+    $("sigTableHint").textContent = "";
+    return;
+  }
+  const [t0, t1] = sigWindowBounds();
+  const span = Math.max(t1 - t0, 1e-6);
+  // Never build more than SIG_RAW_ROWS: coarsen the interval instead, and say so.
+  const grid = span / sigRowBudget(span);
+  const anchor = sigAnchorT(t1);
+  const changesOnly = $("sigChangesOnly").checked;
+  const rows = sigBuildRows(keys, t0, t1, grid, changesOnly);
+
+  let list = rows, clipped = 0;
+  if (rows.length > SIG_MAX_ROWS) {
+    let pi = 0, best = Infinity;
+    for (let i = 0; i < rows.length; i++) {
+      const d = Math.abs(rows[i].t - anchor);
+      if (d < best) { best = d; pi = i; }
+    }
+    const s = Math.max(0, Math.min(rows.length - SIG_MAX_ROWS, pi - (SIG_MAX_ROWS >> 1)));
+    list = rows.slice(s, s + SIG_MAX_ROWS);
+    clipped = rows.length - list.length;
+  }
+
+  const head = `<tr><th class="t-col">t (s)</th>${keys.map((k) => {
+    const m = sigMeta[k] || {}, short = k.split(".").slice(-1)[0];
+    return `<th title="${escAttr(k)}">${sigPinned.has(k) ? '<span class="pin on">★</span> ' : ""}` +
+      `${escAttr(short)}${m.unit ? ` <span style="opacity:.6">${escAttr(m.unit)}</span>` : ""}</th>`;
+  }).join("")}</tr>`;
+
+  const body = list.map((r) => {
+    const isHead = Math.abs(r.t - anchor) < grid / 2;
+    const tds = r.cells.map((c, ci) => {
+      if (c.s === "none") return `<td class="c-none" title="not seen yet in this log">—</td>`;
+      const dec = (sigMeta[keys[ci]] || {}).decimals ?? 2;
+      if (c.ch) return `<td class="c-changed">${c.v.toFixed(dec)}</td>`;
+      if (c.s === "stale") return `<td class="c-stale" title="held — this message stopped arriving">${c.v.toFixed(dec)}</td>`;
+      return `<td>${c.v.toFixed(dec)}</td>`;
+    }).join("");
+    return `<tr class="${isHead ? "row-head" : ""}" data-t="${r.t}"><td class="t-col">${r.t.toFixed(3)}</td>${tds}</tr>`;
+  }).join("");
+
+  wrap.innerHTML = `<table class="sig-table${sigLogSeries ? " seekable" : ""}">` +
+    `<thead>${head}</thead><tbody>${body}</tbody></table>`;
+  $("sigTableHint").innerHTML = `<span class="sig-legend"><span><i style="background:var(--accent-soft)"></i>changed</span>` +
+    `<span style="opacity:.55;font-style:italic">held</span><span style="color:#5a6066">— not seen</span>` +
+    `<span>${list.length} row${list.length === 1 ? "" : "s"} @ ${fmtInterval(grid)}${clipped ? ` (+${clipped} off-screen)` : ""}</span></span>`;
+
+  // Follow the anchor row while playing or right after a seek; when paused and
+  // idle, leave the scroll alone so inspecting a row isn't yanked away.
+  if (sigAutoScroll || sigPlaying || !sigLogSeries) {
+    sigCentreOnAnchor(wrap);
+    // The first render of a freshly shown panel has no layout yet, so scrollTop
+    // silently no-ops — retry once the frame has been laid out.
+    requestAnimationFrame(() => sigCentreOnAnchor(wrap));
+    sigAutoScroll = false;
+  }
+}
+function sigCentreOnAnchor(wrap) {
+  const hd = wrap.querySelector("tr.row-head");
+  if (hd && wrap.clientHeight) wrap.scrollTop = Math.max(0, hd.offsetTop - wrap.clientHeight / 2);
+}
+// Row budget for a window: the requested grid, capped so a huge window can't
+// build an unbounded matrix.
+function sigRowBudget(span) {
+  return Math.max(1, Math.min(SIG_RAW_ROWS, Math.ceil(span / Math.max(sigGridSec, 1e-6))));
+}
+const fmtInterval = (s) => (s >= 1 ? s.toFixed(2) + " s" : (s * 1000).toFixed(s * 1000 >= 10 ? 0 : 1) + " ms");
+
+// ----- log playback: upload a log, decode it against the loaded DBC, scrub it
+$("btnSigLogUpload").addEventListener("click", () => $("sigLogFile").click());
+$("sigLogFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  setStatus(`Uploading ${file.name}…`);
+  const up = await apiUpload("/api/upload", file);
+  if (!up || !up.ok) { setStatus(`Log upload failed: ${(up && up.error) || "unknown error"}`); return; }
+  const r = await POST("/api/log/signals", { path: up.path });
+  if (!r.ok) { setStatus(`Could not decode log: ${r.error}`); return; }
+
+  sigLogSeries = r.series; sigLogName = file.name;
+  sigLogCoverage = { unknown_ids: r.unknown_ids || [], decode_errors: r.decode_errors || [] };
+  const unknownFrames = sigLogCoverage.unknown_ids.reduce((n, u) => n + u.count, 0);
+  const errorFrames = sigLogCoverage.decode_errors.reduce((n, u) => n + u.count, 0);
+  $("sigStatus").textContent = `${file.name} — ${r.frames_decoded}/${r.frames_seen} frames decoded (playback, not live)`;
+  $("btnSigLogBack").classList.remove("hidden");
+  sigRenderCoverage(unknownFrames, errorFrames);
+
+  // Spread (Math.max(...pts)) overflows the call stack on a large log — walk it.
+  sigPlaybackMaxT = 0;
+  for (const pts of Object.values(sigLogSeries))
+    if (pts.length) sigPlaybackMaxT = Math.max(sigPlaybackMaxT, pts[pts.length - 1][0]);
+
+  sigMeta = sigBuildMeta(sigLogSeries);        // also sets sigBaseGrid
+  sigBaseWindow = Math.min(20, Math.max(2, sigPlaybackMaxT * 0.05)) || 5;
+  sigZoomExp = 0;
+  sigApplyZoom();
+  sigPlaybackT = Math.min(sigWindowSec / 2, sigPlaybackMaxT);
+  sigEnsureScrubRange(true);
+  $("sigPlaybackBar").hidden = false;
+  $("sigExportWrap").classList.remove("hidden");
+  sigApplyPlaybackGating();
+  renderSigSummary();
+  sigAutoScroll = true;
+  sigUpdatePlaybackLabel();
+  sigRenderOverview();
+  sigRenderData(true);
+});
+$("btnSigLogBack").addEventListener("click", () => { sigResetLogMode(); refreshSigList(); });
+
+// ----- signal summary: the fast DBC verdict --------------------------------
+// Constant-when-it-should-vary, a max sitting exactly on a full-scale boundary,
+// or a value outside the DBC's own declared min/max are the three cheapest
+// tells for a wrong start bit, length, scale or signedness.
+function sigSummaryRows() {
+  return Object.keys(sigMeta).sort().map((key) => {
+    const m = sigMeta[key];
+    const constant = !(m.max > m.min);
+    const belowMin = m.dbcMin != null && m.min < m.dbcMin;
+    const aboveMax = m.dbcMax != null && m.max > m.dbcMax;
+    const fullScale = SIG_FULL_SCALE.includes(m.max);
+    const flags = [];
+    if (belowMin || aboveMax) flags.push({ cls: "sum-bad", text: `outside DBC [${m.dbcMin ?? "−∞"}, ${m.dbcMax ?? "∞"}]` });
+    if (constant) flags.push({ cls: "sum-warn", text: "constant" });
+    if (fullScale && !constant) flags.push({ cls: "sum-warn", text: "max at full scale" });
+    return { key, m, constant, bad: belowMin || aboveMax, flags };
+  });
+}
+function renderSigSummary() {
+  const rows = sigSummaryRows();
+  if (!rows.length) { $("sigSummaryPanel").hidden = true; return; }
+  $("sigSummaryPanel").hidden = false;
+  const bad = rows.filter((r) => r.bad).length, con = rows.filter((r) => r.constant).length;
+  $("sigSummaryFlags").innerHTML =
+    (bad ? `<span class="sum-bad">${bad} outside DBC range</span> · ` : "") +
+    (con ? `<span class="sum-warn">${con} constant</span> · ` : "") + `${rows.length} signals`;
+  $("sigSummaryBody").innerHTML = `<table class="data-table mono">
+    <thead><tr><th>Signal</th><th>State</th><th>Min</th><th>Max</th>
+      <th title="Max − min. 0 means the signal never moved.">Range</th>
+      <th title="How many different values the signal took. 1 means it never changed.">Unique</th>
+      <th>Unit</th><th>Period</th><th>Samples</th><th>Notes</th></tr></thead><tbody>${
+    rows.map((r) => {
+      const m = r.m, d = m.decimals ?? 2;
+      return `<tr><td title="${escAttr(r.key)}">${escAttr(r.key)}</td>
+        <td class="${r.constant ? "sum-warn" : ""}">${r.constant ? "CONST" : "varies"}</td>
+        <td class="${m.dbcMin != null && m.min < m.dbcMin ? "sum-bad" : ""}">${m.min.toFixed(d)}</td>
+        <td class="${m.dbcMax != null && m.max > m.dbcMax ? "sum-bad" : ""}">${m.max.toFixed(d)}</td>
+        <td class="${r.constant ? "sum-warn" : ""}">${(m.max - m.min).toFixed(d)}</td>
+        <td>${m.distinct > 64 ? "64+" : m.distinct}</td><td>${escAttr(m.unit)}</td>
+        <td>${m.period ? fmtInterval(m.period) : "—"}</td><td>${m.count}</td>
+        <td>${r.flags.map((f) => `<span class="${f.cls}">${f.text}</span>`).join(", ")}</td></tr>`;
+    }).join("")}</tbody></table>`;
+}
+$("btnSigSummaryToggle").addEventListener("click", () => {
+  const b = $("sigSummaryBody"), hide = b.classList.toggle("hidden");
+  $("btnSigSummaryToggle").textContent = hide ? "Show" : "Hide";
+});
+
+// ----- Table / Tiles / Chart toggle ----------------------------------------
+function sigSetViewMode(mode) {
+  sigViewMode = mode;
+  document.querySelectorAll("#sigViewToggle .seg").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  $("sigChartPanel").hidden = mode !== "chart";
+  $("sigTablePanel").hidden = mode !== "table";
+  $("sigTilePanel").hidden = mode !== "tiles";
+  if (mode === "chart") renderChartShells();
+  if (mode === "tiles") sigTilePrev = {};      // no phantom "changed" borders on entry
+  sigAutoScroll = true;
+  sigUpdatePlaybackLabel();
+  sigRenderData(true);
+}
+document.querySelectorAll("#sigViewToggle .seg").forEach((b) =>
+  b.addEventListener("click", () => sigSetViewMode(b.dataset.mode)));
+$("sigChangesOnly").addEventListener("change", () => { sigAutoScroll = true; sigRenderData(true); });
+
+// ----- fold the signal list -------------------------------------------------
+function sigSetFolded(folded) {
+  $("sigGrid").classList.toggle("sig-folded", folded);
+  const b = $("btnSigFold");
+  // Spelled out, and highlighted while folded — this button IS the way back
+  // once the list (and the ◀ in its header) is gone.
+  b.innerHTML = folded ? "&#9654; Show signals" : "&#9664; Hide signals";
+  b.title = folded ? "Bring the signal list back" : "Hide the signal list to give the data more width";
+  b.classList.toggle("active", folded);
+  sigRenderData(true);
+}
+$("btnSigFold").addEventListener("click", () => sigSetFolded(!$("sigGrid").classList.contains("sig-folded")));
+$("btnSigFoldHead").addEventListener("click", () => sigSetFolded(true));
+
+// A real vehicle DBC runs to hundreds of signals — scrolling to find one is the
+// slowest part of picking what to look at.
+$("sigFilter").addEventListener("input", renderSigCheckboxes);
+
+// Computed channels and alarms are evaluated on the live tap only, and they
+// reference signal keys that don't exist without a DBC — in either case the
+// panel is dead weight, so it's removed rather than shown inert. Two callers
+// (DBC load, playback enter/exit) share this one rule.
+function sigApplyPlaybackGating() {
+  $("sigCompAlarmPanel").hidden = !!sigLogSeries || !sigAllSignals.length;
+}
+
+function sigRenderCoverage(unknownFrames, errorFrames) {
+  const c = sigLogCoverage;
+  $("sigCoverageBody").classList.add("hidden");            // collapsed by default on every fresh upload
+  $("btnSigCoverageToggle").textContent = "Show breakdown";
+  if (!c.unknown_ids.length && !c.decode_errors.length) { $("sigCoveragePanel").hidden = true; return; }
+  $("sigCoveragePanel").hidden = false;
+  const rows = [];
+  if (errorFrames) rows.push(`<div style="color:var(--red);margin-bottom:6px">⚠ ${errorFrames} frame(s) from ${c.decode_errors.length} ID(s) ARE in this DBC but failed to decode — likely a DBC/vehicle mismatch:</div>`);
+  rows.push(...c.decode_errors.map((e) => `<div style="padding-left:10px;color:var(--red)">0x${e.id_hex} × ${e.count} — ${e.error}</div>`));
+  if (unknownFrames) rows.push(`<div style="margin:6px 0">${unknownFrames} frame(s) from ${c.unknown_ids.length} ID(s) have no message in this DBC (expected for a partial DBC):</div>`);
+  rows.push(`<div style="padding-left:10px;display:flex;flex-wrap:wrap;gap:6px">${
+    c.unknown_ids.map((u) => `<span class="tag" style="font-size:11px">0x${u.id_hex} ×${u.count}</span>`).join("")}</div>`);
+  $("sigCoverageBody").innerHTML = rows.join("");
+}
+$("btnSigCoverageToggle").addEventListener("click", () => {
+  const body = $("sigCoverageBody"); const show = body.classList.toggle("hidden");
+  $("btnSigCoverageToggle").textContent = show ? "Show breakdown" : "Hide breakdown";
+});
+
+// ----- transport controls -----
+$("btnPbStart").innerHTML = ICONS.skipBack;
+$("btnPbEnd").innerHTML = ICONS.skipFwd;
+$("btnPbSlower").innerHTML = ICONS.rewind;
+$("btnPbFaster").innerHTML = ICONS.fastFwd;
+$("btnPbPlay").innerHTML = ICONS.play;
+function sigUpdatePlaybackLabel() {
+  $("sigPlaybackTime").textContent = `${sigPlaybackT.toFixed(2)}s / ${sigPlaybackMaxT.toFixed(2)}s`;
+  $("sigPbWindow").textContent = sigViewMode === "table"
+    ? `window ${sigWindowSec.toFixed(1)}s · rows ${fmtInterval(sigGridSec)}`
+    : `window ${sigWindowSec.toFixed(1)}s`;
+}
+
+// One zoom, two meanings: narrower chart window AND finer table rows.
+function sigApplyZoom() {
+  const f = Math.pow(2, sigZoomExp);
+  sigWindowSec = Math.max(0.05, sigBaseWindow * f);
+  sigGridSec = Math.max(0.001, sigBaseGrid * f);
+  $("sigPbZoom").textContent = f >= 1 ? `${f}x` : `1/${Math.round(1 / f)}x`;
+  sigEnsureScrubRange(true);
+  sigUpdatePlaybackLabel();
+}
+function sigZoomStep(delta) {
+  const next = Math.min(SIG_ZOOM_MAX, Math.max(SIG_ZOOM_MIN, sigZoomExp + delta));
+  if (next === sigZoomExp) return;
+  sigZoomExp = next;
+  sigApplyZoom();
+  sigAutoScroll = true;
+  sigRenderOverview(); sigRenderBand(); sigRenderData(true);
+}
+$("btnPbZoomIn").addEventListener("click", () => sigZoomStep(-1));
+$("btnPbZoomOut").addEventListener("click", () => sigZoomStep(1));
+
+// The scrubber spans a slice of the log, not all of it — otherwise a 30-minute
+// capture gives ~2 s per pixel and precise seeking is impossible. The slice
+// pages forward instead of recentring on every input, so dragging works.
+function sigEnsureScrubRange(force) {
+  const span = Math.min(sigPlaybackMaxT || 1, Math.max(sigWindowSec * 8, 0.5));
+  if (!force && sigPlaybackT >= sigScrubLo && sigPlaybackT <= sigScrubHi && sigScrubHi > sigScrubLo) return;
+  let lo = sigPlaybackT - span / 2, hi = lo + span;
+  if (lo < 0) { lo = 0; hi = span; }
+  if (hi > sigPlaybackMaxT) { hi = sigPlaybackMaxT; lo = Math.max(0, hi - span); }
+  sigScrubLo = lo; sigScrubHi = hi;
+  const el = $("sigPbScrub");
+  el.min = String(Math.round(lo * 1000));
+  el.max = String(Math.round(hi * 1000) || 1);
+}
+function sigRenderOverview() {
+  if (!sigPlaybackMaxT) return;
+  const pct = (t) => `${Math.max(0, Math.min(100, (t / sigPlaybackMaxT) * 100))}%`;
+  $("sigPbOvRange").style.left = pct(sigScrubLo);
+  $("sigPbOvRange").style.width = `${Math.max(0.5, ((sigScrubHi - sigScrubLo) / sigPlaybackMaxT) * 100)}%`;
+  $("sigPbOvHead").style.left = pct(sigPlaybackT);
+}
+// Band behind the scrubber marking the slice the chart/table is actually showing.
+function sigRenderBand() {
+  const wrapW = $("sigPbScrub").clientWidth || 1;
+  const range = sigScrubHi - sigScrubLo;
+  const band = $("sigPbBand");
+  if (range <= 0) { band.style.width = "0"; return; }
+  const [w0, w1] = sigWindowBounds();
+  const l = Math.max(0, (w0 - sigScrubLo) / range), r = Math.min(1, (w1 - sigScrubLo) / range);
+  band.style.left = `${l * wrapW}px`;
+  band.style.width = `${Math.max(2, (r - l) * wrapW)}px`;
+}
+// `immediate` for one-off actions (click a row, a key, jump to end) — those must
+// repaint at once or the table lags the scrubber by up to a poll tick. Dragging
+// the scrubber and the play loop stay throttled; that's what the throttle is for.
+function sigSeekTo(t, immediate) {
+  sigPlaybackT = Math.max(0, Math.min(sigPlaybackMaxT, t));
+  sigEnsureScrubRange(false);
+  $("sigPbScrub").value = String(Math.round(sigPlaybackT * 1000));
+  sigUpdatePlaybackLabel();
+  sigRenderOverview();
+  sigRenderBand();
+  sigAutoScroll = true;
+  sigRenderData(!!immediate);
+}
+$("sigPbScrub").addEventListener("input", () => sigSeekTo((+$("sigPbScrub").value) / 1000));
+$("btnPbStart").addEventListener("click", () => sigSeekTo(0, true));
+$("btnPbEnd").addEventListener("click", () => sigSeekTo(sigPlaybackMaxT, true));
+$("sigPbOverview").addEventListener("click", (e) => {
+  if (!sigPlaybackMaxT) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  // Jumping anywhere in the log recentres the zoomed scrubber on the target.
+  sigPlaybackT = Math.max(0, Math.min(sigPlaybackMaxT, ((e.clientX - r.left) / r.width) * sigPlaybackMaxT));
+  sigEnsureScrubRange(true);
+  sigSeekTo(sigPlaybackT, true);
+});
+// Ctrl/Shift + wheel zooms time; a plain wheel still scrolls the pane, so the
+// table stays navigable (the usual convention rather than a surprise).
+["charts", "sigTableWrap"].forEach((id) => {
+  $(id).addEventListener("wheel", (e) => {
+    if (!e.ctrlKey && !e.shiftKey) return;
+    e.preventDefault();
+    sigZoomStep(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+});
+function sigSpeedStep(delta) {
+  const i = Math.min(SIG_SPEEDS.length - 1, Math.max(0, SIG_SPEEDS.indexOf(sigPlaySpeed) + delta));
+  sigPlaySpeed = SIG_SPEEDS[i];
+  $("sigPbSpeed").textContent = sigPlaySpeed + "x";
+}
+$("btnPbSlower").addEventListener("click", () => sigSpeedStep(-1));
+$("btnPbFaster").addEventListener("click", () => sigSpeedStep(1));
+function sigPlayTick(now) {
+  if (!sigPlaying) return;
+  if (sigPlayLastTs == null) sigPlayLastTs = now;
+  const dt = (now - sigPlayLastTs) / 1000;
+  sigPlayLastTs = now;
+  sigSeekTo(sigPlaybackT + dt * sigPlaySpeed);
+  if (sigPlaybackT >= sigPlaybackMaxT) { sigPlaying = false; $("btnPbPlay").innerHTML = ICONS.play; sigPlayRAF = null; return; }
+  sigPlayRAF = requestAnimationFrame(sigPlayTick);
+}
+function sigTogglePlay(force) {
+  if (!sigLogSeries) return;
+  sigPlaying = force === undefined ? !sigPlaying : force;
+  $("btnPbPlay").innerHTML = sigPlaying ? ICONS.pause : ICONS.play;
+  if (sigPlaying) {
+    if (sigPlaybackT >= sigPlaybackMaxT) sigPlaybackT = 0;   // replay from the top if already at the end
+    sigPlayLastTs = null;
+    sigPlayRAF = requestAnimationFrame(sigPlayTick);
+  } else if (sigPlayRAF) { cancelAnimationFrame(sigPlayRAF); sigPlayRAF = null; }
+}
+$("btnPbPlay").addEventListener("click", () => sigTogglePlay());
+
+// Keyboard transport — drive playback while reading the table, without
+// round-tripping to the mouse. Inert unless the Signal Viewer is open on a log,
+// and never steals keys from a text field (the signal filter, alarm inputs…).
+document.addEventListener("keydown", (e) => {
+  if (state.view !== "signals" || !sigLogSeries) return;
+  const t = e.target;
+  if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  const step = e.shiftKey ? sigGridSec * 10 : sigGridSec;   // Shift = coarse step
+  switch (e.key) {
+    case " ": case "Spacebar": sigTogglePlay(); break;
+    case "ArrowLeft": sigTogglePlay(false); sigSeekTo(sigPlaybackT - step, true); break;
+    case "ArrowRight": sigTogglePlay(false); sigSeekTo(sigPlaybackT + step, true); break;
+    case "Home": sigSeekTo(0, true); break;
+    case "End": sigSeekTo(sigPlaybackMaxT, true); break;
+    case "+": case "=": sigZoomStep(-1); break;
+    case "-": case "_": sigZoomStep(1); break;
+    default: return;
+  }
+  e.preventDefault();      // only after a key we actually handled
+});
+
+// Click any row to put the playhead on it — you already scan the table to find
+// the interesting moment; this saves hunting for it on the scrubber.
+$("sigTableWrap").addEventListener("click", (e) => {
+  if (!sigLogSeries) return;
+  const tr = e.target.closest("tr[data-t]");
+  if (!tr) return;
+  sigTogglePlay(false);    // clicking a row means "stop here and look"
+  sigSeekTo(+tr.dataset.t, true);
+});
+
+// ----- export --------------------------------------------------------------
+// Both exports share one builder so the file always matches what's on screen
+// (same selection, same interval, same changes-only filter).
+const SIG_EXPORT_MAX = 50000;
+function sigExportPayload() {
+  const keys = sigOrderedKeys();
+  if (!keys.length) { setStatus("Select at least one signal to export."); return null; }
+  const whole = $("sigExportScope").value === "all";
+  let t0, t1, grid;
+  if (whole) {
+    t0 = 0; t1 = sigLogSeries ? sigPlaybackMaxT : sigLiveMaxT;
+    grid = Math.max(sigBaseGrid, (t1 - t0) / SIG_EXPORT_MAX);
+  } else {
+    [t0, t1] = sigWindowBounds();
+    grid = (t1 - t0) / sigRowBudget(t1 - t0);
+  }
+  let rows = sigBuildRows(keys, Math.max(0, t0), t1, grid, $("sigChangesOnly").checked);
+  const clipped = Math.max(0, rows.length - SIG_EXPORT_MAX);
+  if (clipped) rows = rows.slice(0, SIG_EXPORT_MAX);
+  return {
+    keys, rows, grid, clipped, whole,
+    columns: keys.map((k) => ({ key: k, unit: (sigMeta[k] || {}).unit || "", decimals: (sigMeta[k] || {}).decimals ?? 2 })),
+    summary: sigSummaryRows().map((r) => ({
+      key: r.key, state: r.constant ? "CONST" : "varies", min: r.m.min, max: r.m.max,
+      range: +(r.m.max - r.m.min).toFixed(6), distinct: r.m.distinct, unit: r.m.unit,
+      period_ms: r.m.period ? +(r.m.period * 1000).toFixed(2) : null,
+      samples: r.m.count, dbc_min: r.m.dbcMin, dbc_max: r.m.dbcMax,
+      notes: r.flags.map((f) => f.text).join("; "),
+    })),
+    source: sigLogName || "live capture",
+  };
+}
+function sigDownload(blob, ext) {
+  const now = new Date(), pad = (n) => String(n).padStart(2, "0");
+  const ts = `${pad(now.getDate())}${pad(now.getMonth() + 1)}${String(now.getFullYear()).slice(-2)}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `signals_${ts}.${ext}`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const csvCell = (s) => (/[",\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
+$("btnSigExportCsv").addEventListener("click", () => {
+  const p = sigExportPayload(); if (!p) return;
+  const L = [];
+  L.push(`# uCANdo signal export — ${p.source}`);
+  L.push(`# interval ${fmtInterval(p.grid)} · ${p.rows.length} rows · ${p.whole ? "whole log" : "visible window"}`);
+  L.push(`# CSV carries plain values; use Export Excel to keep the held / changed colouring.`);
+  if (p.clipped) L.push(`# NOTE: truncated — ${p.clipped} further row(s) not exported.`);
+  L.push("", "SUMMARY");
+  L.push(["Signal", "State", "Min", "Max", "Range", "Unique", "Unit", "Period (ms)", "Samples", "DBC Min", "DBC Max", "Notes"].join(","));
+  p.summary.forEach((s) => L.push([s.key, s.state, s.min, s.max, s.range, s.distinct, s.unit, s.period_ms ?? "", s.samples, s.dbc_min ?? "", s.dbc_max ?? "", s.notes].map(csvCell).join(",")));
+  L.push("", "DATA");
+  L.push(["t (s)", ...p.columns.map((c) => c.unit ? `${c.key} (${c.unit})` : c.key)].map(csvCell).join(","));
+  p.rows.forEach((r) => L.push([r.t.toFixed(3), ...r.cells.map((c, i) => c.s === "none" ? "" : c.v.toFixed(p.columns[i].decimals))].join(",")));
+  sigDownload(new Blob([L.join("\n")], { type: "text/csv;charset=utf-8" }), "csv");
+  setStatus(`Exported ${p.rows.length} rows x ${p.keys.length} signals to CSV${p.clipped ? ` (truncated, ${p.clipped} rows dropped)` : ""}`);
+});
+$("btnSigExportXlsx").addEventListener("click", async () => {
+  const p = sigExportPayload(); if (!p) return;
+  setStatus("Building Excel workbook…");
+  const res = await fetch("/api/signals/export-xlsx", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: p.source, interval_ms: +(p.grid * 1000).toFixed(3), truncated: p.clipped,
+      columns: p.columns, summary: p.summary,
+      rows: p.rows.map((r) => ({ t: +r.t.toFixed(3), cells: r.cells.map((c) => c.s === "none" ? null : { v: c.v, s: c.s, ch: !!c.ch }) })),
+    }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json()).error || msg; } catch (_) { /* non-JSON body */ }
+    setStatus(`Excel export failed: ${msg}`);
+    return;
+  }
+  sigDownload(await res.blob(), "xlsx");
+  setStatus(`Exported ${p.rows.length} rows x ${p.keys.length} signals to Excel${p.clipped ? ` (truncated, ${p.clipped} rows dropped)` : ""}`);
+});
 
 // ----- computed signals & alarms -----
 let computedDefs = [], alarmDefs = [];
@@ -1327,20 +2311,77 @@ $("btnAlmAdd").addEventListener("click", async () => {
   $("almKey").value = ""; $("almMin").value = ""; $("almMax").value = ""; pollDerived();
 });
 window.delAlarm = async (i) => { alarmDefs.splice(i, 1); await POST("/api/signals/alarms", { defs: alarmDefs }); pollDerived(); };
-function drawChart(key, pts) {
+function drawChart(key, pts, winT0, winT1) {
   const cv = $("cv-" + cssId(key)); if (!cv) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
   cv.width = w * dpr; cv.height = h * dpr;
   const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
-  if (pts.length < 2) return;
-  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-  const x0 = xs[0], x1 = xs[xs.length - 1], y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const sx = (x) => ((x - x0) / (x1 - x0 || 1)) * (w - 8) + 4;
-  const sy = (y) => h - 6 - ((y - y0) / (y1 - y0 || 1)) * (h - 12);
-  ctx.strokeStyle = cv.dataset.color; ctx.lineWidth = 1.5; ctx.beginPath();
-  pts.forEach((p, i) => (i ? ctx.lineTo(sx(p[0]), sy(p[1])) : ctx.moveTo(sx(p[0]), sy(p[1]))));
+  const meta = sigMeta[key] || {}, dec = meta.decimals ?? 2;
+  const vEl = $("cv-" + cssId(key) + "-v");
+
+  // X spans the requested window, not the data extent, so the playhead line
+  // stays put and sparse data doesn't silently rescale the time axis.
+  let x0 = winT0, x1 = winT1;
+  if (x0 == null || x1 == null || !(x1 > x0)) {
+    if (!pts.length) { if (vEl) vEl.textContent = "—"; return; }
+    x0 = pts[0][0]; x1 = pts[pts.length - 1][0];
+  }
+  const sx = (t) => ((t - x0) / ((x1 - x0) || 1)) * (w - 8) + 4;
+
+  // Y autoscales, but a signal that is CONSTANT across the window must not
+  // collapse onto the floor — padding it draws the trace mid-height so
+  // "flat at 89" reads differently from "at zero" or "broken".
+  let y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) { if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
+  const constant = pts.length > 0 && !(y1 > y0);
+  if (!pts.length) { y0 = 0; y1 = 1; }
+  else if (constant) { const pad = Math.max(Math.abs(y0) * 0.05, 0.5); y0 -= pad; y1 += pad; }
+  const sy = (v) => h - 6 - ((v - y0) / ((y1 - y0) || 1)) * (h - 12);
+
+  // Playhead: centred in log playback, at the right edge when live.
+  const headT = sigLogSeries ? (x0 + x1) / 2 : x1;
+  ctx.save();
+  ctx.strokeStyle = "#4ea1ff"; ctx.globalAlpha = 0.5; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(sx(headT), 2); ctx.lineTo(sx(headT), h - 2); ctx.stroke();
+  ctx.restore();
+
+  if (!pts.length) { if (vEl) vEl.textContent = "—"; return; }
+
+  ctx.strokeStyle = cv.dataset.color;
+  ctx.lineWidth = 1.5;
+  if (constant) { ctx.save(); ctx.setLineDash([5, 3]); ctx.globalAlpha = 0.85; }
+  ctx.beginPath();
+  if (pts.length === 1) {
+    const y = sy(pts[0][1]); ctx.moveTo(sx(x0), y); ctx.lineTo(sx(x1), y);
+  } else {
+    // Min/max per pixel column — a 50k-point window still shows its spikes
+    // instead of being decimated away by naive index striding.
+    let px = null, lo = 0, hi = 0, started = false;
+    const flush = () => {
+      if (!started) { ctx.moveTo(px, sy(lo)); started = true; } else ctx.lineTo(px, sy(lo));
+      if (hi !== lo) ctx.lineTo(px, sy(hi));
+    };
+    for (const p of pts) {
+      const X = Math.round(sx(p[0])), v = p[1];
+      if (px === null) { px = X; lo = hi = v; continue; }
+      if (X === px) { if (v < lo) lo = v; if (v > hi) hi = v; continue; }
+      flush(); px = X; lo = hi = v;
+    }
+    if (px !== null) flush();
+  }
   ctx.stroke();
-  const vEl = $("cv-" + cssId(key) + "-v"); if (vEl) vEl.textContent = ys[ys.length - 1].toFixed(2);
+  if (constant) ctx.restore();
+
+  if (vEl) {
+    const src = sigActiveSeries()[key] || [];
+    const i = sigIndexAt(src, headT);
+    const cur = i < 0 ? null : src[i][1];
+    const stale = i >= 0 && (headT - src[i][0]) > (meta.staleAfter || 1);
+    vEl.innerHTML = cur == null
+      ? `<span style="color:#5a6066">not seen yet</span>`
+      : `<span${stale ? ' style="opacity:.55;font-style:italic" title="held — this message stopped arriving"' : ""}>${cur.toFixed(dec)}${meta.unit ? " " + escAttr(meta.unit) : ""}</span>` +
+        (constant ? ` <span class="sum-warn" style="font-size:11px">flat</span>` : "");
+  }
 }
 
 // -------------------------------------------------------------- TX Scheduler
@@ -1781,7 +2822,7 @@ function emptyHero(id, o) {
 window.goView = (v) => { const b = document.querySelector(`.nav[data-view="${v}"]`); if (b) b.click(); };
 window.quickConnectVirtual = async () => {
   setStatus("Connecting to virtual bus…");
-  const r = await POST("/api/connect", { hw: "virtual", channel: "canforge", bitrate: 500000, simulate: true });
+  const r = await POST("/api/connect", { hw: "virtual", channel: "ucando", bitrate: 500000, simulate: true });
   setStatus(r && r.ok !== false ? "Virtual bus connected — streaming demo frames" : "Could not start virtual bus");
 };
 window.cvUploadClick = () => $("btnCvUpload").click();
@@ -1813,4 +2854,6 @@ emptyHero("dtcEmpty", {
 
 // Initial header title/description + kick off polling for the Dashboard view.
 setViewMeta(state.view);
+applyAvailability();
+sigSetViewMode(sigViewMode);
 startPolling(state.view);

@@ -218,7 +218,12 @@
         <div id="fdFillBox" class="hidden">
           <textarea id="fdFill" spellcheck="false"
             placeholder="163  0205000000000200&#10;94   0006320040001C00"></textarea>
-          <button class="btn" id="btnFdFill" style="margin-top:6px">Fill payloads</button>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+            <button class="btn" id="btnFdFill">Fill payloads</button>
+            <!-- result shown here, beside the button: the bottom status bar is
+                 usually scrolled out of view, which made a working fill look dead -->
+            <span id="fdFillMsg" class="muted-line"></span>
+          </div>
         </div>
         <!-- 2-column split: message catalogue | decode detail -->
         <div class="fd-layout">
@@ -294,7 +299,7 @@
           <div style="padding:0 16px 12px;display:flex;gap:8px;align-items:center">
             <span class="muted-line">Guided mode (field):</span>
             <span id="autoreProtocols" class="muted-line"></span>
-            <span class="muted-line">— run <code>python -m canforge.cli guided --fuel petrol --save "Name" --oem Hyundai</code></span>
+            <span class="muted-line">— run <code>python -m ucando.cli guided --fuel petrol --save "Name" --oem Hyundai</code></span>
           </div>
         </div>
 
@@ -346,21 +351,25 @@
           <div class="table-wrap" id="oemIdentWrap" style="max-height:28vh"></div>
         </div>
 
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Save current DBC Builder model as a profile</span></div>
-          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <input id="oemSaveOem" placeholder="OEM (e.g. Tata)" style="width:160px" />
-            <input id="oemSaveName" placeholder="Profile name (e.g. Nexon 2024)" style="flex:1" />
-            <button class="btn" id="btnOemFromBuilder">Save profile</button>
-            <span class="muted-line">Closes the RE flywheel: reverse-engineer → DBC → save here → reuse on the next vehicle.</span>
-          </div>
-        </div>
-
         <div class="panel">
-          <div class="panel-head"><span>Profiles</span><button class="btn-mini" id="btnOemRefresh"></button></div>
-          <div class="table-wrap" style="max-height:46vh">
+          <div class="panel-head"><span>Profiles</span>
+            <span style="display:flex;gap:8px;align-items:center">
+              <span class="muted-line">Click a model to see its signals</span>
+              <button class="btn-mini" id="btnOemPrune" title="Delete profiles with no decodable content">Clean up</button>
+              <button class="btn-mini" id="btnOemRefresh"></button>
+            </span>
+          </div>
+          <div class="table-wrap" style="max-height:62vh">
             <table class="data-table" id="oemTable">
-              <thead><tr><th>OEM</th><th>Profile</th><th>Model</th><th>IDs</th><th>Status</th><th></th></tr></thead>
+              <thead><tr>
+                <th>Make</th>
+                <th>Model</th>
+                <th title="Arbitration IDs in this profile's fingerprint — what the vehicle's bus carries">IDs</th>
+                <th title="Messages the DBC can decode, and the signals inside them">Messages</th>
+                <th>Year</th>
+                <th title="shipped = validated vehicle pack · draft = reverse-engineered, not yet confirmed">Status</th>
+                <th></th>
+              </tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -374,11 +383,78 @@
           <input type="file" id="sigDbcFile" accept=".dbc" hidden />
           <button class="btn ghost" id="btnSigImport">Upload .dbc</button>
           <button class="btn ghost" id="btnSigClear">Clear charts</button>
+          <span style="width:1px;height:22px;background:var(--line);margin:0 2px"></span>
+          <input type="file" id="sigLogFile" accept=".csv,.asc,.blf,.trc,.log" hidden />
+          <button class="btn ghost" id="btnSigLogUpload" title="Decode a log file against the DBC above and chart it, instead of live traffic">Upload log for playback</button>
+          <button class="btn ghost hidden" id="btnSigLogBack">Back to live</button>
+          <span style="width:1px;height:22px;background:var(--line);margin:0 2px"></span>
+          <button class="btn ghost" id="btnSigFold" title="Hide the signal list to give the data more width">&#9664; Hide signals</button>
+          <span class="segbar" id="sigViewToggle" title="Table = exact values at the playhead · Tiles = current value per signal · Chart = trend around the playhead">
+            <button class="seg active" data-mode="table">Table</button>
+            <button class="seg" data-mode="tiles">Tiles</button>
+            <button class="seg" data-mode="chart">Chart</button>
+          </span>
+          <span class="hidden" id="sigExportWrap">
+            <button class="btn-mini" id="btnSigExportCsv" title="Download the signal table + summary as CSV">Export CSV</button>
+            <button class="btn-mini" id="btnSigExportXlsx" title="Download as .xlsx with the fresh / held / changed colours preserved">Export Excel</button>
+            <select id="sigExportScope" title="How much of the log to export" style="padding:4px 6px">
+              <option value="window">Visible window</option>
+              <option value="all">Whole log</option>
+            </select>
+          </span>
           <span style="flex:1"></span>
           <span id="sigAlarmBanner"></span>
           <span id="sigStatus" class="muted-line"></span>
         </div>
-        <div class="panel" style="margin-bottom:12px">
+        <div class="panel" id="sigCoveragePanel" style="margin-bottom:12px" hidden>
+          <div class="panel-head"><span>Log coverage</span>
+            <button class="btn-mini" id="btnSigCoverageToggle">Show breakdown</button></div>
+          <div id="sigCoverageBody" class="muted-line hidden" style="padding:10px 14px;font-size:12px"></div>
+        </div>
+        <div class="panel" id="sigPlaybackBar" style="margin-bottom:12px" hidden>
+          <div class="panel-head">
+            <span>Playback
+              <span class="muted-line" style="margin-left:10px" title="Space = play/pause · ←/→ = step one row (Shift for ten) · Home/End = start/end · + / − = zoom · click any table row to seek to it">Space · &#8592;/&#8594; · Home/End · +/&minus;</span>
+            </span>
+            <span id="sigPlaybackTime" class="muted-line"></span></div>
+          <div style="padding:10px 14px">
+            <!-- Full-log overview: where the (zoomed) scrubber below sits, so
+                 zooming in never loses your place in a long capture. -->
+            <div class="pb-overview" id="sigPbOverview" title="Whole log — click to jump">
+              <div class="pb-ov-range" id="sigPbOvRange"></div>
+              <div class="pb-ov-head" id="sigPbOvHead"></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+              <button class="icon-btn" id="btnPbStart" title="Jump to start"></button>
+              <button class="icon-btn" id="btnPbSlower" title="Slower"></button>
+              <button class="icon-btn" id="btnPbPlay" title="Play / pause"></button>
+              <button class="icon-btn" id="btnPbFaster" title="Faster"></button>
+              <button class="icon-btn" id="btnPbEnd" title="Jump to end"></button>
+              <span id="sigPbSpeed" class="muted-line" style="width:34px;text-align:center">1x</span>
+              <!-- Scrubber spans a sub-range of the log when zoomed in; the band
+                   behind it marks the slice the chart/table is showing. -->
+              <span class="pb-scrub-wrap">
+                <span class="pb-window-band" id="sigPbBand"></span>
+                <input type="range" id="sigPbScrub" min="0" max="1000" value="0" />
+              </span>
+              <span style="width:1px;height:22px;background:var(--line)"></span>
+              <button class="btn-mini" id="btnPbZoomOut" title="Zoom out — more time on screen, coarser rows">−</button>
+              <span id="sigPbZoom" class="muted-line" style="min-width:52px;text-align:center">1x</span>
+              <button class="btn-mini" id="btnPbZoomIn" title="Zoom in — less time on screen, finer rows">+</button>
+              <span id="sigPbWindow" class="muted-line" style="white-space:nowrap"></span>
+            </div>
+          </div>
+        </div>
+        <div class="panel" id="sigSummaryPanel" style="margin-bottom:12px" hidden>
+          <div class="panel-head"><span>Signal summary</span>
+            <span style="display:flex;gap:8px;align-items:center">
+              <span id="sigSummaryFlags" class="muted-line"></span>
+              <button class="btn-mini" id="btnSigSummaryToggle">Hide</button>
+            </span>
+          </div>
+          <div class="table-wrap" id="sigSummaryBody" style="max-height:260px"></div>
+        </div>
+        <div class="panel" id="sigCompAlarmPanel" style="margin-bottom:12px" hidden>
           <div class="panel-head"><span>Computed signals &amp; alarms</span></div>
           <div style="padding:10px 14px;display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
             <div style="flex:1;min-width:280px">
@@ -402,14 +478,39 @@
             </div>
           </div>
         </div>
-        <div class="signals-grid">
-          <div class="panel">
-            <div class="panel-head"><span>Signals</span></div>
+        <div class="signals-grid" id="sigGrid">
+          <div class="panel" id="sigListPanel">
+            <div class="panel-head"><span>Signals</span>
+              <span>
+                <button class="btn-mini" id="btnSigSelAll">Select all</button>
+                <button class="btn-mini" id="btnSigSelNone">None</button>
+                <button class="btn-mini" id="btnSigFoldHead" title="Hide the signal list">&#9664;</button>
+              </span>
+            </div>
+            <input id="sigFilter" placeholder="Filter signals…" style="margin:8px 8px 0;width:calc(100% - 16px)" />
             <div class="table-wrap" id="sigList" style="padding:8px"></div>
           </div>
-          <div class="panel">
-            <div class="panel-head"><span>Strip charts</span></div>
-            <div id="charts" style="padding:12px;overflow:auto"></div>
+          <div class="sig-right">
+            <div class="panel" id="sigChartPanel" hidden>
+              <div class="panel-head"><span>Strip charts</span>
+                <span id="sigChartHint" class="muted-line"></span></div>
+              <div id="charts" style="padding:12px;overflow:auto"></div>
+            </div>
+            <div class="panel" id="sigTablePanel">
+              <div class="panel-head"><span>Signal table</span>
+                <span style="display:flex;gap:10px;align-items:center">
+                  <label class="check"><input type="checkbox" id="sigChangesOnly" /> Changes only</label>
+                  <span id="sigTableHint" class="muted-line"></span>
+                </span>
+              </div>
+              <div class="table-wrap" id="sigTableWrap"></div>
+            </div>
+            <div class="panel" id="sigTilePanel" hidden>
+              <div class="panel-head"><span>Tiles</span>
+                <span id="sigTileHint" class="muted-line"></span>
+              </div>
+              <div id="sigTiles" style="padding:14px;overflow:auto"></div>
+            </div>
           </div>
         </div>
       </section>

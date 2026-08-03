@@ -1,0 +1,143 @@
+VERSION ""
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+
+BS_:
+
+BU_: T18_BatteryCharger K9_BCM 
+
+
+BO_ 298 HS_CAN__12A: 8 T18_BatteryCharger
+ SG_ Door_Lock_Status : 17|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ Door_Driver : 16|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ Door_Passenger : 18|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 320 HS_CAN__140: 4 T18_BatteryCharger
+ SG_ Blinker_Right : 19|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Blinker_Left : 18|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Head_Light : 26|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ High_Beam : 1|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 840 HS_CAN__348: 2 K9_BCM
+ SG_ Vheicle_Speed : 7|16@0+ (0.0311,0) [0|255] "km/h" Vector__XXX
+
+BO_ 288 HS_CAN__120: 4 Vector__XXX
+ SG_ Odometer : 7|32@0+ (0.01565,0) [0|4294967295] "km" Vector__XXX
+
+BO_ 663 HS_CAN__297: 4 Vector__XXX
+ SG_ SOC : 31|8@0+ (1,0) [0|255] "%" Vector__XXX
+ SG_ KW_of_Battery : 15|8@0+ (0.1,0) [0|255] "kw/h" Vector__XXX
+ SG_ SOH__ : 23|8@0+ (1,0) [0|255] "%" Vector__XXX
+
+BO_ 661 HS_CAN__295: 2 Vector__XXX
+ SG_ Charger_Cable_Status : 10|2@0+ (1,0) [0|3] "" Vector__XXX
+
+BO_ 341 HS_CAN__155: 6 Vector__XXX
+ SG_ Brake_Pedal_ : 13|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Accelertion_Pedal_positiob : 47|8@0+ (1,0) [0|255] "%" Vector__XXX
+
+BO_ 1221 HS_CAN__4C5: 3 Vector__XXX
+ SG_ DTE : 23|8@0+ (1,0) [0|255] "km" Vector__XXX
+
+BO_ 225 HS_CAN__E1: 2 Vector__XXX
+ SG_ Seat_Belt : 11|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1456 HS_CAN__5B0: 8 Vector__XXX
+ SG_ Cell_Voltage_1__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_2__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_3__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_4__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 666 HS_CAN__29A: 2 Vector__XXX
+ SG_ battery_voltage : 7|16@0+ (0.1,0) [0|65535] "V" Vector__XXX
+
+BO_ 667 HS_CAN__29B: 8 Vector__XXX
+ SG_ Cell_Max_Votage : 3|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Min_Votage : 27|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ _Avg__Votage : 52|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Number__Cell_Low_Votage : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Number__Cell_High_Votage : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 1158 HS_CAN__486: 8 Vector__XXX
+ SG_ Max_cell_Temp : 55|8@0+ (1,-40) [0|255] "C" Vector__XXX
+ SG_ Min_cell_Temp : 63|8@0+ (1,-40) [0|255] "C" Vector__XXX
+
+BO_ 1457 HS_CAN__5B1: 8 Vector__XXX
+ SG_ Cell_Voltage_5__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_6__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_7__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_8__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 1458 HS_CAN__5B2: 8 Vector__XXX
+ SG_ Cell_Voltage_9__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_10__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_11__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_12__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 1459 HS_CAN__5B3: 8 Vector__XXX
+ SG_ Cell_Voltage_13__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_14__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_15__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_16__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 1460 HS_CAN__5B4: 8 Vector__XXX
+ SG_ Cell_Voltage_17__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_18__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_19__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_20__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 1461 HS_CAN__5B5: 8 Vector__XXX
+ SG_ Cell_Voltage_21__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_22__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_23__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_24__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 1462 HS_CAN__5B6: 8 Vector__XXX
+ SG_ Cell_Voltage_25__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_26__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_27__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_28__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 1463 HS_CAN__5B7: 8 Vector__XXX
+ SG_ Cell_Voltage_29__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_30__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_31__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_32__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+BO_ 1464 HS_CAN__5B8: 8 Vector__XXX
+ SG_ Cell_Voltage_33__mV : 4|13@0+ (1,0) [0|8191] "mV" Vector__XXX
+ SG_ Cell_Voltage_34__mV : 19|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_35__mV : 35|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+ SG_ Cell_Voltage_36__mV : 51|12@0+ (1,0) [0|4095] "mV" Vector__XXX
+
+
+BA_DEF_ SG_  "SignalType" STRING ;
+BA_DEF_DEF_  "SignalType" "";
+

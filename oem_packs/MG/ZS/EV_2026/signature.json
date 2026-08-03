@@ -1,0 +1,399 @@
+{
+ "ids": [
+  {
+   "id": 148,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 175,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 201,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 241,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 355,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 361,
+   "ext": false,
+   "dlc": 6,
+   "period_ms": 20.0
+  },
+  {
+   "id": 371,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 389,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 404,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 25.0
+  },
+  {
+   "id": 406,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 434,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 485,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 497,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 498,
+   "ext": false,
+   "dlc": 2,
+   "period_ms": 20.0
+  },
+  {
+   "id": 540,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 50.0
+  },
+  {
+   "id": 541,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 50.0
+  },
+  {
+   "id": 661,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 663,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 50.0
+  },
+  {
+   "id": 674,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 763,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 50.0
+  },
+  {
+   "id": 793,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 835,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 845,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 854,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 856,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 865,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 871,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 889,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 907,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 913,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 923,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 927,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 930,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 936,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 940,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 954,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 958,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.0
+  },
+  {
+   "id": 960,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 977,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1009,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 250.04
+  },
+  {
+   "id": 1020,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1024,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1034,
+   "ext": false,
+   "dlc": 1,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1046,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.0
+  },
+  {
+   "id": 1047,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.0
+  },
+  {
+   "id": 1048,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1052,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.0
+  },
+  {
+   "id": 1055,
+   "ext": false,
+   "dlc": 3,
+   "period_ms": 80.0
+  },
+  {
+   "id": 1130,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 49.99
+  },
+  {
+   "id": 1139,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.0
+  },
+  {
+   "id": 1149,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 400.01
+  },
+  {
+   "id": 1150,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 400.01
+  },
+  {
+   "id": 1303,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 1000.03
+  },
+  {
+   "id": 1304,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 1000.03
+  },
+  {
+   "id": 1344,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 1000.03
+  },
+  {
+   "id": 1345,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.01
+  }
+ ],
+ "id_set": [
+  "94",
+  "AF",
+  "C9",
+  "F1",
+  "163",
+  "169",
+  "173",
+  "185",
+  "194",
+  "196",
+  "1B2",
+  "1E5",
+  "1F1",
+  "1F2",
+  "21C",
+  "21D",
+  "295",
+  "297",
+  "2A2",
+  "2FB",
+  "319",
+  "343",
+  "34D",
+  "356",
+  "358",
+  "361",
+  "367",
+  "379",
+  "38B",
+  "391",
+  "39B",
+  "39F",
+  "3A2",
+  "3A8",
+  "3AC",
+  "3BA",
+  "3BE",
+  "3C0",
+  "3D1",
+  "3F1",
+  "3FC",
+  "400",
+  "40A",
+  "416",
+  "417",
+  "418",
+  "41C",
+  "41F",
+  "46A",
+  "473",
+  "47D",
+  "47E",
+  "517",
+  "518",
+  "540",
+  "541"
+ ],
+ "_source": "HS CAN of data/uploads/MG1 7-04-2026 11-43-23 am.csv. Identified as the ZS EV because 10/15 of mg_zs_ev.dbc IDs appear (incl. 0x540 odometer, 0x2A2 range, 0x3AC SoC); the same 56-ID set recurs across all six July 2026 MG captures."
+}

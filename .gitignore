@@ -10,6 +10,7 @@ data/*.log.*
 *.asc
 *.blf
 *.db
+*.db.bak
 *.db-wal
 *.db-shm
 build/

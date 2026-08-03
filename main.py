@@ -1,4 +1,4 @@
-"""CANForge entry point.
+"""uCANdo entry point.
 
 Starts the FastAPI server and opens the local UI in the default browser.
 
@@ -18,7 +18,7 @@ import uvicorn
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CANForge — Unified CAN Workbench")
+    parser = argparse.ArgumentParser(description="uCANdo — Unified CAN Workbench")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true", help="do not auto-open the browser")
@@ -35,10 +35,10 @@ def main() -> None:
     print(f"uCANdo serving at {url}  (close this window to stop)")
     if getattr(sys, "frozen", False):
         # In a packaged build, import the app object directly (no reload import-string).
-        from canforge.server import app
+        from ucando.server import app
         uvicorn.run(app, host=args.host, port=args.port)
     else:
-        uvicorn.run("canforge.server:app", host=args.host, port=args.port, reload=args.reload)
+        uvicorn.run("ucando.server:app", host=args.host, port=args.port, reload=args.reload)
 
 
 if __name__ == "__main__":

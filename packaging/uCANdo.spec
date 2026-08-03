@@ -11,12 +11,12 @@ ROOT = os.path.dirname(SPECPATH)            # project root (spec lives in packag
 # read-only assets bundled next to the code
 datas = [
     (os.path.join(ROOT, "web"), "web"),
-    (os.path.join(ROOT, "canforge", "protocols"), os.path.join("canforge", "protocols")),
+    (os.path.join(ROOT, "ucando", "protocols"), os.path.join("ucando", "protocols")),
 ]
 binaries = []
 # dynamic / plugin-style imports PyInstaller can't see statically
 hiddenimports = [
-    "canforge.plugins.builtin_engines",
+    "ucando.plugins.builtin_engines",
     "can.interfaces.virtual",                # the dev/virtual bus
     "uvicorn.loops.auto", "uvicorn.loops.asyncio",
     "uvicorn.protocols.http.auto", "uvicorn.protocols.http.h11_impl",

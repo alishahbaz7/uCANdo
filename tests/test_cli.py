@@ -2,7 +2,7 @@
 
 import os
 
-from canforge.cli import main
+from ucando.cli import main
 
 
 def test_cli_log_records_file(tmp_path):
