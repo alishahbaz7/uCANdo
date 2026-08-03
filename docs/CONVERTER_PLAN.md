@@ -104,7 +104,7 @@ JSON `start_bit` is **Intel/LSB-first sequential** (validated last session:
 passenger=1, odometer=75971). DBC/cantools uses a **different** start-bit
 numbering (Intel = LSB position; Motorola = MSB sawtooth position). The
 converter holds a single **canonical model** and converts at each boundary,
-reusing the validated mapping in `canforge/jsondecode.py` /
+reusing the validated mapping in `ucando/jsondecode.py` /
 `dbc_builder.re_candidate_to_signal`:
 
 - **little-endian**: JSON `start_bit` == cantools `start` (direct).
@@ -150,7 +150,7 @@ the DBC boundary). Confirm in Q2.
 
 ## 5. Proposed implementation (after Q1–Q10 are settled)
 
-1. **`canforge/convert.py`** — a **canonical model** (reuse the DBC-Builder dict
+1. **`ucando/convert.py`** — a **canonical model** (reuse the DBC-Builder dict
    shape: name, frame_id, dlc, signals[start_bit, length, byte_order, scale,
    offset, min, max, unit, choices, comment, ev_data]) plus six functions:
    `dbc_to_model` / `json_to_model` / `csv_to_model` and
@@ -170,7 +170,7 @@ the DBC boundary). Confirm in Q2.
    frames still decode after a JSON→DBC→JSON round-trip.
 
 **Status: IMPLEMENTED & TESTED.**
-- `canforge/convert.py` — canonical model + 6 parsers/serializers + `convert()`.
+- `ucando/convert.py` — canonical model + 6 parsers/serializers + `convert()`.
 - `server.py` — `POST /api/convert?to=<fmt>` (multipart upload, auto-detected source).
 - `web/` — **Converter** nav segment: choose file → pick target → Convert & Download,
   with a conversion summary + loss/warning notes.

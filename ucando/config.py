@@ -1,6 +1,6 @@
 """Application configuration & saved profiles.
 
-A thin layer over :class:`canforge.storage.Storage`'s ``settings`` table. Config
+A thin layer over :class:`ucando.storage.Storage`'s ``settings`` table. Config
 is a flat key→JSON store with sensible defaults; "profiles" are just namespaced
 keys (e.g. ``profile:bench-1``) so the same machinery serves both without a new
 table. Unknown keys fall back to :data:`DEFAULTS`, so reading config never fails
@@ -16,7 +16,7 @@ from .storage import Storage
 DEFAULTS: dict[str, Any] = {
     "default_bitrate": 500_000,
     "default_hw": "virtual",
-    "default_channel": "canforge",
+    "default_channel": "ucando",
     "simulate_virtual": True,
     "ws_push_hz": 5,
     "recent_frames": 250,

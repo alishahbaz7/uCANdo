@@ -8,7 +8,7 @@ error, warning or crash is captured for later corrective action — including:
 * unhandled errors in API routes (the FastAPI handler in ``server.py``),
 * otherwise-swallowed errors in the capture loop / frame taps.
 
-Modules just use ``logging.getLogger("canforge.<area>")``; the file handler is
+Modules just use ``logging.getLogger("ucando.<area>")``; the file handler is
 attached to the root logger so every logger flows into the same file.
 """
 
@@ -20,7 +20,7 @@ import os
 import sys
 import threading
 
-LOGGER_NAME = "canforge"
+LOGGER_NAME = "ucando"
 _configured = False
 _log_path: str | None = None
 
@@ -39,7 +39,7 @@ def setup_logging(log_path: str, level: int = logging.INFO) -> logging.Logger:
                             datefmt="%Y-%m-%d %H:%M:%S")
     root = logging.getLogger()
     # Root at WARNING keeps noisy third-party libs (httpx/uvicorn access, can, …)
-    # to problems-only; our own canforge.* logger runs at INFO for key activity.
+    # to problems-only; our own ucando.* logger runs at INFO for key activity.
     root.setLevel(logging.WARNING)
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -52,7 +52,7 @@ def setup_logging(log_path: str, level: int = logging.INFO) -> logging.Logger:
     ch = logging.StreamHandler()
     ch.setFormatter(fmt)
     root.addHandler(ch)
-    log.setLevel(level)                        # canforge.* = INFO (activity + all errors)
+    log.setLevel(level)                        # ucando.* = INFO (activity + all errors)
     _install_crash_hooks()
     _configured = True
     log.info("uCANdo logging started -> %s", log_path)

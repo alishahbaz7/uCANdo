@@ -1,7 +1,7 @@
-"""Vehicle Spy 3 (Intrepid neoVI) CAN trace CSV import — see canforge/vspy.py."""
+"""Vehicle Spy 3 (Intrepid neoVI) CAN trace CSV import — see ucando/vspy.py."""
 
-from canforge import vspy
-from canforge.reverse import load_log_frames
+from ucando import vspy
+from ucando.reverse import load_log_frames
 
 # A trimmed real capture: metadata + Network Description + the 3 alternate
 # header rows + data rows including short-DLC frames (1/2/3/6 bytes) that
@@ -76,7 +76,7 @@ def test_load_log_frames_dispatches_to_vspy(tmp_path):
 
 def test_log_catalogue_and_trace_endpoints():
     from fastapi.testclient import TestClient
-    from canforge.server import app
+    from ucando.server import app
     c = TestClient(app)
     up = c.post("/api/upload", files={"file": ("mg6.csv", SAMPLE.encode(), "text/csv")}).json()
     assert up["ok"]

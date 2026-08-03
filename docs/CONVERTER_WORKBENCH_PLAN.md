@@ -4,7 +4,7 @@ Evolves the one-shot Converter into a small **workbench**: upload a file, see
 what's inside, optionally edit fields and pick a subset of signals, then export
 to any format (or re-save the same format after editing).
 
-The conversion core (`canforge/convert.py`, canonical model + 6 serializers) is
+The conversion core (`ucando/convert.py`, canonical model + 6 serializers) is
 already done and stays the engine; this is a **flow + UI + two thin endpoints**
 layer on top.
 
@@ -103,7 +103,7 @@ browser, gets edited there, and comes back:
   filename rule + doubt-comment injection.
 - The existing one-shot `POST /api/convert` stays for the simple path / tests.
 
-`canforge/convert.py` gains: `model_to_dbc`/`model_to_csv` inject doubt comments;
+`ucando/convert.py` gains: `model_to_dbc`/`model_to_csv` inject doubt comments;
 a tiny `inject_doubts(model)` helper marks sub-byte-BE signals; everything else
 unchanged.
 

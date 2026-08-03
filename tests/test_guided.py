@@ -1,6 +1,6 @@
 """Guided (Mode 2) protocols + runner."""
 
-from canforge.guided import GuidedRunner, list_protocols, load_protocol
+from ucando.guided import GuidedRunner, list_protocols, load_protocol
 
 
 def _frames(arb, payloads):

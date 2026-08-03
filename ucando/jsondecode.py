@@ -32,7 +32,7 @@ reading of 3066 — the case that pinned the padding direction.
 
 Self-contained (no cantools): the JSON carries no enums / min-max / units, so a
 direct bit extractor reproduces the cloud/DBC values exactly. The output dict
-shape matches :func:`canforge.framedecode.decode_frames`, so the Frame Decoder
+shape matches :func:`ucando.framedecode.decode_frames`, so the Frame Decoder
 UI renders the same byte view / signal table / bit grid.
 """
 

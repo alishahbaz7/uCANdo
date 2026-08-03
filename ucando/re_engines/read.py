@@ -1,14 +1,14 @@
 """READ — Bit-flip-rate reverse-engineering engine.
 
 An implementation of the ideas in *READ: Reverse Engineering of Automotive
-Dataframes* (Marchetti & Stabili, 2019), adapted to CANForge's data shapes.
+Dataframes* (Marchetti & Stabili, 2019), adapted to uCANdo's data shapes.
 
 The core signal is the **Bit-Flip Rate (BFR)**: for each payload bit, the
 fraction of consecutive frame pairs in which the bit changed. Within a single
 multi-bit value the least-significant bit flips most often and the rate falls
 toward the most-significant bit; a *new* signal begins where the rate drops
 back down (its MSB). That gives us signal boundaries far better than the naive
-"contiguous toggling bits" heuristic in :mod:`canforge.reverse`.
+"contiguous toggling bits" heuristic in :mod:`ucando.reverse`.
 
 Each extracted span is then classified and its endianness inferred:
 
@@ -20,7 +20,7 @@ Each extracted span is then classified and its endianness inferred:
 
 Bit indexing matches the rest of the app: **bit 0 = byte0/bit7 (MSB-first,
 sequential)**, so contiguous bits form a big-endian integer naturally and
-:func:`canforge.dbc_builder.re_candidate_to_signal` converts cleanly.
+:func:`ucando.dbc_builder.re_candidate_to_signal` converts cleanly.
 
 Pure stdlib (``math`` + ``collections``); no bus, no I/O — fully unit-testable.
 """

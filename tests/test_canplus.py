@@ -1,8 +1,8 @@
-"""CanPlus vehicle-library XML import → canonical model (see canforge/canplus.py)."""
+"""CanPlus vehicle-library XML import → canonical model (see ucando/canplus.py)."""
 
 import json
 
-from canforge import canplus, convert as cv
+from ucando import canplus, convert as cv
 
 # 5 real VarDesc records from the MG ZS EV library: speed, odometer, range/DTE,
 # and two doors that share a frame-signature cluster (B5FF08).
@@ -71,7 +71,7 @@ def test_canplus_exports_through_converter():
 
 def test_parse_endpoint_accepts_canplus():
     from fastapi.testclient import TestClient
-    from canforge.server import app
+    from ucando.server import app
     c = TestClient(app)
     r = c.post("/api/convert/parse",
                files={"file": ("MG.Config.XML", XML.encode(), "text/xml")}).json()

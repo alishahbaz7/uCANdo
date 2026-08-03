@@ -5,7 +5,7 @@ import struct
 
 import can
 
-from canforge.re_engines.correlate import correlate_log, _pearson_fit
+from ucando.re_engines.correlate import correlate_log, _pearson_fit
 
 
 def test_pearson_fit_recovers_line():

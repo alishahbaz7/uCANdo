@@ -117,7 +117,7 @@ def load_log_frames(path: str, max_frames_per_id: int = 20000) -> dict:
     Returns ``{ (arb_id, ext): {"timestamps": [...], "payloads": [...]} }``.
     This is the single point of log I/O; engines stay pure and bus-free.
 
-    Dispatches to :mod:`canforge.vspy` for Vehicle Spy 3 (Intrepid neoVI)
+    Dispatches to :mod:`ucando.vspy` for Vehicle Spy 3 (Intrepid neoVI)
     exports — a CSV dialect ``can.LogReader`` doesn't understand — detected by
     sniffing the first line; every other extension keeps using python-can.
     """
@@ -190,7 +190,7 @@ def analyze_log(path: str, engine: str = "read", max_frames_per_id: int = 20000)
     """Group a log by arbitration ID and analyze it with the chosen RE engine."""
     import importlib
     from .registry import RE_ENGINES
-    importlib.import_module("canforge.plugins.builtin_engines")  # self-registers built-in engines
+    importlib.import_module("ucando.plugins.builtin_engines")  # self-registers built-in engines
 
     frames = load_log_frames(path, max_frames_per_id)
     result = RE_ENGINES.require(engine).analyze(frames)

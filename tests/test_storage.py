@@ -1,6 +1,6 @@
 """Persistence layer and config."""
 
-from canforge.config import DEFAULTS, Config
+from ucando.config import DEFAULTS, Config
 
 
 def test_schema_tables_exist(storage):

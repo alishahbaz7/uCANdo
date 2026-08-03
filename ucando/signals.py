@@ -1,7 +1,7 @@
 """Signal Viewer — decode live frames against a DBC and buffer time series.
 
 A loaded cantools database is used to decode every incoming frame (delivered
-via a :class:`~canforge.logger.CanLogger` tap). Decoded scalar signals are
+via a :class:`~ucando.logger.CanLogger` tap). Decoded scalar signals are
 appended to bounded per-signal ring buffers; the UI polls :meth:`series` to
 draw strip charts.
 
@@ -142,7 +142,7 @@ class SignalViewer:
         fixed, finite file, not an ever-growing live stream.
 
         ``frames``: ``[{"id", "data", "timestamp"}, ...]`` — see
-        :func:`canforge.reverse.flatten_frames_by_id`.
+        :func:`ucando.reverse.flatten_frames_by_id`.
 
         A DBC only ever covers *some* of a real bus's traffic, so most logs
         decode a minority of their frames — that is expected, not a bug.

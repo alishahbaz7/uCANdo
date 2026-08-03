@@ -1,7 +1,7 @@
 """Application-wide bus state.
 
 A single :class:`BusManager` instance holds the currently open interface, the
-:class:`~canforge.logger.CanLogger` bound to it, and (for the virtual bus) the
+:class:`~ucando.logger.CanLogger` bound to it, and (for the virtual bus) the
 synthetic traffic feeder. The FastAPI layer holds exactly one of these and
 serializes connect/disconnect through its lock.
 """

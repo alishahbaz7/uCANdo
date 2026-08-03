@@ -1,6 +1,6 @@
 """Register the built-in reverse-engineering engines.
 
-Imported by :func:`canforge.registry.load_plugins` at startup (and lazily by
+Imported by :func:`ucando.registry.load_plugins` at startup (and lazily by
 ``reverse.analyze_log``), so the engines are discoverable by name without any
 core module importing them directly.
 """

@@ -27,13 +27,13 @@ directly. The capture → decode → RE → transmit loop is the spine. Read `CL
 2. Then implement in **small, verifiable steps**. I'll check it in the UI and steer.
 3. **Put it in the UI.** A feature isn't done until it's usable in the app, not just the
    backend. Wire new source formats into the Converter / Frame Decoder, add endpoints.
-4. **Bump `canforge.__version__` on every change** (single source of version; it drives
+4. **Bump `ucando.__version__` on every change** (single source of version; it drives
    cache-busting). Restart + hard-reload to see UI changes.
 
 ## Testing & dev conventions
 - Run `python -m pytest -q` via `.venv`; keep it **100% green**. Add tests for every new
   parser/contract (byte-exact assertions against known values, plus an endpoint test).
-- `python -m compileall -q canforge main.py` after edits.
+- `python -m compileall -q ucando main.py` after edits.
 - Prefer the in-process virtual bus for tests — no hardware needed.
 
 ## Git rules (strict — I care about this)

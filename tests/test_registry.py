@@ -2,7 +2,7 @@
 
 import pytest
 
-from canforge.registry import Registry, load_plugins, describe_all
+from ucando.registry import Registry, load_plugins, describe_all
 
 
 def test_register_and_get():

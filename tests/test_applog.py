@@ -8,9 +8,9 @@ import uuid
 import can
 
 # Importing the server triggers applog.setup_logging() (data/ucando.log).
-import canforge.server  # noqa: F401
-from canforge import applog
-from canforge.logger import CanLogger
+import ucando.server  # noqa: F401
+from ucando import applog
+from ucando.logger import CanLogger
 
 
 def _read_log() -> str:
@@ -26,7 +26,7 @@ def test_log_file_created_and_path_exposed():
 
 def test_error_message_written_to_file():
     marker = f"stability-err-{uuid.uuid4().hex}"
-    logging.getLogger("canforge.test").error(marker)
+    logging.getLogger("ucando.test").error(marker)
     assert marker in _read_log()
 
 
@@ -35,7 +35,7 @@ def test_exception_traceback_is_logged():
     try:
         raise ValueError(marker)
     except ValueError:
-        logging.getLogger("canforge.test").exception("boom")
+        logging.getLogger("ucando.test").exception("boom")
     text = _read_log()
     assert marker in text and "Traceback" in text and "ValueError" in text
 

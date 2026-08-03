@@ -1,6 +1,6 @@
 # CanPlus / Telematics Config (`*.Config.XML`) — RE & Decode Plan
 
-**Status:** ✅ parser built (`canforge/canplus.py`) + wired into the Converter (upload a
+**Status:** ✅ parser built (`ucando/canplus.py`) + wired into the Converter (upload a
 `.Config.XML` → preview signals + scaling, grouped by frame-cluster → export DBC/JSON/CSV).
 Validated Odometer (`0x540`) & Range/DTE (`0x2A2`) carry real layout; the rest are flagged
 placeholders pending a capture. Tests: `tests/test_canplus.py`.
@@ -154,7 +154,7 @@ So full **bit-exact live decode straight from this file is not yet possible** wi
 
 ## 7. Proposed implementation
 
-### 7.1 New module: `canforge/canplus.py`
+### 7.1 New module: `ucando/canplus.py`
 Pure-stdlib (`xml.etree`, no new deps), mirroring `jsondecode.py` / `convert.py` style.
 
 ```

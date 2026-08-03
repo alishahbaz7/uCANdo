@@ -242,7 +242,7 @@ Everything above the HAL is adapter-independent — modules hold a `CANInterface
 - Physical value: scale-aware decimal formatting, OOR badge, choice label
 - Payload input: hex-only validation, byte counter, maxlength = DLC×2
 - DBC export: timestamped filename (`DDMMYY_HHMMSS.dbc`)
-- Rebranded: CANForge → **uCANdo**
+- Rebranded: uCANdo → **uCANdo**
 - UI: Segoe UI Variable Display, dark scrollbars, 2-col layout, unified buttons
 
 ### v0.2 — Auto-RE + Hardware bring-up
@@ -252,7 +252,7 @@ Everything above the HAL is adapter-independent — modules hold a `CANInterface
 - Mode 1: passive log → OBD correlation + known-value + structural analysis
 - Hardware validated: neoVI FIRE → Hyundai Aura 2023 (HSCAN1 @ 500 kbps)
 - First real OEM profile: EngineRPM + Odometer confirmed vs OBD + dash
-- Field tools: `python -m canforge.cli drive` / `sniff` / `guided`
+- Field tools: `python -m ucando.cli drive` / `sniff` / `guided`
 - Driver assistant: `preflight.py` + `drivers.py` auto-diagnosis + installer links
 
 ### v0.1 — Full workbench foundation

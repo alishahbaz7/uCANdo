@@ -2,7 +2,7 @@
 
 import pytest
 
-from canforge.derived import AlarmMonitor, ComputedSignals, safe_eval
+from ucando.derived import AlarmMonitor, ComputedSignals, safe_eval
 
 
 def test_safe_eval_math_and_sig():

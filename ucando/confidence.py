@@ -11,7 +11,7 @@ the product exposes:
 
 A single strong source sets the tier; **corroboration** (two independent sources
 agreeing on the same label) promotes B → A. Pure functions, no state — see
-:mod:`canforge.resession` for the object that accumulates evidence.
+:mod:`ucando.resession` for the object that accumulates evidence.
 
 Each *evidence* item is a plain dict::
 

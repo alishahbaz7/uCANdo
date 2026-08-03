@@ -2,8 +2,8 @@
 
 import zipfile
 
-from canforge import preflight
-from canforge.drivers import DriverAssistant
+from ucando import preflight
+from ucando.drivers import DriverAssistant
 
 
 # ----- preflight -----------------------------------------------------------

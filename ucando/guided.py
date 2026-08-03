@@ -1,6 +1,6 @@
 """Guided RE (Mode 2) — fuel-type protocols + a step runner.
 
-A **protocol** (data in ``canforge/protocols/<fuel>.json``) is an ordered list of
+A **protocol** (data in ``ucando/protocols/<fuel>.json``) is an ordered list of
 steps; each step's ``kind`` maps to one RE technique that yields high-confidence
 evidence *because the stimulus is controlled*:
 
@@ -10,10 +10,10 @@ evidence *because the stimulus is controlled*:
 * ``ramp``         — record while a value varies; correlate vs OBD ground truth
 * ``known_value``  — user enters a dash reading; known-value match
 
-All techniques feed one :class:`~canforge.resession.RESession`, so guided runs
+All techniques feed one :class:`~ucando.resession.RESession`, so guided runs
 produce the same A/B/C report and exportable profile as the passive mode. The
 :class:`GuidedRunner` methods are pure (operate on captured frames passed in);
-the live capture/timing/prompting lives in ``canforge.cli guided``.
+the live capture/timing/prompting lives in ``ucando.cli guided``.
 """
 
 from __future__ import annotations

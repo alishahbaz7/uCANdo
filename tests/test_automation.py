@@ -2,10 +2,10 @@
 
 import cantools
 
-from canforge.jobs import JobRunner, _interval_s
-from canforge.rules import RulesEngine
-from canforge.scripting import ScriptContext, run_script
-from canforge.simulation import RestbusSimulator
+from ucando.jobs import JobRunner, _interval_s
+from ucando.rules import RulesEngine
+from ucando.scripting import ScriptContext, run_script
+from ucando.simulation import RestbusSimulator
 
 
 # ----- rules ---------------------------------------------------------------

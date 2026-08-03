@@ -3,7 +3,7 @@
 One :class:`RESession` accumulates **evidence** about candidate signals from
 every technique (READ structure, OBD correlation, known-value match, toggle
 events, DB match, user confirmation), keyed by their bit location. It dedups,
-scores each candidate via :mod:`canforge.confidence`, and emits the **A / B / C**
+scores each candidate via :mod:`ucando.confidence`, and emits the **A / B / C**
 report the UI shows — and can export the confirmed signals straight to a DBC /
 OEM profile (closing the flywheel).
 

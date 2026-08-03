@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from canforge import convert as cv
+from ucando import convert as cv
 
 # A small but representative database: little-endian + byte-aligned big-endian,
 # scale/offset, a value table, min/max, units.
@@ -164,7 +164,7 @@ def test_value_table_survives_dbc_to_csv_to_dbc():
 
 def test_endpoints_parse_and_export():
     from fastapi.testclient import TestClient
-    from canforge.server import app
+    from ucando.server import app
     c = TestClient(app)
     pr = c.post("/api/convert/parse",
                 files={"file": ("x.dbc", DBC.encode(), "text/plain")}).json()
@@ -206,7 +206,7 @@ def test_decimal_id_keys_still_decimal():
 
 def test_one_hex_key_makes_the_whole_file_hex():
     # Signature_tmlais038B.json shape: "408b" proves hex, so "15" is 0x15 too.
-    from canforge import jsondecode as jd
+    from ucando import jsondecode as jd
     assert jd.detect_id_base(["408b", "4091", "15"]) == 16
     assert jd.detect_id_base(["900", "905", "912"]) == 10
     assert jd.detect_id_base(["18FEEA27"]) == 16

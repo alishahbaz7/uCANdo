@@ -1,11 +1,11 @@
-"""VIN parsing + VIN-pattern vehicle identification — see canforge/vin.py."""
+"""VIN parsing + VIN-pattern vehicle identification — see ucando/vin.py."""
 
 import json
 
 import pytest
 
-from canforge import vin
-from canforge.oem_db import OemDatabase
+from ucando import vin
+from ucando.oem_db import OemDatabase
 
 # The real MG Windsor Pro VIN observed on the 2026-08-01 capture vehicle.
 PRO_VIN = "MZ72D5FEF8H030876"
@@ -120,7 +120,7 @@ def test_identify_from_vin_refuses_a_malformed_vin(storage, tmp_path):
 def test_endpoint_identifies_the_real_windsor_pro():
     """End-to-end against the shipped oem_packs library."""
     from fastapi.testclient import TestClient
-    from canforge.server import app
+    from ucando.server import app
     c = TestClient(app)
     r = c.post(f"/api/oem/identify-vin?vin={PRO_VIN}").json()
     assert r["ok"] and r["vin"] == PRO_VIN

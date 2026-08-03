@@ -2769,7 +2769,7 @@ function emptyHero(id, o) {
 window.goView = (v) => { const b = document.querySelector(`.nav[data-view="${v}"]`); if (b) b.click(); };
 window.quickConnectVirtual = async () => {
   setStatus("Connecting to virtual bus…");
-  const r = await POST("/api/connect", { hw: "virtual", channel: "canforge", bitrate: 500000, simulate: true });
+  const r = await POST("/api/connect", { hw: "virtual", channel: "ucando", bitrate: 500000, simulate: true });
   setStatus(r && r.ok !== false ? "Virtual bus connected — streaming demo frames" : "Could not start virtual bus");
 };
 window.cvUploadClick = () => $("btnCvUpload").click();

@@ -2,7 +2,7 @@
 
 import struct
 
-from canforge.re_engines.read import (
+from ucando.re_engines.read import (
     ReadEngine, analyze_id_read, bit_flip_rates, classify_span,
     detect_multiplexor, extract_spans, value_be, value_le, _counter_step,
 )
@@ -105,7 +105,7 @@ def test_analyze_log_dispatches_via_registry(tmp_path):
         w.on_message_received(m)
     w.stop()
 
-    from canforge.reverse import analyze_log
+    from ucando.reverse import analyze_log
     res = analyze_log(p, engine="read")
     assert res["engine"] == "read"
     assert res["id_count"] == 1

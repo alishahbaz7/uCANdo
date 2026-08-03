@@ -15,7 +15,7 @@ Two capabilities sit on top of the store:
   matches, so connecting a vehicle suggests "this looks like an XUV700" and
   offers to apply that profile.
 
-Pure logic over :class:`canforge.storage.Storage`; no bus access.
+Pure logic over :class:`ucando.storage.Storage`; no bus access.
 """
 
 from __future__ import annotations

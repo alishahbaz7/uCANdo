@@ -1,7 +1,7 @@
 """CAN Logger — live capture, per-ID statistics and recording/export.
 
 A :class:`CanLogger` owns one background receive thread bound to a
-:class:`~canforge.hal.CANInterface`. Every received frame fans out to:
+:class:`~ucando.hal.CANInterface`. Every received frame fans out to:
 
 * a rolling **recent-frames** buffer for the live feed,
 * an aggregated **per-ID** table (count, period estimate, last payload),
@@ -25,7 +25,7 @@ import can
 
 from .hal import CANInterface
 
-_log = logging.getLogger("canforge.logger")
+_log = logging.getLogger("ucando.logger")
 
 RECENT_MAXLEN = 250
 FPS_WINDOW_S = 2.0

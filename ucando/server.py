@@ -65,7 +65,7 @@ else:
     BUNDLE = APP_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Writable state (DB, logs, uploads) can be relocated — tests point this at a
 # temp dir so a test run never writes into the developer's real database.
-APP_HOME = os.environ.get("CANFORGE_HOME") or APP_HOME
+APP_HOME = os.environ.get("UCANDO_HOME") or APP_HOME
 ROOT = BUNDLE
 WEB_DIR = os.path.join(BUNDLE, "web")
 DATA_DIR = os.path.join(APP_HOME, "data")
@@ -77,7 +77,7 @@ for d in (LOG_DIR, UPLOAD_DIR, DRIVER_DIR):
 
 # Rotating error/activity log → data/ucando.log (captures crashes for diagnosis).
 applog.setup_logging(os.path.join(DATA_DIR, "ucando.log"))
-log = logging.getLogger("canforge.server")
+log = logging.getLogger("ucando.server")
 log.info("uCANdo %s starting up", __version__)
 
 app = FastAPI(title=f"{__app_name__} API", version=__version__)
@@ -91,7 +91,7 @@ async def _log_unhandled(request, exc):
                         content={"ok": False, "error": "internal error (logged to data/ucando.log)"})
 
 # ----- foundation rails (persistence, config, plugins) ---------------------
-storage = Storage(os.path.join(DATA_DIR, "canforge.db"))   # writable app home (frozen-safe)
+storage = Storage(os.path.join(DATA_DIR, "ucando.db"))   # writable app home (frozen-safe)
 config = Config(storage)
 oem = OemDatabase(storage)
 OEM_PACKS_DIR = os.path.join(BUNDLE, "oem_packs")
@@ -99,7 +99,7 @@ oem.prune_blank()                                 # drop content-free rows left 
 # demo profile + every vehicle in oem_packs/ (idempotent)
 oem.seed_builtins(packs_dir=OEM_PACKS_DIR)
 driver_assistant = DriverAssistant(DRIVER_DIR)
-loaded_plugins = load_plugins()   # auto-imports canforge/plugins/* (self-register)
+loaded_plugins = load_plugins()   # auto-imports ucando/plugins/* (self-register)
 
 # ----- subsystems ----------------------------------------------------------
 bus = BusManager()

@@ -6,7 +6,7 @@ $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 $py = Join-Path $root ".venv\Scripts\python.exe"
 
-$ver = (& $py -c "import canforge; print(canforge.__version__)").Trim()
+$ver = (& $py -c "import ucando; print(ucando.__version__)").Trim()
 Write-Host "Building uCANdo v$ver ..." -ForegroundColor Cyan
 
 & $py -m pip install --quiet pyinstaller

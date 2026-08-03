@@ -9,8 +9,8 @@ import json
 
 import pytest
 
-from canforge.derived import (ComputedSignals, detect_ev_keys, ev_charge_channels)
-from canforge.oem_db import OemDatabase, iter_packs
+from ucando.derived import (ComputedSignals, detect_ev_keys, ev_charge_channels)
+from ucando.oem_db import OemDatabase, iter_packs
 
 MINI_DBC = """VERSION ""
 

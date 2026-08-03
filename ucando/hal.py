@@ -1,6 +1,6 @@
 """Hardware Abstraction Layer.
 
-Every module in CANForge talks to a single :class:`CANInterface`. The concrete
+Every module in uCANdo talks to a single :class:`CANInterface`. The concrete
 backend is chosen by :func:`create_interface` from a hardware key, so the rest
 of the app never imports ``can`` directly or cares which adapter is plugged in.
 

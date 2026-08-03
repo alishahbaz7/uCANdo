@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Full plan & benchmark: `docs/PRODUCT_PLAN.md`. **Auto-ID/RE design (current focus): `docs/AUTO_RE_PLAN.md`.** Target: India-first, fleet/telematics-focused CAN workbench. Worked **phase-by-phase, one branch + one merge to `main` per phase**; now on **feature branches per release** (`v0.1`, `v0.2`).
 
-**🚗 Hardware-validated (2026-06-13):** real Intrepid neoVI FIRE → live Hyundai Aura 2023 capture (HSCAN1 @ 500k). Built the **first real OEM profile**: EngineRPM (`0x316`/`0x556`, LE ×0.25, confirmed vs OBD) + Odometer (`0x5B0`, 24-bit LE ×0.1 km, confirmed vs dash). Two RE techniques proven on real data: **OBD correlation** (dynamic signals) + **known-value matching** (static). Field tools `cli drive` / `cli sniff`. See `canforge-neovi-hardware` memory + `oem_packs/`.
+**🚗 Hardware-validated (2026-06-13):** real Intrepid neoVI FIRE → live Hyundai Aura 2023 capture (HSCAN1 @ 500k). Built the **first real OEM profile**: EngineRPM (`0x316`/`0x556`, LE ×0.25, confirmed vs OBD) + Odometer (`0x5B0`, 24-bit LE ×0.1 km, confirmed vs dash). Two RE techniques proven on real data: **OBD correlation** (dynamic signals) + **known-value matching** (static). Field tools `cli drive` / `cli sniff`. See `ucando-neovi-hardware` memory + `oem_packs/`.
 
 | Phase | Theme | Status | Key deliverables |
 |---|---|---|---|
@@ -41,7 +41,7 @@ Per-hardware extras are intentionally *not* in `requirements.txt`: `pip install 
 
 **Compile check** after edits:
 ```powershell
-python -m compileall -q canforge main.py
+python -m compileall -q ucando main.py
 ```
 
 **Tests** (pytest; no hardware needed — integration tests use the in-process virtual bus on a per-test channel):
@@ -49,11 +49,11 @@ python -m compileall -q canforge main.py
 pip install -r requirements-dev.txt
 python -m pytest -q
 ```
-Tests live in `tests/`; `tests/conftest.py` holds the virtual-bus harness (`wait_until`, `sender`, `vchannel`, in-memory `storage`). It also sets **`CANFORGE_HOME`** to a temp dir at import time — `server.py` derives `DATA_DIR` from it, so importing `canforge.server` in a test writes its DB/logs there instead of polluting the real `data/canforge.db` (the same env var relocates app state in production). You can also smoke-test the capture path by connecting to the **virtual** bus — `canforge.sim.SyntheticTraffic` feeds it real-looking frames.
+Tests live in `tests/`; `tests/conftest.py` holds the virtual-bus harness (`wait_until`, `sender`, `vchannel`, in-memory `storage`). It also sets **`UCANDO_HOME`** to a temp dir at import time — `server.py` derives `DATA_DIR` from it, so importing `ucando.server` in a test writes its DB/logs there instead of polluting the real `data/ucando.db` (the same env var relocates app state in production). You can also smoke-test the capture path by connecting to the **virtual** bus — `ucando.sim.SyntheticTraffic` feeds it real-looking frames.
 
 ## Architecture
 
-CANForge is a hardware-agnostic CAN bus workbench: a **FastAPI backend + WebSocket + static single-page web UI** (no JS build step — plain `web/*.{html,css,js}`). The same app drives three adapters plus a development virtual bus.
+uCANdo is a hardware-agnostic CAN bus workbench: a **FastAPI backend + WebSocket + static single-page web UI** (no JS build step — plain `web/*.{html,css,js}`). The same app drives three adapters plus a development virtual bus.
 
 ### The central invariant: everything talks to the HAL, never to `python-can` directly
 
@@ -63,7 +63,7 @@ Hardware keys and their backends (`BACKENDS` in `hal.py`):
 
 | key | python-can interface | channel | notes |
 |---|---|---|---|
-| `virtual` | `virtual` | `"canforge"` (str) | dev; in-process broadcast |
+| `virtual` | `virtual` | `"ucando"` (str) | dev; in-process broadcast |
 | `neovi` | `neovi` | `1`/`2`… (int) | needs `ics` lib |
 | `pcan` | `pcan` | `"PCAN_USBBUS1"` (str) | needs PCAN driver |
 | `microchip` | `slcan` | COM port (str) | analyzer flashed with SLCAN firmware |
@@ -73,14 +73,14 @@ Channel type is coerced per-backend (`channel_type` in the table), and `fd` is o
 ### Foundation rails (Phase 0)
 
 Four cross-cutting modules added to keep the app extensible without editing core (see `docs/PRODUCT_PLAN.md`):
-- `registry.py` — generic `Registry` + the named global registries `RE_ENGINES`, `DECODERS`, `EXPORTERS`, `OEM_PACKS`. New engines/decoders/exporters/OEM packs **self-register** at import; `load_plugins()` auto-imports everything under `canforge/plugins/`. `server.py` calls it once and exposes `/api/plugins`. The `Protocol` classes in `registry.py` are the documented plugin contracts.
+- `registry.py` — generic `Registry` + the named global registries `RE_ENGINES`, `DECODERS`, `EXPORTERS`, `OEM_PACKS`. New engines/decoders/exporters/OEM packs **self-register** at import; `load_plugins()` auto-imports everything under `ucando/plugins/`. `server.py` calls it once and exposes `/api/plugins`. The `Protocol` classes in `registry.py` are the documented plugin contracts.
 - `storage.py` — thread-safe SQLite (`Storage`, WAL, one lock for writes). Schema is a plain list of `CREATE TABLE IF NOT EXISTS` strings — append one to extend. Tables: `oem_profiles` (the India OEM DB + frame `signature` for auto-ID), `vehicles`, `captures`, `jobs`, `settings`.
 - `config.py` — `Config` over the `settings` table with `DEFAULTS`; named profiles are namespaced `profile:<name>` keys. `server.py` exposes `/api/config`.
 - `contracts.py` — `TypedDict` definitions of the `snapshot()` / `/ws/live` payload, the **single source of truth** for the backend↔`web/app.js` coupling. `check_snapshot()` lets tests assert the producer keeps the contract. Update this + `web/app.js` together when the snapshot shape changes.
 
 ### Reverse-engineering engines (Phase 1)
 
-RE is pluggable. `reverse.py` now only does log I/O (`load_log_frames` → the *frames-by-id* shape `{(id,ext): {timestamps, payloads}}`) and dispatches `analyze_log(path, engine=...)` through `RE_ENGINES`. Engines are pure/bus-free and self-register via `canforge/plugins/builtin_engines.py`:
+RE is pluggable. `reverse.py` now only does log I/O (`load_log_frames` → the *frames-by-id* shape `{(id,ext): {timestamps, payloads}}`) and dispatches `analyze_log(path, engine=...)` through `RE_ENGINES`. Engines are pure/bus-free and self-register via `ucando/plugins/builtin_engines.py`:
 - **`read`** (`re_engines/read.py`) — the default. Bit-flip-rate (BFR) tokenization: finds signal boundaries where BFR drops (one signal's LSB abutting the next's MSB), infers endianness (big-endian from contiguous MSB-first bits; little-endian by counter-fit or smoothness), and classifies each span constant/counter/crc/multi-state/physical. Also `detect_multiplexor`. Output is a **superset** of the legacy shape (keeps `bytes[].{index,kind,entropy}` and `candidates[].{start_bit,length,name,byte_order}` that `web/app.js` reads) plus `kind`/`bfr`/`confidence`/`step`.
 - **`basic`** — the original toggle-count finder (`reverse.BasicEngine`), kept for comparison.
 
@@ -102,7 +102,7 @@ RE is pluggable. `reverse.py` now only does log I/O (`load_log_frames` → the *
 - `jobs.py` — `JobRunner` over the `jobs` table: `"every:<seconds>"` periodic or manual jobs dispatched by `kind` to **handlers** registered in `server.py` (`scan`, `record`). One daemon loop; `run_now` for manual. `/api/jobs*`.
 - `simulation.py` — `RestbusSimulator`: cyclically transmits every message of a cantools DB (from the DBC Builder or an OEM profile) via `bus.send` so an ECU under test sees a full vehicle; per-message overrides via `set_value`. `/api/restbus/*`.
 - `scripting.py` — `run_script` executes a snippet in a no-builtins namespace exposing `ctx` (`send`/`latest`/`log`/`sleep`) on a worker thread with a timeout. Internal-tool hardening, not a security boundary. `/api/script/run`.
-- `cli.py` — headless `python -m canforge.cli {log,identify,replay}` for fleet agents/CI; routes through the same HAL + subsystems.
+- `cli.py` — headless `python -m ucando.cli {log,identify,replay}` for fleet agents/CI; routes through the same HAL + subsystems.
 
 ### Dependency direction (keep acyclic)
 

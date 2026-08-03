@@ -1,4 +1,4 @@
-"""Plugin registries — the extension rails for CANForge.
+"""Plugin registries — the extension rails for uCANdo.
 
 The product plan calls for new **RE engines**, **protocol decoders**, **exporters**
 and **OEM database packs** to be added as *drop-in files*, never by editing core
@@ -7,7 +7,7 @@ named global instances those plugins register into.
 
 A plugin module registers itself at import time::
 
-    from canforge.registry import RE_ENGINES
+    from ucando.registry import RE_ENGINES
 
     @RE_ENGINES.register("read", description="Bit-flip-rate tokenizer (READ)")
     class ReadEngine:
@@ -15,7 +15,7 @@ A plugin module registers itself at import time::
 
 and the rest of the app discovers it by name or by iterating the registry — it
 never imports the plugin directly. To make a plugin package auto-load, drop it
-under ``canforge/plugins/`` and call :func:`load_plugins` once at startup.
+under ``ucando/plugins/`` and call :func:`load_plugins` once at startup.
 
 The :class:`typing.Protocol` definitions below are the *contracts*: they are not
 enforced at runtime (registration accepts any object), but they document exactly
@@ -144,7 +144,7 @@ ALL_REGISTRIES = {
 }
 
 
-def load_plugins(package: str = "canforge.plugins") -> list[str]:
+def load_plugins(package: str = "ucando.plugins") -> list[str]:
     """Import every submodule of ``package`` so its plugins self-register.
 
     Returns the list of imported module names. Missing package → empty list

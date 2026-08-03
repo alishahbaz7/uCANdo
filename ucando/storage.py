@@ -96,7 +96,7 @@ SCHEMA: list[str] = [
 ]
 
 DEFAULT_DB_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "canforge.db"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ucando.db"
 )
 
 

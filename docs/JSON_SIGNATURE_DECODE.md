@@ -19,7 +19,7 @@
 > (start 48, size 7). `jsondecode` reproduces both exactly. Mapping checks:
 > JSON 24↔DBC 31, 48↔55, 42↔45, 19↔20, 44↔43 — all consistent.
 >
-> Implemented in `canforge/jsondecode.py` and `canforge/convert.py`; there is no
+> Implemented in `ucando/jsondecode.py` and `ucando/convert.py`; there is no
 > sub-byte ambiguity, so JSON ⇄ DBC is bit-exact. The notes below are kept for
 > history but are **superseded** by this block.
 
@@ -258,7 +258,7 @@ spec question, not something I can infer. See Q2.
    expectation for a couple of signals (esp. a multi-byte big-endian one).
 
 **Status: IMPLEMENTED & TESTED.**
-- `canforge/jsondecode.py` — self-contained decoder (no cantools).
+- `ucando/jsondecode.py` — self-contained decoder (no cantools).
 - `server.py` — `/api/decode/json-import` + `/api/decode/frames` dispatch
   between the JSON source and the DBC source (one active at a time).
 - `web/` — "Upload .json" button beside "Upload .dbc"; MSB/LSB labels on the

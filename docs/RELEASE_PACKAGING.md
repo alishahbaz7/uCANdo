@@ -14,22 +14,22 @@ This runs PyInstaller against [`packaging/uCANdo.spec`](../packaging/uCANdo.spec
 - `dist\uCANdo\uCANdo.exe` — the app (onedir bundle, ~35 MB unpacked)
 - `dist\uCANdo_v<version>.zip` — the shareable artifact (~18 MB), with a `README.txt`
 
-The version comes from `canforge.__version__`, so bump that first for a new release.
+The version comes from `ucando.__version__`, so bump that first for a new release.
 
 ## What's inside / how paths work
 
-`canforge/server.py` is **frozen-aware**:
+`ucando/server.py` is **frozen-aware**:
 
 | | source run | packaged (`frozen`) |
 |---|---|---|
-| read-only assets (`web/`, `canforge/protocols/`) | project root | `sys._MEIPASS` (bundled) |
-| writable data (`data/` — logs, recordings, `canforge.db`) | project root | **next to `uCANdo.exe`** |
+| read-only assets (`web/`, `ucando/protocols/`) | project root | `sys._MEIPASS` (bundled) |
+| writable data (`data/` — logs, recordings, `ucando.db`) | project root | **next to `uCANdo.exe`** |
 
 So a packaged user's captures/logs/DB persist in `dist\uCANdo\data\` across runs (the
 onefile temp dir would be wiped; onedir keeps them beside the exe).
 
 The spec bundles `web/`, the guided-RE `protocols/*.json`, all of `cantools`, and the
-dynamic imports PyInstaller can't see statically (`canforge.plugins.*`, the virtual CAN
+dynamic imports PyInstaller can't see statically (`ucando.plugins.*`, the virtual CAN
 backend, uvicorn's loop/protocol submodules).
 
 ## Sharing & network note

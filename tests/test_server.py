@@ -5,7 +5,7 @@ import uuid
 import can
 from fastapi.testclient import TestClient
 
-from canforge.server import app
+from ucando.server import app
 from tests.conftest import wait_until
 
 client = TestClient(app)
@@ -19,7 +19,7 @@ def test_info_and_plugins():
 
 def test_index_injects_single_version():
     # One version number (__version__) drives both /api/info and the asset ?v= URLs.
-    from canforge import __version__
+    from ucando import __version__
     html = client.get("/").text
     assert "__VER__" not in html                       # placeholder fully substituted
     assert f"?v={__version__}" in html                 # assets cache-bust on the app version
@@ -160,7 +160,7 @@ def test_autore_analyze_confirm_save(tmp_path):
 
 
 def test_decode_dbc_frames_endpoint():
-    from canforge.dbc_builder import DbcModel
+    from ucando.dbc_builder import DbcModel
     m = DbcModel()
     m.add_message(0x94, "M94", length=8)
     m.add_signal(0x94, {"name": "Speed", "start_bit": 3, "length": 12,

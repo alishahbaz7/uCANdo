@@ -13,7 +13,7 @@ from __future__ import annotations
 
 
 def list_virtual_devices() -> list[dict]:
-    return [{"hw": "virtual", "label": "Virtual bus (development)", "channel": "canforge"}]
+    return [{"hw": "virtual", "label": "Virtual bus (development)", "channel": "ucando"}]
 
 
 def list_neovi_devices() -> list[dict]:

@@ -3,9 +3,9 @@
 For fleet agents, CI, and unattended logging. Everything routes through the same
 HAL + subsystems the server uses, so behaviour matches the UI exactly.
 
-    python -m canforge.cli log     --hw virtual --channel canforge --seconds 5 --out data/logs/run.asc
-    python -m canforge.cli identify --hw virtual --channel canforge --seconds 3
-    python -m canforge.cli replay  --hw virtual --channel canforge --file data/logs/run.asc
+    python -m ucando.cli log     --hw virtual --channel ucando --seconds 5 --out data/logs/run.asc
+    python -m ucando.cli identify --hw virtual --channel ucando --seconds 3
+    python -m ucando.cli replay  --hw virtual --channel ucando --file data/logs/run.asc
 """
 
 from __future__ import annotations
@@ -183,9 +183,9 @@ def cmd_guided(args) -> int:
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="canforge.cli", description="CANForge headless CLI")
+    p = argparse.ArgumentParser(prog="ucando.cli", description="uCANdo headless CLI")
     p.add_argument("--hw", default="virtual")
-    p.add_argument("--channel", default="canforge")
+    p.add_argument("--channel", default="ucando")
     p.add_argument("--bitrate", type=int, default=500_000)
     p.add_argument("--no-sim", action="store_true", help="don't start virtual synthetic traffic")
     sub = p.add_subparsers(dest="cmd", required=True)

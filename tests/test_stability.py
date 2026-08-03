@@ -12,11 +12,11 @@ import can
 import pytest
 from fastapi.testclient import TestClient
 
-from canforge import convert as cv
-from canforge import jsondecode as jd
-from canforge.dbc_builder import DbcModel
-from canforge.framedecode import decode_frame, decode_frames
-from canforge.server import app
+from ucando import convert as cv
+from ucando import jsondecode as jd
+from ucando.dbc_builder import DbcModel
+from ucando.framedecode import decode_frame, decode_frames
+from ucando.server import app
 from tests.conftest import wait_until
 
 client = TestClient(app)

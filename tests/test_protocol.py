@@ -1,6 +1,6 @@
 """Protocol decoding: OBD-II, UDS, J1939 and ISO-TP reassembly."""
 
-from canforge.protocol import ProtocolDecoder, decode_j1939_id
+from ucando.protocol import ProtocolDecoder, decode_j1939_id
 
 
 def test_obd_rpm_response():

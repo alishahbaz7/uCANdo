@@ -1,7 +1,7 @@
 """OEM CAN Database — CRUD, fingerprint, CANMatch auto-identify, seeding."""
 
-from canforge.dbc_builder import DbcModel
-from canforge.oem_db import (
+from ucando.dbc_builder import DbcModel
+from ucando.oem_db import (
     OemDatabase, fingerprint_frames, fingerprint_from_id_stats,
 )
 

@@ -1,13 +1,13 @@
 """Driver assistant — fetch & launch the official vendor installer on demand.
 
-When :mod:`canforge.preflight` reports a backend's driver is missing, this
+When :mod:`ucando.preflight` reports a backend's driver is missing, this
 downloads the vendor's *official* installer (the URL declared in
 ``preflight.REQUIREMENTS``) into a local cache — **never** committed to git — and
 launches it so the user can complete an elevated install. It reuses an existing
 copy (cache or the user's Downloads) instead of re-downloading.
 
 It deliberately does not silently install: OS driver installs require an
-interactive, elevated (UAC) step. CANForge removes the *find-it-yourself* pain;
+interactive, elevated (UAC) step. uCANdo removes the *find-it-yourself* pain;
 the admin click stays with the user.
 
 Downloads run on a background thread with progress, so the UI can show a bar for
@@ -83,7 +83,7 @@ class DriverAssistant:
         dest = os.path.join(self.cache, self._filename(hw))
         part = dest + ".part"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "CANForge"})
+            req = urllib.request.Request(url, headers={"User-Agent": "uCANdo"})
             with urllib.request.urlopen(req, timeout=60) as resp, open(part, "wb") as fh:
                 total = int(resp.headers.get("Content-Length", 0))
                 with self._lock:

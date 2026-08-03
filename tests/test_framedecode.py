@@ -2,8 +2,8 @@
 
 import cantools
 
-from canforge.dbc_builder import DbcModel
-from canforge.framedecode import decode_frame, decode_frames, _normalize
+from ucando.dbc_builder import DbcModel
+from ucando.framedecode import decode_frame, decode_frames, _normalize
 
 
 def _db():
@@ -47,7 +47,7 @@ def test_decode_frames_hex_ids_and_errors():
 
 def test_short_payload_pads_right():
     """A short-DLC payload keeps byte 0 at byte 0 (was left-padded, shifting it)."""
-    from canforge.framedecode import _normalize
+    from ucando.framedecode import _normalize
     assert _normalize("0002FEA200", 8) == bytes([0x00, 0x02, 0xFE, 0xA2, 0, 0, 0, 0])
     assert _normalize("94", 8)[0] == 0x94
     assert _normalize("FF" * 16, 8) == b"\xff" * 8        # oversized still truncates

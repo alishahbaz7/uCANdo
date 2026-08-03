@@ -11,7 +11,7 @@ against ground truth**, and state plainly what is *not* proven.
 ## 1. Capture set
 
 All under `data/uploads/MG Commute 01Aug26/`, Vehicle Spy 3 CSV
-(parsed by `canforge/vspy.py`). Each file is a rolling tail of ~50 000 frames
+(parsed by `ucando/vspy.py`). Each file is a rolling tail of ~50 000 frames
 (~20 s) or ~100 000 frames (~41 s).
 
 | Group | Files | Purpose |
@@ -284,7 +284,7 @@ vehicle:
 | Charger class | power band: ≤3.3 kW slow AC, ~7.4 kW fast AC, >20 kW DC |
 | Time to full | `(100 - StateOfCharge) * 0.38 / charge_kW` hours (38 kWh, 114S) |
 
-`canforge/derived.py` (`ComputedSignals`) evaluates exactly this shape of math
+`ucando/derived.py` (`ComputedSignals`) evaluates exactly this shape of math
 channel. The measured session — −7.0 A × 380.7 V = 2.66 kW — classifies
 correctly as slow AC.
 
@@ -335,7 +335,7 @@ AC mains @ charging = 230 V OK
 
 ## 9. Importer bug found and fixed
 
-The charging captures crashed `canforge/vspy.py`. Vehicle Spy interleaves
+The charging captures crashed `ucando/vspy.py`. Vehicle Spy interleaves
 **bus-event rows** among the frames — adapter error-counter reports carrying
 `Er=T`, `Description=CAN Bus Event`, and free text such as
 `CAN Rx/Tx REGS - TEC: 0 - REC: 1` in the *Arb ID* column:

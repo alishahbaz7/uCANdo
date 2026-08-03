@@ -7,8 +7,8 @@ import tempfile
 
 import cantools
 
-from canforge.reverse import flatten_frames_by_id, load_log_frames
-from canforge.signals import SignalViewer
+from ucando.reverse import flatten_frames_by_id, load_log_frames
+from ucando.signals import SignalViewer
 from tests.test_vspy import SAMPLE          # the trimmed real Vehicle Spy capture
 
 DBC_94 = """VERSION ""
@@ -104,7 +104,7 @@ def test_decode_frames_offline_does_not_touch_live_ring_buffers(tmp_path):
 
 def test_log_signals_endpoint(tmp_path):
     from fastapi.testclient import TestClient
-    from canforge.server import app, viewer as server_viewer
+    from ucando.server import app, viewer as server_viewer
     c = TestClient(app)
 
     # /api/log/signals decodes against the server's shared Signal Viewer DBC —

@@ -11,8 +11,8 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
-from canforge.server import app
-from canforge.signals import SignalViewer
+from ucando.server import app
+from ucando.signals import SignalViewer
 
 client = TestClient(app)
 

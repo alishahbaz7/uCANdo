@@ -1,6 +1,6 @@
 """Hardware preflight — is each adapter actually ready to use on this machine?
 
-The first time CANForge runs on a new PC, a vendor driver or Python lib is often
+The first time uCANdo runs on a new PC, a vendor driver or Python lib is often
 missing (the neoVI needs Intrepid's driver + ``icsneo40.dll``; PCAN needs PEAK's
 driver; Microchip/SLCAN needs the CP210x VCP driver). Rather than failing with a
 cryptic error at connect time, this module checks each backend's prerequisites
@@ -9,7 +9,7 @@ up front and returns a clear status plus **remediation** the UI can act on
 
 Each backend declares its requirements in :data:`REQUIREMENTS` (data-driven, like
 the HAL ``BACKENDS`` table). The actual installer download/launch lives in
-:mod:`canforge.drivers`; this module only *diagnoses*.
+:mod:`ucando.drivers`; this module only *diagnoses*.
 """
 
 from __future__ import annotations

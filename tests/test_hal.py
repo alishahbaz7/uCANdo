@@ -3,7 +3,7 @@
 import can
 import pytest
 
-from canforge.hal import BACKENDS, CANInterface, create_interface
+from ucando.hal import BACKENDS, CANInterface, create_interface
 
 
 def test_unknown_hardware_raises():

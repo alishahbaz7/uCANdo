@@ -5,8 +5,8 @@ import struct
 
 import can
 
-from canforge.confidence import score, TIER_A, TIER_B, TIER_C
-from canforge.resession import RESession, populate_from_log
+from ucando.confidence import score, TIER_A, TIER_B, TIER_C
+from ucando.resession import RESession, populate_from_log
 
 
 # ----- confidence engine ---------------------------------------------------
@@ -63,7 +63,7 @@ def test_to_dbc_model_from_confirmed():
 
 
 def test_known_value_matches():
-    from canforge.re_engines.correlate import known_value_matches
+    from ucando.re_engines.correlate import known_value_matches
     raw = 193353                                   # 19335.3 km at x0.1 (24-bit LE)
     payload = bytes([raw & 0xFF, (raw >> 8) & 0xFF, (raw >> 16) & 0xFF, 0])
     frames = {(0x5B0, False): {"payloads": [payload] * 10, "timestamps": [i * 0.1 for i in range(10)]}}
@@ -74,9 +74,9 @@ def test_known_value_matches():
 
 def test_db_match_recognises_known_vehicle(storage):
     """CANMatch: a known profile decodes a passive log with no ground truth."""
-    from canforge.oem_db import OemDatabase
-    from canforge.dbc_builder import DbcModel
-    from canforge.resession import RESession, apply_db_match
+    from ucando.oem_db import OemDatabase
+    from ucando.dbc_builder import DbcModel
+    from ucando.resession import RESession, apply_db_match
     db = OemDatabase(storage)
     m = DbcModel(); m.add_message(0x100, "ENG", length=8)
     m.add_signal(0x100, {"name": "EngineRPM", "start_bit": 16, "length": 16,

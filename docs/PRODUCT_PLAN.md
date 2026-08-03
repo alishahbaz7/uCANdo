@@ -1,4 +1,4 @@
-# CANForge — Product Plan, Benchmark & Roadmap
+# uCANdo — Product Plan, Benchmark & Roadmap
 
 > Vision: the smartest CAN workbench in the market — an **India-first**, automation-led
 > alternative to CANoe / CANalyzer / BusMaster / SavvyCAN, optimized for
@@ -18,7 +18,7 @@ Scoping decisions (locked 2026-06-13):
 
 ## 1. Competitive benchmark
 
-| Capability | Vector CANoe/CANalyzer | BusMaster | SavvyCAN | **CANForge (target)** |
+| Capability | Vector CANoe/CANalyzer | BusMaster | SavvyCAN | **uCANdo (target)** |
 |---|---|---|---|---|
 | Cost | €€€€ (₹10–30L+/seat) | Free (Win-only) | Free, cross-platform | Free / internal |
 | Live capture + stats | ✅ best-in-class | ✅ | ✅ | ✅ (have) → ⭐ |

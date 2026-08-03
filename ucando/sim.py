@@ -22,7 +22,7 @@ import can
 
 
 class SyntheticTraffic:
-    def __init__(self, channel: str = "canforge", bitrate: int = 500_000):
+    def __init__(self, channel: str = "ucando", bitrate: int = 500_000):
         self.channel = channel
         self.bitrate = bitrate
         self._bus: can.Bus | None = None

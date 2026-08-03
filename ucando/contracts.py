@@ -3,7 +3,7 @@
 The live snapshot pushed over ``/ws/live`` is consumed key-by-key by
 ``web/app.js``'s ``render()``. That coupling was previously only a warning in
 CLAUDE.md; this module makes the shape explicit so a change in
-:meth:`canforge.logger.CanLogger.snapshot` is made in lockstep with the UI.
+:meth:`ucando.logger.CanLogger.snapshot` is made in lockstep with the UI.
 
 These :class:`typing.TypedDict` definitions cost nothing at runtime (they are
 plain dicts) — they document the contract and let tests assert the producer

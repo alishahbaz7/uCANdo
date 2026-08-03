@@ -13,19 +13,19 @@ import tempfile
 import time
 import uuid
 
-# Redirect the server's writable home *before* anything imports ``canforge.server``
-# (pytest loads conftest first), so a test run never touches data/canforge.db.
-_TEST_HOME = tempfile.mkdtemp(prefix="canforge-tests-")
-os.environ.setdefault("CANFORGE_HOME", _TEST_HOME)
+# Redirect the server's writable home *before* anything imports ``ucando.server``
+# (pytest loads conftest first), so a test run never touches data/ucando.db.
+_TEST_HOME = tempfile.mkdtemp(prefix="ucando-tests-")
+os.environ.setdefault("UCANDO_HOME", _TEST_HOME)
 
 import can
 import pytest
 
-from canforge.storage import Storage
+from ucando.storage import Storage
 
 
 def pytest_sessionfinish(session, exitstatus):
-    if os.environ.get("CANFORGE_HOME") == _TEST_HOME:
+    if os.environ.get("UCANDO_HOME") == _TEST_HOME:
         shutil.rmtree(_TEST_HOME, ignore_errors=True)
 
 

@@ -8,7 +8,7 @@ big-endian (bit 0 = byte0's MSB); byte-aligned signals read the same either way.
 
 import json
 
-from canforge import jsondecode as jd
+from ucando import jsondecode as jd
 
 # Ziptron message 905 (== DBC 0x244 signals), the authoritative reference.
 ZIPTRON_905 = [
