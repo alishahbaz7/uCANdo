@@ -53,7 +53,7 @@ def test_json_scale_offset_applied():
 
 
 def test_json_short_payload_padded_no_crash():
-    # a short payload is left-padded (dropped leading zeros restored) — must not crash
+    # a short payload is right-padded (byte 0 stays byte 0) — must not crash
     m = jd.load_signature(json.dumps({"100": [_sig(size=8, reverse=1)]}))
     assert "error" not in jd.decode_frame(m, 100, "04")
 

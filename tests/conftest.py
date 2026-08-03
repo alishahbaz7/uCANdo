@@ -7,13 +7,26 @@ each other's traffic.
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 import time
 import uuid
+
+# Redirect the server's writable home *before* anything imports ``canforge.server``
+# (pytest loads conftest first), so a test run never touches data/canforge.db.
+_TEST_HOME = tempfile.mkdtemp(prefix="canforge-tests-")
+os.environ.setdefault("CANFORGE_HOME", _TEST_HOME)
 
 import can
 import pytest
 
 from canforge.storage import Storage
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if os.environ.get("CANFORGE_HOME") == _TEST_HOME:
+        shutil.rmtree(_TEST_HOME, ignore_errors=True)
 
 
 def wait_until(predicate, timeout: float = 3.0, interval: float = 0.02) -> bool:

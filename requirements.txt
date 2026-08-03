@@ -8,6 +8,10 @@ python-multipart>=0.0.9   # file uploads (Load log / Import DBC)
 # DBC build / decode (used by later modules)
 cantools
 
+# Signal-table export to .xlsx (keeps the held / changed cell colouring that
+# CSV cannot carry). The endpoint degrades to a clear error if it's missing.
+openpyxl
+
 # Microchip / SLCAN device enumeration over USB-serial
 pyserial
 

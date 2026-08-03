@@ -10,7 +10,7 @@ result and grows the OEM database (the flywheel).
 
 Foundation is built and **proven on real hardware**:
 - **Hardware:** Intrepid neoVI FIRE live on a **Hyundai Aura 2023** (HSCAN1 @ 500k), 87k-frame drive log captured (`data/logs/aura_drive.asc`).
-- **Signals extracted & verified** (first real OEM profile, `oem_packs/hyundai_aura_2023.dbc`):
+- **Signals extracted & verified** (first real OEM profile, `oem_packs/Hyundai/Aura/Petrol_2023/hyundai_aura_petrol_2023.dbc`):
   - **Engine RPM** — `0x316` & `0x556`, bytes 2-3 LE, ×0.25 → matches OBD exactly (mean 1844 rpm).
   - **Odometer** — `0x5B0`, 24-bit LE, ×0.1 km → 19335.3 km, matches the dash.
 - **Both RE techniques work on real data:** OBD sliding-window correlation (dynamic) + known-value matching (static).

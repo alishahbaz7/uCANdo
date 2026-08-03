@@ -35,7 +35,7 @@ import cantools
 from cantools.database.can import Database, Message, Signal
 from cantools.database.conversion import BaseConversion
 
-from . import canplus
+from . import canplus, jsondecode
 
 CSV_HEADER = [
     "message_name", "CAN ID (HEX)", "CAN ID (Dec)", "is_extended", "dlc",
@@ -154,6 +154,41 @@ def dbc_to_model(text: str):
 
 
 def model_to_dbc(model):
+    try:
+        return _model_to_dbc(model), []
+    except Exception as exc:
+        # A DBC cannot hold overlapping signals, but a source JSON/CSV can carry
+        # them (an off-by-one startingBit is the usual cause). cantools reports
+        # only the two names - add the CAN ID and bit spans so the fix is obvious.
+        raise ValueError(f"{exc}{_overlap_detail(model)}") from None
+
+
+def _overlap_detail(model) -> str:
+    """``" - 0x287 PackCurrent bits 1-16 overlaps PackVoltage3 bits 16-31"`` (or "").
+
+    Compared as occupied ``(byte, bit)`` cells, not as ``start_bit`` ranges: the
+    canonical start bit means MSB-first-sequential for big-endian signals and
+    LSB-first-sequential for little-endian ones, so only the cell sets of a
+    mixed-endian message are directly comparable.
+    """
+    found = []
+    for m in model["messages"]:
+        owner: dict[tuple[int, int], dict] = {}
+        for s in m["signals"]:
+            be = s["byte_order"] == "big_endian"
+            for cell in jsondecode.signal_cells(s["start_bit"], s["length"], be):
+                prev = owner.setdefault(tuple(cell), s)
+                if prev is not s:
+                    found.append(
+                        f"0x{m['frame_id']:X} {prev['name']} bits "
+                        f"{prev['start_bit']}-{prev['start_bit'] + prev['length'] - 1}"
+                        f" overlaps {s['name']} bits "
+                        f"{s['start_bit']}-{s['start_bit'] + s['length'] - 1}")
+                    break
+    return (" - " + "; ".join(found)) if found else ""
+
+
+def _model_to_dbc(model) -> str:
     db = Database()
     for m in model["messages"]:
         ct_sigs = []
@@ -177,7 +212,7 @@ def model_to_dbc(model):
         db.messages.append(Message(
             frame_id=m["frame_id"], name=m["name"], length=m["dlc"],
             signals=ct_sigs, is_extended_frame=bool(m.get("is_extended"))))
-    return db.as_dbc_string(), []
+    return db.as_dbc_string()
 
 
 # --------------------------------------------------------------------------- #
@@ -185,11 +220,19 @@ def model_to_dbc(model):
 # --------------------------------------------------------------------------- #
 def json_to_model(text: str):
     data = json.loads(text)
-    messages = []
+    # Keys are decimal in some exports, hex in others — decide once per file
+    # (see jsondecode.detect_id_base); a per-key guess cannot tell them apart.
+    base = jsondecode.detect_id_base(data.keys())
+    messages, warnings = [], []
+    if base == 16:
+        warnings.append("CAN ID keys read as hexadecimal (e.g. "
+                        f"{next(iter(data), '')!s} = "
+                        f"{jsondecode.parse_frame_id(next(iter(data), '0'), 16)} decimal). "
+                        "JSON export writes decimal keys.")
     for id_str, sig_list in data.items():
-        frame_id = int(id_str)
+        frame_id = jsondecode.parse_frame_id(id_str, base)
         sigs, max_end = [], 0
-        for s in sig_list:
+        for s in jsondecode.signal_list(id_str, sig_list):
             start = int(s["startingBit"])
             size = int(s["size"])
             max_end = max(max_end, start + size)
@@ -202,11 +245,11 @@ def json_to_model(text: str):
                 "comment": "", "ev_data": int(s.get("evData", 0)),
             })
         messages.append({
-            "name": f"MSG_{frame_id}", "frame_id": frame_id,
+            "name": jsondecode.message_name(frame_id, base), "frame_id": frame_id,
             "is_extended": frame_id > 0x7FF,
             "dlc": min(64, max(8, -(-max_end // 8))), "signals": sigs,
         })
-    return {"messages": messages}, []
+    return {"messages": messages}, warnings
 
 
 def model_to_json(model):

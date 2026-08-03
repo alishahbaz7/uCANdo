@@ -9,12 +9,13 @@ a tap on the bus manager so they survive reconnects; subsystems that transmit
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import os
 import threading
 from collections import deque
 
-from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, File, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -32,7 +33,10 @@ from .drivers import DriverAssistant
 from .dtc import DtcMonitor
 from .jobs import JobRunner
 from . import preflight
+from .derived import EV_SIGNAL_HINTS, detect_ev_keys, ev_charge_channels
 from .oem_db import TARGET_OEMS, OemDatabase, fingerprint_from_id_stats
+from .vin import (is_valid_format as vin_is_valid, normalise as vin_normalise,
+                  split as vin_split)
 from .protocol import ProtocolDecoder
 from .rules import RulesEngine
 from .scripting import ScriptContext, run_script
@@ -59,6 +63,9 @@ if getattr(sys, "frozen", False):
     APP_HOME = os.path.dirname(sys.executable)
 else:
     BUNDLE = APP_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Writable state (DB, logs, uploads) can be relocated — tests point this at a
+# temp dir so a test run never writes into the developer's real database.
+APP_HOME = os.environ.get("CANFORGE_HOME") or APP_HOME
 ROOT = BUNDLE
 WEB_DIR = os.path.join(BUNDLE, "web")
 DATA_DIR = os.path.join(APP_HOME, "data")
@@ -87,7 +94,10 @@ async def _log_unhandled(request, exc):
 storage = Storage(os.path.join(DATA_DIR, "canforge.db"))   # writable app home (frozen-safe)
 config = Config(storage)
 oem = OemDatabase(storage)
-oem.seed_builtins()               # demo profile + OEM placeholders (idempotent)
+OEM_PACKS_DIR = os.path.join(BUNDLE, "oem_packs")
+oem.prune_blank()                                 # drop content-free rows left by older builds
+# demo profile + every vehicle in oem_packs/ (idempotent)
+oem.seed_builtins(packs_dir=OEM_PACKS_DIR)
 driver_assistant = DriverAssistant(DRIVER_DIR)
 loaded_plugins = load_plugins()   # auto-imports canforge/plugins/* (self-register)
 
@@ -580,6 +590,13 @@ def oem_profile_get(pid: int):
     return p or _err("No such profile", 404)
 
 
+@app.get("/api/oem/profile/{pid}/signals")
+def oem_profile_signals(pid: int):
+    """Every message + signal a profile decodes (the Profiles click-through)."""
+    detail = oem.profile_signals(pid)
+    return {"ok": True, **detail} if detail else _err("No such profile", 404)
+
+
 @app.post("/api/oem/profile")
 def oem_profile_create(req: OemProfileReq):
     try:
@@ -598,6 +615,12 @@ def oem_profile_update(req: OemUpdateReq):
 def oem_profile_delete(pid: int):
     oem.delete_profile(pid)
     return {"ok": True}
+
+
+@app.post("/api/oem/prune")
+def oem_prune():
+    """Clean the Profiles list: delete rows with no decodable content."""
+    return {"ok": True, "removed": oem.prune_blank()}
 
 
 @app.post("/api/oem/import")
@@ -662,6 +685,23 @@ def oem_apply(pid: int):
         return _apply_profile(pid)
     except Exception as exc:
         return _err(str(exc))
+
+
+@app.post("/api/oem/identify-vin")
+def oem_identify_vin(vin: str):
+    """Identify a vehicle from its VIN — exact, and works with the bus down.
+
+    Fingerprint identification needs the vehicle connected and broadcasting,
+    and scores an overlap that can be ambiguous between close variants. A VIN
+    is definitive, is readable over OBD-II Mode 09 PID 02 / UDS DID F190, and
+    is printed on the door pillar.
+    """
+    v = vin_normalise(vin)
+    if not vin_is_valid(v):
+        return _err("Not a valid 17-character VIN (ISO 3779 excludes I, O, Q)")
+    matches = oem.identify_from_vin(v, OEM_PACKS_DIR)
+    return {"ok": True, "vin": v, "parts": vin_split(v),
+            "matches": matches, "count": len(matches)}
 
 
 @app.post("/api/oem/auto-apply")
@@ -840,10 +880,138 @@ def signals_derived():
     return viewer.derived()
 
 
+class SigExportReq(BaseModel):
+    """The signal table exactly as rendered — see ``sigExportPayload`` in app.js."""
+    source: str = ""
+    interval_ms: float = 0.0
+    truncated: int = 0
+    columns: list = []          # [{key, unit, decimals}]
+    summary: list = []          # per-signal statistics (the validation verdict)
+    rows: list = []             # [{t, cells: [null | {v, s: fresh|stale, ch}]}]
+
+
+@app.post("/api/signals/export-xlsx")
+def signals_export_xlsx(req: SigExportReq):
+    """Write the signal table to .xlsx, keeping the cell states as fills.
+
+    CSV can carry the numbers but not *which* of them were held over from an
+    earlier frame or changed on that row — the part that makes the table worth
+    reading. Excel can, so this exists alongside the client-side CSV path.
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return _err("openpyxl is not installed — run 'pip install openpyxl', or use Export CSV")
+
+    fill_changed = PatternFill("solid", fgColor="D6E9FF")
+    fill_bad = PatternFill("solid", fgColor="FBD5D5")
+    fill_warn = PatternFill("solid", fgColor="FDF0CE")
+    grey = Font(color="909090", italic=True)
+    bold = Font(bold=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    # "Range" (max-min, 0 when the signal never moved) sits beside "Unique"
+    # (how many different values it took, 1 when it never moved) — they answer
+    # different questions and one alone reads ambiguously.
+    ws.append(["Signal", "State", "Min", "Max", "Range", "Unique", "Unit",
+               "Period (ms)", "Samples", "DBC Min", "DBC Max", "Notes"])
+    for c in ws[1]:
+        c.font = bold
+    for s in req.summary:
+        ws.append([s.get("key"), s.get("state"), s.get("min"), s.get("max"),
+                   s.get("range"), s.get("distinct"), s.get("unit"), s.get("period_ms"),
+                   s.get("samples"), s.get("dbc_min"), s.get("dbc_max"), s.get("notes")])
+        row = ws[ws.max_row]
+        notes = (s.get("notes") or "")
+        if "outside DBC" in notes:
+            for c in row:
+                c.fill = fill_bad
+        elif notes:
+            for c in row:
+                c.fill = fill_warn
+    ws.freeze_panes = "A2"
+
+    dat = wb.create_sheet("Data")
+    dat.append(["t (s)"] + [f"{c.get('key')} ({c['unit']})" if c.get("unit") else c.get("key")
+                            for c in req.columns])
+    for c in dat[1]:
+        c.font = bold
+        c.alignment = Alignment(horizontal="right")
+    for r in req.rows:
+        dat.append([r.get("t")] + [None if c is None else c.get("v") for c in r.get("cells", [])])
+        row = dat[dat.max_row]
+        for i, cell_spec in enumerate(r.get("cells", []), start=1):
+            if cell_spec is None or i >= len(row):
+                continue
+            cell = row[i]
+            if cell_spec.get("ch"):
+                cell.fill = fill_changed
+                cell.font = bold
+            elif cell_spec.get("s") == "stale":
+                cell.font = grey
+    dat.freeze_panes = "B2"
+    for i in range(1, len(req.columns) + 2):
+        dat.column_dimensions[get_column_letter(i)].width = 14
+
+    info = wb.create_sheet("About")
+    info.append(["Source", req.source])
+    info.append(["Row interval (ms)", req.interval_ms])
+    info.append(["Rows", len(req.rows)])
+    info.append(["Signals", len(req.columns)])
+    if req.truncated:
+        info.append(["Truncated", f"{req.truncated} further row(s) not exported"])
+    info.append([])
+    info.append(["Legend", "blank = signal not seen yet at that time"])
+    info.append(["", "grey italic = value held over; the message stopped arriving"])
+    info.append(["", "blue = value changed on this row"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="signals.xlsx"'},
+    )
+
+
 @app.post("/api/signals/computed")
 def signals_computed(req: DefsReq):
     """Set math-channel definitions, e.g. {name, expr: \"sig('M.A')*2\"}."""
     return {"ok": True, **viewer.set_computed(req.defs)}
+
+
+@app.post("/api/signals/computed/ev-charge")
+def signals_computed_ev_charge(pack_kwh: float | None = None, replace: bool = False):
+    """Install EV charge math channels derived from the loaded DBC's pack V/I.
+
+    Charge state falls out of pack voltage x current, so this needs no
+    per-vehicle RE and works on any EV whose V/I signals are named
+    conventionally (see ``derived.EV_SIGNAL_HINTS``). Gives ChargePower_kW,
+    IsCharging and ChargerClass; ``pack_kwh`` additionally yields
+    TimeToFull_min — omitted without it, since capacity is not on the bus and a
+    countdown from a guessed pack size is worse than none.
+
+    Appends to the existing channels unless ``replace`` is set, so this never
+    silently discards the user's own math channels.
+    """
+    info = viewer.info()
+    if not info.get("loaded"):
+        return _err("Load a DBC (or apply an OEM profile) first")
+    keys = detect_ev_keys(s["key"] for s in info.get("signals", []))
+    missing = [r for r in ("volts", "amps") if r not in keys]
+    if missing:
+        return _err(f"Loaded DBC has no recognisable {'/'.join(missing)} signal "
+                    f"(looked for {EV_SIGNAL_HINTS})")
+    defs = ev_charge_channels(keys["volts"], keys["amps"], keys.get("soc"), pack_kwh)
+    if not replace:
+        have = {d["name"] for d in defs}
+        defs = [d for d in viewer.computed.defs() if d["name"] not in have] + defs
+    return {"ok": True, "detected": keys, "added": [d["name"] for d in defs],
+            **viewer.set_computed(defs)}
 
 
 @app.post("/api/signals/alarms")

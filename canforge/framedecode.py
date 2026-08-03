@@ -30,13 +30,19 @@ def _fmt_physical(val: float, scale) -> str:
 
 
 def _normalize(data_hex: str, dlc: int) -> bytes:
-    """Hex string → exactly ``dlc`` bytes (tolerant of lost leading zeros/spaces)."""
+    """Hex string → exactly ``dlc`` bytes (tolerant of odd digit counts/spaces).
+
+    A short payload is padded on the **right**: CAN payload bytes are positional,
+    not one big integer, so byte 0 must stay byte 0 whether the bytes are missing
+    because the frame has a short DLC or because they were not typed. Padding left
+    silently shifted real data (an MG Commute DLC-5 frame decoded its odometer as
+    0.00 instead of the dash-confirmed 3066.53 km).
+    """
     h = data_hex.strip().replace(" ", "").replace("0x", "")
     if len(h) % 2:
         h = "0" + h
-    if len(h) < dlc * 2:
-        h = h.zfill(dlc * 2)           # restore dropped leading zeros
-    return bytes.fromhex(h)[:dlc]
+    data = bytes.fromhex(h)[:dlc]
+    return data + bytes(dlc - len(data)) if len(data) < dlc else data
 
 
 def signal_cells(message, sig) -> list[list[int]]:

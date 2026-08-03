@@ -18,9 +18,17 @@ CANMatch, and OBD-correlate with no changes to those engines.
 from __future__ import annotations
 
 import csv
+import re
 from collections import defaultdict
 
 _SIGNATURE = "vehicle spy"
+
+#: Vehicle Spy interleaves **bus-event** rows with real frames — adapter status
+#: reports such as ``CAN Rx/Tx REGS - TEC: 0 - REC: 1``, which carry ``Er=T``,
+#: ``Description=CAN Bus Event`` and put that free text in the *Arb ID* column.
+#: They are numbered like data rows, so the only robust discriminator is that a
+#: real arbitration ID is pure hex. Rows failing this are skipped.
+_HEX_ID = re.compile(r"[0-9A-Fa-f]{1,8}")
 
 
 def is_vspy_csv(text: str) -> bool:
@@ -75,8 +83,8 @@ def parse_frames(text: str) -> list[dict]:
         if protocols.get(net, "CAN") != "CAN":
             continue                            # LIN/J1708/etc. share these columns differently
         id_hex = (d.get("Arb ID") or "").strip()
-        if not id_hex:
-            continue
+        if not id_hex or not _HEX_ID.fullmatch(id_hex):
+            continue                            # bus-event row, not a frame (see below)
         byte_cols = [d.get(f"B{i}", "") for i in range(1, 9)]
         data = bytes.fromhex("".join(b for b in byte_cols if b.strip() != ""))
         frames.append({

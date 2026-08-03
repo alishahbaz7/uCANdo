@@ -98,6 +98,27 @@ def test_log_catalogue_and_trace_endpoints():
     assert not miss["ok"]
 
 
+def test_bus_event_rows_are_skipped():
+    """Vehicle Spy interleaves adapter status rows among the frames.
+
+    They are numbered like data rows and sit on a CAN network, but the *Arb ID*
+    column holds free text (``CAN Rx/Tx REGS - TEC: 0 - REC: 1``) rather than
+    hex. Real captures from the MG Windsor charging session contain these, and
+    they used to crash the parser on ``int(id_hex, 16)``.
+    """
+    with_event = SAMPLE.replace(
+        "19,739.659485578537,0.0001159906387329102,67371008,F,F,HS CAN $40A,HS CAN,,40A,F,F,03,,,,,,,,,,",
+        "18,739.6594,0.00011,562950020792833,T,F,CAN Bus Event,HS CAN,,"
+        "CAN Rx/Tx REGS - TEC: 0 - REC: 1,F,F,00,01,00,,,,,,,,\n"
+        "19,739.659485578537,0.0001159906387329102,67371008,F,F,HS CAN $40A,HS CAN,,40A,F,F,03,,,,,,,,,,",
+    )
+    frames = vspy.parse_frames(with_event)
+    # the bus-event row is dropped; every real frame still survives, in order
+    assert len(frames) == 7
+    assert [f["id_hex"] for f in frames] == ["1B2", "94", "169", "1F2", "40A", "41F", "94"]
+    assert vspy.parse_frames(with_event) == vspy.parse_frames(SAMPLE)
+
+
 def test_load_log_frames_ignores_non_can_network_rows():
     lin_row = SAMPLE.replace(
         "1,739.6553467512131,0,67371008,F,F,HS CAN $1B2,HS CAN,,1B2,F,F,00,00,00,00,00,00,00,00,,,",

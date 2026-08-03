@@ -43,3 +43,11 @@ def test_decode_frames_hex_ids_and_errors():
                                 {"id": "999", "data": "00"}])   # 0x999 not in DBC
     assert res[0]["name"] == "M94"
     assert "error" in res[1]
+
+
+def test_short_payload_pads_right():
+    """A short-DLC payload keeps byte 0 at byte 0 (was left-padded, shifting it)."""
+    from canforge.framedecode import _normalize
+    assert _normalize("0002FEA200", 8) == bytes([0x00, 0x02, 0xFE, 0xA2, 0, 0, 0, 0])
+    assert _normalize("94", 8)[0] == 0x94
+    assert _normalize("FF" * 16, 8) == b"\xff" * 8        # oversized still truncates

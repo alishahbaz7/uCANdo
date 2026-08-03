@@ -176,3 +176,68 @@ def test_endpoints_parse_and_export():
     # DBC/CSV filenames have no Signature_ prefix
     ex2 = c.post("/api/convert/export", json={"model": model, "to": "csv", "source_name": "x"}).json()
     assert ex2["filename"].startswith("x_") and ex2["filename"].endswith(".csv")
+
+
+# ----- hex vs decimal CAN-ID keys (two exporters in the field) --------------
+def test_hex_id_keys_are_detected_and_parsed():
+    # Real shape of Signature_mgevcommute.json: 8-digit zero-padded hex keys.
+    text = json.dumps({
+        "000000E1": [{"fieldName": "DriverSeatBelt", "reverse": 0, "startingBit": 12,
+                      "size": 1, "evData": 1, "multiplier": 1, "offset": 0, "signed": 0}],
+        "0000012A": [{"fieldName": "DoorDriver", "reverse": 0, "startingBit": 8,
+                      "size": 1, "evData": 1, "multiplier": 1, "offset": 0, "signed": 0}],
+    })
+    r = cv.parse(text, filename="Signature_x.json")
+    assert [m["frame_id"] for m in r["model"]["messages"]] == [0xE1, 0x12A]
+    # message names read back in the file's own base, not as opaque decimals
+    assert [m["name"] for m in r["model"]["messages"]] == ["MSG_E1", "MSG_12A"]
+    # the base is a real semantic choice, so it is reported, not silent
+    assert any("hexadecimal" in w for w in r["warnings"])
+
+
+def test_decimal_id_keys_still_decimal():
+    # Ziptron convention: unpadded decimal keys stay decimal (900 != 0x900).
+    text = json.dumps({"900": [{"fieldName": "a", "reverse": 0, "startingBit": 0,
+                                "size": 8, "multiplier": 1, "offset": 0, "signed": 0}]})
+    r = cv.parse(text, filename="x.json")
+    assert [m["frame_id"] for m in r["model"]["messages"]] == [900]
+    assert not any("hexadecimal" in w for w in r["warnings"])
+
+
+def test_one_hex_key_makes_the_whole_file_hex():
+    # Signature_tmlais038B.json shape: "408b" proves hex, so "15" is 0x15 too.
+    from canforge import jsondecode as jd
+    assert jd.detect_id_base(["408b", "4091", "15"]) == 16
+    assert jd.detect_id_base(["900", "905", "912"]) == 10
+    assert jd.detect_id_base(["18FEEA27"]) == 16
+    assert jd.detect_id_base(["0x200"]) == 16
+    assert jd.detect_id_base(["00000200"]) == 16        # zero-padded => hex
+    assert jd.detect_id_base([]) == 10
+
+
+def test_json_without_bit_layout_names_the_missing_fields():
+    # A different telematics JSON family: {title, multiplier, divider, offSet}.
+    text = json.dumps({"408b": {"title": "canOdometer", "multiplier": 1.0,
+                                "divider": 1.0, "offSet": 0}})
+    with pytest.raises(ValueError) as e:
+        cv.parse(text, filename="x.json")
+    msg = str(e.value)
+    assert "startingBit" in msg and "not a Signature JSON" in msg
+
+
+def test_overlapping_signals_report_can_id_and_bit_spans():
+    # A DBC cannot hold overlaps; the error must locate them in the source.
+    text = json.dumps({"00000287": [
+        {"fieldName": "PackCurrent", "reverse": 0, "startingBit": 1, "size": 16,
+         "multiplier": 0.1, "offset": 1000, "signed": 0},
+        {"fieldName": "PackVoltage3", "reverse": 0, "startingBit": 16, "size": 16,
+         "multiplier": 0.1, "offset": 0, "signed": 0},
+    ]})
+    model = cv.parse(text, filename="x.json")["model"]
+    with pytest.raises(ValueError) as e:
+        cv.serialize(model, "dbc")
+    msg = str(e.value)
+    assert "0x287" in msg and "PackCurrent bits 1-16" in msg and "PackVoltage3 bits 16-31" in msg
+    # JSON and CSV have no such constraint - they still export
+    assert cv.serialize(model, "json")["content"]
+    assert cv.serialize(model, "csv")["content"]

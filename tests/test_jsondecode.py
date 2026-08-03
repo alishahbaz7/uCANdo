@@ -99,3 +99,41 @@ def test_decode_frames_multi_payload_ordered():
     assert [f["id"] for f in out] == [905, 905, 905]
     dte = [next(s["raw"] for s in f["signals"] if s["name"] == "distanceToEmpty") for f in out]
     assert dte == [1023, 294, 287]      # varies across the sequence (change-highlight)
+
+
+def test_hex_keyed_signature_loads_and_decodes():
+    # Frame Decoder path on a hex-keyed export (Signature_mgevcommute.json).
+    m = jd.load_signature(json.dumps({"00000155": [
+        {"fieldName": "AccelPedalPos", "reverse": 0, "startingBit": 16, "size": 8,
+         "multiplier": 1, "offset": 0, "signed": 0}]}))
+    assert list(m.keys()) == [0x155]
+    assert m[0x155]["name"] == "MSG_155"
+    out = jd.decode_frame(m, 0x155, "0011223344556677")
+    assert out["signals"][0]["raw"] == 0x22           # byte 2
+    assert jd.signature_messages(m)[0]["id_hex"] == "155"
+
+
+def test_short_dlc_frame_pads_right_not_left():
+    """Real MG Commute 0x120 is DLC 5; left-padding used to shift it to 0.00.
+
+    Ground truth: `00 02 FE A2 00` -> Odometer 0x0002FEA2 = 196258 counts at
+    1/64 km = 3066.53 km, against a dash photo reading 3066 (see
+    docs/MG_COMMUTE_DECODE.md). Left-padding to the synthesised 8-byte length
+    would move the accumulator into bytes 3-6 and read 0.
+    """
+    m = jd.load_signature(json.dumps({"00000120": [
+        {"fieldName": "Odometer", "reverse": 0, "startingBit": 0, "size": 32,
+         "multiplier": 0.015625, "offset": 0, "signed": 0}]}))
+    assert m[0x120]["length"] == 8            # synthesised, not a real DLC
+    out = jd.decode_frame(m, 0x120, "0002FEA200")
+    assert out["signals"][0]["physical"] == "3066.53"
+    # the trailing pad bytes are zeros, and byte 0 stayed byte 0
+    assert out["bytes"] == [0x00, 0x02, 0xFE, 0xA2, 0x00, 0, 0, 0]
+
+
+def test_short_payload_keeps_byte0_at_byte0():
+    m = jd.load_signature(json.dumps({"100": [
+        {"fieldName": "b0", "reverse": 0, "startingBit": 0, "size": 8,
+         "multiplier": 1, "offset": 0, "signed": 0}]}))
+    # "04" means byte 0 = 0x04, not byte 7 = 0x04
+    assert jd.decode_frame(m, 100, "04")["signals"][0]["raw"] == 0x04

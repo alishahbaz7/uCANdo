@@ -184,6 +184,16 @@ def test_oem_from_builder_and_delete():
          "signals": [{"name": "s", "start_bit": 0, "length": 8, "byte_order": "little_endian"}]}]})
     r = client.post("/api/oem/from-builder", json={"oem": "Test", "name": "Prof321"}).json()
     assert r["ok"] and r["profile"]["oem"] == "Test"
+
+    # The Profiles list shows counts; the click-through shows what they're made of.
+    row = next(p for p in client.get("/api/oem/profiles").json()["profiles"]
+               if p["id"] == r["id"])
+    assert (row["msg_count"], row["signal_count"]) == (1, 1)
+    d = client.get(f"/api/oem/profile/{r['id']}/signals").json()
+    assert d["ok"] and [m["id_hex"] for m in d["messages"]] == ["321"]
+    assert [s["name"] for s in d["messages"][0]["signals"]] == ["s"]
+    assert client.get("/api/oem/profile/999999/signals").status_code == 404
+
     assert client.post(f"/api/oem/profile/delete?pid={r['id']}").json()["ok"]
 
 

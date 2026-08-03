@@ -56,13 +56,55 @@ DBC decode is the reference implementation and works correctly. JSON is a
 }
 ```
 
+### §1a — CAN-ID keys: decimal *or* hex
+
+Two exporters are in the field, and a **per-key** guess cannot separate them
+(`"120"` is legal in both bases). So `jsondecode.detect_id_base` decides **once
+for the whole file**, from whichever keys are unambiguous:
+
+| evidence in *any* key | base | example file |
+|---|---|---|
+| `0x` prefix, or a hex letter `a-f` | **16** | `Signature_scissorV03` (`18FEEA27`), `Signature_tmlais038B` (`408b`) |
+| zero-padded (leading `0`, len > 1) | **16** | `Signature_mgevcommute` (`000000E1`), `Signature_tezarV08` (`00000200`) |
+| nothing unambiguous | **10** | `Signature_Ziptron_v2` (`900`), `Signature_MG ZS EV` (`148`) |
+
+The 8-digit zero-padded form is the 32-bit hex ID field; no decimal exporter
+pads. Deciding per **file** is what rescues mixed-width hex files — in
+`Signature_tmlais038B` the key `408b` proves the file is hex, so its bare `15`
+is `0x15`, not decimal 15. The Converter reports the detected base as a warning,
+since a mis-detection would otherwise silently shift every CAN ID.
+
+**Export stays decimal.** `model_to_json` always writes decimal keys (the
+canonical model has no base field), so a hex-keyed file round-trips to decimal —
+same IDs, different notation. The warning says so.
+
+### §1b — short payloads pad on the *right*
+
+The JSON carries no DLC, so the frame length is synthesised as
+`max(8, ceil(max_end/8))` — a **guess**, not an authority. A payload shorter than
+that is therefore padded on the **right**, keeping byte 0 at byte 0.
+
+This was originally a left-pad ("restore dropped leading zeros"), which treats the
+payload as one big integer. CAN payload bytes are *positional*, so that silently
+shifted real data. The case that settled it — MG Commute `0x120`, genuinely
+**DLC 5**:
+
+| payload | pad | `Odometer` (start 0, 32 b, ×1/64 km) | vs dash |
+|---|---|---|---|
+| `00 02 FE A2 00` | left → `00 00 00 00 02 FE A2 00` | **0.00 km** | ✗ |
+| `00 02 FE A2 00` | right → `00 02 FE A2 00 00 00 00` | **3066.53 km** | ✓ dash 3066 |
+
+`framedecode._normalize` (the DBC path) pads right for the same reason, even
+though a DBC does carry a real DLC — a short-DLC frame logged against an 8-byte
+message definition hit the identical bug.
+
 ### Mapping to DBC concepts
 
 | JSON field    | DBC / cantools equivalent | Notes |
 |---------------|---------------------------|-------|
-| key (decimal) | `frame_id`                | convert `int(key)` → hex for display |
-| (none)        | message name              | **absent** → auto-name `MSG_<hex id>` |
-| (none)        | DLC                       | **absent** → see Q3 |
+| key (dec/hex) | `frame_id`                | base auto-detected per file — see §1a |
+| (none)        | message name              | **absent** → auto-name `MSG_<id in the file's base>` |
+| (none)        | DLC                       | **absent** → `max(8, ceil(max_end/8))`; short payloads right-pad, see §1b |
 | `fieldName`   | signal name               | used verbatim |
 | `reverse`     | `byte_order`              | `0`→`big_endian`, `1`→`little_endian` |
 | `startingBit` | `start` (start bit)       | needs convention conversion — see §2 |

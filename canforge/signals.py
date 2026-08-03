@@ -70,8 +70,16 @@ class SignalViewer:
             sigs = []
             for m in self._db.messages:
                 for s in m.signals:
+                    # minimum/maximum/length/is_signed let the UI flag a decoded
+                    # value that falls outside what the DBC itself declares —
+                    # the fastest tell for a wrong scale, length, or signedness.
+                    # cantools leaves min/max as None when the DBC omits them.
                     sigs.append({"key": f"{m.name}.{s.name}", "message": m.name,
-                                 "signal": s.name, "unit": s.unit or ""})
+                                 "signal": s.name, "unit": s.unit or "",
+                                 "minimum": getattr(s, "minimum", None),
+                                 "maximum": getattr(s, "maximum", None),
+                                 "length": getattr(s, "length", None),
+                                 "is_signed": bool(getattr(s, "is_signed", False))})
             return {"loaded": True, "dbc": self._dbc_name,
                     "messages": len(self._db.messages), "signals": sigs}
 

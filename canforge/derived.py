@@ -63,6 +63,77 @@ class ComputedSignals:
         return out
 
 
+# --- EV charge math channels -------------------------------------------------
+# Charge state is derivable from pack voltage/current alone, which is worth more
+# than a decoded OEM flag: it needs no per-vehicle reverse engineering and ports
+# to any EV whose V/I are known. Validated on the MG Windsor — a measured
+# -7.0 A x 380.7 V = 2.66 kW session classifies correctly as slow AC.
+# See docs/MG_COMMUTE_DECODE.md.
+
+#: Signal *names* (the part after the dot) we recognise per role, best first.
+EV_SIGNAL_HINTS = {
+    "volts": ("PackVoltage", "BattVoltage", "HvBattVoltage", "BatteryVoltage"),
+    "amps": ("PackCurrent", "BattCurrent", "HvBattCurrent", "BatteryCurrent"),
+    "soc": ("StateOfCharge", "SocPercent", "SoC", "Soc"),
+}
+
+#: kW boundaries between charger classes (see ``ev_charge_channels``).
+AC_SLOW_MAX_KW, AC_FAST_MAX_KW = 3.7, 11.0
+_MIN_KW = 0.3                       # below this we call it "not charging" (noise floor)
+
+
+def detect_ev_keys(signal_keys) -> dict:
+    """Map ``{'volts','amps','soc'}`` to ``'MSG.SIGNAL'`` keys from a loaded DBC.
+
+    Matches on the signal name only, so it works whatever the message is called.
+    Roles with no match are omitted — the caller decides what it can still do.
+    """
+    keys = list(signal_keys)
+    found = {}
+    for role, names in EV_SIGNAL_HINTS.items():
+        for want in names:                      # hint order = preference order
+            hit = next((k for k in keys if k.rsplit(".", 1)[-1] == want), None)
+            if hit:
+                found[role] = hit
+                break
+    return found
+
+
+def ev_charge_channels(volts: str, amps: str, soc: str | None = None,
+                       pack_kwh: float | None = None,
+                       charge_is_negative: bool = True) -> list[dict]:
+    """Build computed-signal defs that derive charge state from pack V and I.
+
+    ``volts``/``amps``/``soc`` are ``'MSG.SIGNAL'`` keys. ``charge_is_negative``
+    reflects the sign convention — the Windsor reports negative current while
+    charging, so charge power is ``V * I / -1000``.
+
+    ``TimeToFull_min`` is only produced when **both** ``soc`` and ``pack_kwh``
+    are supplied; capacity cannot be inferred from the bus, and emitting a
+    countdown from a guessed pack size would be worse than emitting nothing.
+
+    Note the power expression is inlined into every channel rather than
+    referenced: ``ComputedSignals.evaluate`` runs each expression against the
+    *decoded* values only, so computed signals cannot see one another.
+    """
+    div = "-1000.0" if charge_is_negative else "1000.0"
+    kw = f"(sig('{volts}', 0.0) * sig('{amps}', 0.0) / {div})"
+    out = [
+        {"name": "ChargePower_kW", "expr": kw},
+        {"name": "IsCharging", "expr": f"1.0 if {kw} > {_MIN_KW} else 0.0"},
+        # 0 = not charging, 1 = slow AC, 2 = fast AC, 3 = DC fast
+        {"name": "ChargerClass",
+         "expr": (f"0.0 if {kw} <= {_MIN_KW} else ("
+                  f"1.0 if {kw} <= {AC_SLOW_MAX_KW} else ("
+                  f"2.0 if {kw} <= {AC_FAST_MAX_KW} else 3.0))")},
+    ]
+    if soc and pack_kwh:
+        out.append({"name": "TimeToFull_min",
+                    "expr": (f"((100.0 - sig('{soc}', 100.0)) / 100.0 * {float(pack_kwh)}"
+                             f" / {kw} * 60.0) if {kw} > {_MIN_KW} else 0.0")})
+    return out
+
+
 class AlarmMonitor:
     def __init__(self):
         self._defs: list[dict] = []

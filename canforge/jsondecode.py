@@ -8,7 +8,8 @@ The Signature JSON is a limited DBC alternative used for cloud visualization::
 Bit/byte convention — **validated against the Ziptron DBC** (see
 ``docs/JSON_SIGNATURE_DECODE.md``):
 
-* keys are CAN IDs in **decimal**;
+* keys are CAN IDs in **decimal** *or* **hex** — two exporters exist in the wild
+  and the base is auto-detected per file by :func:`detect_id_base`;
 * for **big-endian** (``reverse == 0``) ``startingBit`` is **MSB-first
   sequential**: bit 0 = byte0's MSB, bit 7 = byte0's LSB, bit 8 = byte1's MSB,
   … and the value is read MSB-first. This equals the DBC/cantools Motorola
@@ -17,11 +18,17 @@ Bit/byte convention — **validated against the Ziptron DBC** (see
   sequential (bit 0 = byte0's LSB) and the value is read LSB-first;
 * a signal occupies ``size`` consecutive bits from ``startingBit``;
 * ``signed == 1`` → two's complement over ``size`` bits;
-* physical = ``raw * multiplier + offset``.
+* physical = ``raw * multiplier + offset``;
+* the JSON carries **no DLC**, so the frame length is synthesised as
+  ``max(8, ceil(max_end/8))``. A payload shorter than that is padded on the
+  **right** — see :func:`decode_frame`.
 
 Ground truth (Ziptron DBC, message 0x244/580, frame ``5251 0047 C000 BA56``):
 ``DTeInfo=287`` (start 24, size 10) and ``HVBattSoCPercen=93`` (start 48, size 7)
-— both reproduced exactly. byte-aligned ``canOdometer=75971`` also holds.
+— both reproduced exactly. byte-aligned ``canOdometer=75971`` also holds. Second
+vehicle (MG Commute EV 2026, ``oem_packs/MG/Commute/EV_2026``): the DLC-5 frame
+``0x120`` = ``00 02 FE A2 00`` gives ``Odometer = 3066.53 km`` against a dash
+reading of 3066 — the case that pinned the padding direction.
 
 Self-contained (no cantools): the JSON carries no enums / min-max / units, so a
 direct bit extractor reproduces the cloud/DBC values exactly. The output dict
@@ -35,15 +42,88 @@ import json
 from .framedecode import _fmt_physical
 
 
+def detect_id_base(keys) -> int:
+    """Return ``16`` if this signature's CAN-ID keys are hex, else ``10``.
+
+    Two exporters are in the field and a *per-key* guess cannot separate them —
+    ``"120"`` is legal in both bases. So the base is decided **once for the whole
+    file**, from whichever keys are unambiguous:
+
+    * a ``0x`` prefix or any hex letter (``"408b"``, ``"18FEEA27"``) → hex;
+    * a zero-padded key (``"000000E1"``) → hex: the 8-digit padded form is the
+      32-bit hex ID field, and no decimal exporter pads.
+
+    Nothing unambiguous → decimal (the original Ziptron-validated convention).
+    One hex key therefore makes the file hex, which is what rescues mixed-width
+    files like ``408b``/``4091``/``15`` — all three are hex there.
+    """
+    for k in keys:
+        s = str(k).strip()
+        if s[:2].lower() == "0x":
+            return 16
+        if any(c in "abcdefABCDEF" for c in s):
+            return 16
+        if len(s) > 1 and s[0] == "0":
+            return 16
+    return 10
+
+
+def parse_frame_id(key, base: int) -> int:
+    """CAN-ID key → int in ``base``, with an error that names the offender."""
+    s = str(key).strip()
+    try:
+        return int(s[2:] if s[:2].lower() == "0x" else s, base)
+    except ValueError:
+        raise ValueError(
+            f"CAN ID key {key!r} is not a valid "
+            f"{'hex' if base == 16 else 'decimal'} number") from None
+
+
+_REQUIRED_SIGNAL_KEYS = ("fieldName", "startingBit", "size")
+
+
+def signal_list(key, value) -> list:
+    """Validate one ``{id: [...]}`` entry and return its list of signal dicts.
+
+    Other telematics JSON families share the ``{id: ...}`` outer shape but carry
+    **no bit layout** — e.g. a name/scaling map (``{"title", "multiplier",
+    "divider", "offSet"}``), where CAN id and layout live elsewhere. Such a file
+    cannot be decoded at all, so name the missing fields here instead of dying on
+    a ``TypeError`` deep in the bit maths. A lone signal object is accepted as a
+    one-element list.
+    """
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        raise ValueError(
+            f"CAN ID {key!r}: expected a list of signals, got {type(value).__name__}")
+    for s in value:
+        if not isinstance(s, dict):
+            raise ValueError(
+                f"CAN ID {key!r}: expected signal objects, got {type(s).__name__}")
+        missing = [k for k in _REQUIRED_SIGNAL_KEYS if k not in s]
+        if missing:
+            raise ValueError(
+                f"CAN ID {key!r}: signal is missing {', '.join(missing)} — this file "
+                "carries no bit layout, so it is not a Signature JSON and cannot be decoded")
+    return value
+
+
+def message_name(frame_id: int, base: int) -> str:
+    """``MSG_<id>`` in the file's own base — ``MSG_18FEEA27`` beats ``MSG_419360295``."""
+    return f"MSG_{frame_id:X}" if base == 16 else f"MSG_{frame_id}"
+
+
 def load_signature(text: str) -> dict:
     """Parse Signature JSON text into an internal ``{frame_id: message}`` map."""
     data = json.loads(text)
+    base = detect_id_base(data.keys())
     messages: dict[int, dict] = {}
     for id_str, sig_list in data.items():
-        frame_id = int(id_str)
+        frame_id = parse_frame_id(id_str, base)
         sigs = []
         max_end = 0
-        for s in sig_list:
+        for s in signal_list(id_str, sig_list):
             start = int(s["startingBit"])
             size = int(s["size"])
             max_end = max(max_end, start + size)
@@ -61,8 +141,9 @@ def load_signature(text: str) -> dict:
         # bytes, capped at the CAN-FD max of 64. (A few EV battery/range
         # signals legitimately extend past byte 7 → frame grows beyond 8.)
         length = min(64, max(8, -(-max_end // 8)))
-        # Name from the decimal ID (the JSON's native base) for consistency.
-        messages[frame_id] = {"name": f"MSG_{frame_id}", "length": length, "signals": sigs}
+        # Name from the ID in the file's own base, so it reads back recognisably.
+        messages[frame_id] = {"name": message_name(frame_id, base),
+                              "length": length, "signals": sigs}
     return messages
 
 
@@ -104,7 +185,7 @@ def _extract_raw(data: bytes, start: int, size: int, big_endian: bool) -> int:
     return raw
 
 
-def _cells(start: int, size: int, big_endian: bool) -> list:
+def signal_cells(start: int, size: int, big_endian: bool) -> list:
     """``[[byte, bitpos], …]`` occupied by the field (bitpos 0 = byte's LSB)."""
     if big_endian:                              # MSB-first seq: position n -> bit 7-(n%8)
         return [[(start + i) // 8, 7 - ((start + i) % 8)] for i in range(size)]
@@ -127,10 +208,14 @@ def decode_frame(messages: dict, frame_id: int, data_hex: str) -> dict:
     h = data_hex.strip().replace(" ", "").replace("0x", "")
     if len(h) % 2:
         h = "0" + h
-    if len(h) < length * 2:
-        h = h.zfill(length * 2)            # restore dropped leading zeros
     data = bytes.fromhex(h)[:length]
-    if len(data) < length:                # pad so signal byte indexing is safe
+    if len(data) < length:
+        # Pad on the **right**: a payload shorter than ``length`` is a short-DLC
+        # frame missing its trailing bytes, and CAN payload bytes are positional,
+        # not one big integer — byte 0 must stay byte 0. Left-padding silently
+        # shifted real data (MG Commute 0x120, DLC 5: odometer read 0.00 instead
+        # of the dash-confirmed 3066.53 km). ``length`` is only a guess here
+        # anyway — the JSON carries no DLC, so it is synthesised as max(8, …).
         data = data + bytes(length - len(data))
 
     signals = []
@@ -149,7 +234,7 @@ def decode_frame(messages: dict, frame_id: int, data_hex: str) -> dict:
             "min": None, "max": None, "out_of_range": False,
             "start_bit": s["start"], "length": s["size"],
             "byte_order": "big_endian" if s["big_endian"] else "little_endian",
-            "cells": _cells(s["start"], s["size"], s["big_endian"]),
+            "cells": signal_cells(s["start"], s["size"], s["big_endian"]),
             "msb_cell": msb, "lsb_cell": lsb,
         })
     return {
