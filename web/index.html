@@ -45,7 +45,6 @@
 
       <div class="nav-group-label">Transmit</div>
       <button class="nav" data-view="scheduler">TX Scheduler</button>
-      <button class="nav" data-view="txverify">TX Monitor</button>
       <button class="nav" data-view="automation">Automation</button>
 
       <div class="nav-group-label">Diagnostics</div>
@@ -133,46 +132,61 @@
         </div>
       </section>
 
-      <!-- ===== TX Replay ===== -->
+      <!-- ===== TX (one view, five collapsible steps) =====================
+           Source -> Playlist -> Patch -> Send -> Verify. Everything used to be
+           expanded across two views and seven panels; the optional steps now
+           collapse to a one-line summary so the page reads as a workflow. Every
+           element id is unchanged, so the handlers are the same code. -->
       <section id="view-replay" class="view hidden">
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Log file</span>
-            <span><input type="file" id="replayFile" accept=".asc,.blf,.csv,.log,.trc" hidden />
+
+        <!-- 1. Source ------------------------------------------------------->
+        <div class="tx-step" id="stepSource" data-open="1">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepSource">
+              <span class="tx-caret"></span><b>Source</b>
+              <span class="tx-step-sum" id="sumSource">no log chosen</span>
+            </span>
+            <span class="tx-step-tools">
+              <input type="file" id="replayFile" accept=".asc,.blf,.csv,.log,.trc" hidden />
               <button class="btn-mini" id="btnReplayUpload">Upload log</button>
-              <button class="btn-mini" id="btnReplayRescan">Logs</button></span>
+              <button class="btn-mini" id="btnReplayRescan">Rescan</button>
+            </span>
           </div>
-          <div style="padding:12px 16px">
+          <div class="tx-step-body">
             <select id="replaySelect" size="6" multiple
                     title="Pick one file, or Ctrl/Shift-click several to build a playlist"
                     style="width:100%"></select>
             <div class="controls" style="margin-top:10px">
-              <button class="btn-mini" id="btnTxAdd" title="Append the selected files to the playlist below">Add to playlist ▾</button>
-              <span id="replaySelCount" class="muted-line" style="margin:0"></span>
-              <span style="flex:1"></span>
               <label>Network <select id="replayNetwork" title="One log can hold several physically separate buses — only one can go out of a single-channel adapter"></select></label>
               <label class="check"><input type="checkbox" id="replaySkipTx" checked
                 title="Frames the capture tool transmitted itself are the previous tester's traffic, not the vehicle's" /> Skip tool TX</label>
-              <span style="flex:1"></span>
               <button class="btn-mini hidden" id="btnReplayBitrate" title="Reconnect the bus at the bitrate recorded in this log">Use log bitrate</button>
+              <span style="flex:1"></span>
+              <span id="replaySelCount" class="muted-line" style="margin:0"></span>
+              <button class="btn-mini" id="btnTxPlaylistAdd" title="Append the selected files to the playlist, in the order you picked them">Add to playlist ▾</button>
             </div>
             <div id="replayMeta" class="muted-line"></div>
             <div id="replayWarn" class="muted-line"></div>
           </div>
         </div>
 
-        <!-- Playlist: ordered items, each with its own repeat and lead-in gap -->
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Playlist</span>
-            <span>
-              <select id="txScenario" style="max-width:160px"><option value="">— saved scenarios —</option></select>
+        <!-- 2. Playlist ----------------------------------------------------->
+        <div class="tx-step" id="stepPlaylist">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepPlaylist">
+              <span class="tx-caret"></span><b>Playlist</b>
+              <span class="tx-step-sum" id="sumPlaylist">single file</span>
+            </span>
+            <span class="tx-step-tools">
+              <select id="txScenario" style="max-width:150px"><option value="">— saved scenarios —</option></select>
               <button class="btn-mini" id="btnTxScenarioLoad">Load</button>
               <button class="btn-mini" id="btnTxScenarioSave">Save as…</button>
               <button class="btn-mini" id="btnTxScenarioDelete" title="Delete the selected scenario">✕</button>
             </span>
           </div>
-          <div style="padding:12px 16px">
+          <div class="tx-step-body">
             <table class="tx-list"><tbody id="txItems"></tbody></table>
-            <div id="txEmpty" class="muted-line">No playlist — pick one file above to replay it, or select several and click <b>Add to playlist</b>.</div>
+            <div id="txEmpty" class="muted-line">No playlist — one file plays on its own. Select several in <b>Source</b> and click <b>Add to playlist</b> to sequence them.</div>
             <div class="controls">
               <button class="btn-mini" id="btnTxClear">Clear</button>
               <label class="check"><input type="checkbox" id="txAutoGap"
@@ -183,27 +197,30 @@
             </div>
           </div>
         </div>
-        <!-- Signal overrides + loop-seam continuity: patch signals into the
-             frames as they go out, so a recorded drive can be pushed to states
-             it never contained and looped indefinitely without teleporting. -->
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Signal overrides &amp; loop continuity</span>
-            <span>
+
+        <!-- 3. Patch: signal overrides + loop-seam continuity --------------->
+        <div class="tx-step" id="stepPatch">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepPatch">
+              <span class="tx-caret"></span><b>Patch</b>
+              <span class="tx-step-sum" id="sumPatch">off — bytes go out exactly as captured</span>
+            </span>
+            <span class="tx-step-tools">
               <input type="file" id="txDbcFile" accept=".dbc" hidden />
               <button class="btn-mini" id="btnTxDbcUpload">Load .dbc</button>
               <button class="btn-mini" id="btnTxDbcViewer" title="Reuse the DBC already loaded in the Signal Viewer">Use Signal Viewer DBC</button>
             </span>
           </div>
-          <div style="padding:12px 16px">
-            <div id="txPatchNone" class="muted-line">No DBC — load one to force a signal to a value while the log plays, or to keep the odometer climbing across loops.</div>
+          <div class="tx-step-body">
+            <div id="txPatchNone" class="muted-line">No DBC — load one to force a signal to a value while the log plays (SOC = 8%), or to keep the odometer climbing across loops instead of snapping back.</div>
             <div id="txPatchBody" class="hidden">
               <div class="controls" style="margin-top:0">
                 <label>Message <select id="txPatchMsg" style="max-width:200px"></select></label>
                 <label>Signal <select id="txPatchSig" style="max-width:200px"></select></label>
                 <label>Value <input type="number" id="txPatchVal" step="any" style="width:100px" /></label>
-                <span id="txPatchHint" class="muted-line" style="margin:0"></span>
-                <span style="flex:1"></span>
                 <button class="btn-mini" id="btnTxPatchAdd">Force value</button>
+                <span style="flex:1"></span>
+                <span id="txPatchHint" class="muted-line" style="margin:0"></span>
               </div>
               <table class="tx-list"><tbody id="txPatchRules"></tbody></table>
               <div class="controls">
@@ -225,13 +242,17 @@
           </div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head"><span>Playback</span><span id="replayState" class="tag">ready</span></div>
-          <div style="padding:16px">
-            <div class="progress"><div id="replayBar" class="progress-bar"></div></div>
-            <div class="muted-line" id="replayCursor">0.000 s</div>
-            <div class="muted-line" id="replayNow"></div>
-            <div class="controls">
+        <!-- 4. Send: controls, health, and the live payload preview --------->
+        <div class="tx-step" id="stepSend" data-open="1">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepSend">
+              <span class="tx-caret"></span><b>Send</b>
+              <span class="tx-step-sum" id="sumSend"></span>
+            </span>
+            <span class="tx-step-tools"><span id="replayState" class="tag">ready</span></span>
+          </div>
+          <div class="tx-step-body">
+            <div class="controls" style="margin-top:0">
               <button class="btn" id="btnPlay">Play</button>
               <button class="btn" id="btnPause">Pause</button>
               <button class="btn" id="btnStop">Stop</button>
@@ -248,55 +269,53 @@
               <label>Speed <span id="speedLabel">1.0×</span></label>
               <input type="range" id="speedRange" min="0.1" max="10" step="0.1" value="1" />
             </div>
+            <div class="progress" style="margin-top:14px"><div id="replayBar" class="progress-bar"></div></div>
+            <div class="muted-line" id="replayCursor">0.000 s</div>
+            <div class="muted-line" id="replayNow"></div>
             <div class="muted-line" id="replayHealth"></div>
-            <div class="muted-line" id="replayPeek"></div>
-          </div>
-        </div>
-      </section>
 
-      <!-- ===== TX Monitor: what we sent, what it means, what the cloud got ===== -->
-      <section id="view-txverify" class="view hidden">
-        <div class="toolbar">
-          <span class="muted-line">Records the exact bytes handed to the adapter — <b>after</b> any signal patching, because the question is whether what left this machine arrived.</span>
-          <span style="flex:1"></span>
-          <span id="tvStatus" class="muted-line"></span>
-          <button class="btn-mini" id="btnTvRecord">Start recording</button>
-          <button class="btn-mini" id="btnTvReset">Reset</button>
-        </div>
-
-        <div class="tv-layout">
-          <div class="panel tv-left">
-            <div class="panel-head"><span>Transmitted IDs</span><span id="tvIdCount" class="tag">0</span></div>
-            <div class="table-wrap">
-              <table class="data-table mono" id="tvIdTable">
-                <thead><tr><th>ID</th><th>DLC</th><th>Count</th><th>Last payload</th></tr></thead>
-                <tbody></tbody>
-              </table>
+            <div class="tv-bar">
+              <b>On the wire</b>
+              <span id="tvStatus" class="muted-line" style="margin:0"></span>
+              <span style="flex:1"></span>
+              <input type="file" id="tvDefFile" accept=".json,.dbc" hidden />
+              <button class="btn-mini" id="btnTvDef" title="Signature JSON from the cloud, or a DBC — decides what the payload SHOULD mean">Load JSON / DBC</button>
+              <button class="btn-mini" id="btnTvRecord">Start recording</button>
+              <button class="btn-mini" id="btnTvReset">Reset</button>
             </div>
-          </div>
-
-          <div class="panel tv-right">
-            <div class="panel-head">
-              <span>Payload preview <span id="tvSelId" class="muted-line" style="margin:0"></span></span>
-              <span>
-                <input type="file" id="tvDefFile" accept=".json,.dbc" hidden />
-                <button class="btn-mini" id="btnTvDef" title="Signature JSON from the cloud, or a DBC — decides what the payload SHOULD mean">Load JSON / DBC</button>
-              </span>
-            </div>
-            <div style="padding:12px 16px">
-              <div id="tvDefName" class="muted-line">No definition loaded — the byte view works regardless; load the cloud's own Signature JSON to see what it should display.</div>
-              <div id="tvDecode"></div>
+            <div class="tv-layout">
+              <div class="tv-left">
+                <div class="tv-sub">Transmitted IDs <span id="tvIdCount" class="tag">0</span></div>
+                <div class="table-wrap">
+                  <table class="data-table mono" id="tvIdTable">
+                    <thead><tr><th>ID</th><th>DLC</th><th>Count</th><th>Last payload</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="tv-right">
+                <div class="tv-sub">Payload preview <span id="tvSelId" class="muted-line" style="margin:0"></span></div>
+                <div id="tvDefName" class="muted-line">No definition loaded — the raw bytes always show; load the cloud's own Signature JSON to see what it should display.</div>
+                <div id="tvDecode"></div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="panel" style="margin-top:16px">
-          <div class="panel-head"><span>Compare against the cloud</span>
-            <span><input type="file" id="tvCloudFile" hidden />
-              <button class="btn-mini" id="btnTvCloud">Upload cloud log</button></span>
+        <!-- 5. Verify against the cloud ------------------------------------->
+        <div class="tx-step" id="stepVerify">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepVerify">
+              <span class="tx-caret"></span><b>Verify</b>
+              <span class="tx-step-sum" id="sumVerify">no comparison yet</span>
+            </span>
+            <span class="tx-step-tools">
+              <input type="file" id="tvCloudFile" hidden />
+              <button class="btn-mini" id="btnTvCloud">Upload cloud log</button>
+            </span>
           </div>
-          <div style="padding:12px 16px">
-            <div class="muted-line">Raw-frame export from the TCU's cloud logs (JSON, CSV or a text dump). Byte-for-byte diff against what we transmitted.</div>
+          <div class="tx-step-body">
+            <div class="muted-line">Raw-frame export from the device's cloud logs (JSON, CSV or a text dump), diffed byte-for-byte against what we transmitted. Start recording in <b>Send</b> first, then replay, then compare.</div>
             <div id="tvVerdict"></div>
             <div id="tvReport"></div>
           </div>

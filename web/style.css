@@ -471,9 +471,45 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 12px; }
 .tx-list .tx-rep { width: 58px; }
 .tx-list tr.tx-now { background: var(--accent-soft); }
 .tx-list tr.tx-now .tx-n { color: var(--accent); font-weight: 700; }
-/* TX Monitor — ID list beside the payload preview */
+/* TX view — five collapsible steps. A closed step is one line that still
+   reports its state, so the page reads as a workflow instead of a wall. */
+.tx-step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; }
+.tx-step-head {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-bottom: 1px solid transparent;
+}
+.tx-step[data-open="1"] > .tx-step-head { border-bottom-color: var(--line); }
+.tx-step-toggle {
+  display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0;
+  cursor: pointer; user-select: none; font-size: 13px;
+}
+.tx-step-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 5px; }
+.tx-step-toggle b { color: var(--text); letter-spacing: .01em; }
+/* The caret is drawn here rather than in markup so the two states cannot drift. */
+.tx-caret {
+  width: 0; height: 0; flex: none; margin-left: 2px;
+  border-left: 5px solid var(--muted); border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent; transition: transform .12s ease;
+}
+.tx-step[data-open="1"] .tx-caret { transform: rotate(90deg) translateX(-1px); }
+.tx-step-sum {
+  color: var(--muted); font-size: 12px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.tx-step-tools { display: flex; align-items: center; gap: 7px; flex: none; }
+.tx-step-body { padding: 12px 16px 16px; }
+.tx-step:not([data-open="1"]) > .tx-step-body { display: none; }
+
+/* "On the wire" band inside the Send step */
+.tv-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 18px 0 10px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.tv-sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+
+/* ID list beside the payload preview */
 .tv-layout { display: grid; grid-template-columns: 380px 1fr; gap: 14px; align-items: start; }
-.tv-left .table-wrap { max-height: 460px; overflow-y: auto; }
+.tv-left .table-wrap { max-height: 340px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
 .tv-right { min-height: 200px; }
 .tv-split { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; margin-top: 10px; }
 .tv-verdict { font-weight: 700; font-size: 15px; letter-spacing: .04em; margin: 10px 0 4px; }

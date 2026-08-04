@@ -53,7 +53,7 @@ api("/api/info").then((d) => {
 const VIEW_META = {
   dashboard: { t: "Dashboard", d: "Live values decoded from standard protocols (OBD-II, J1939) — no DBC required." },
   logger: { t: "CAN Logger", d: "Live capture with per-ID stats and recording to .asc / .blf / .csv." },
-  replay: { t: "TX Replay", d: "Play a recorded log back onto the bus with speed, loop, and step control." },
+  replay: { t: "TX", d: "Mimic a vehicle: replay recorded logs onto the bus, patch signals live, watch the exact bytes going out, and verify them against the device's cloud log." },
   re: { t: "Reverse Engineering", d: "Find candidate signals in an unknown log — entropy, bit-flip rate, sniffer, OBD correlation." },
   autore: { t: "Auto-RE", d: "Confidence-tiered (A/B/C) identification: CANMatch, OBD correlation, and known-value matching." },
   framedec: { t: "Frame Decoder", d: "Decode raw CAN frames against a DBC or JSON signature — byte, bit, and signal view." },
@@ -62,7 +62,6 @@ const VIEW_META = {
   oem: { t: "OEM Database", d: "Store, fingerprint, and auto-apply vehicle DBC profiles (CANMatch)." },
   signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms — or upload a log to chart it offline." },
   scheduler: { t: "TX Scheduler", d: "Transmit cyclic or one-shot frames on the bus." },
-  txverify: { t: "TX Monitor", d: "Preview the exact bytes being transmitted, decode what they should mean, and diff them against the TCU's cloud log." },
   automation: { t: "Automation", d: "Rules, scheduled jobs, restbus simulation, and scripting." },
   dtc: { t: "DTC Codes", d: "Read and clear trouble codes — OBD-II, UDS, and J1939." },
   decoder: { t: "Protocol Decoder", d: "Live OBD-II / UDS (ISO-TP) / J1939 frame interpretation." },
@@ -132,9 +131,6 @@ const VIEW_READY = {
   logger: { kind: "bus", why: "Capturing frames needs a connected bus." },
   replay: { kind: "bus", why: "Transmitting a log onto the bus needs a connected bus." },
   scheduler: { kind: "bus", why: "Transmitting frames needs a connected bus." },
-  // Not bus-gated: a recorded TX session and a cloud log can be compared long
-  // after the bench run, with nothing plugged in.
-  txverify: { kind: "ready" },
   automation: { kind: "bus", why: "Rules, jobs, restbus and scripting all act on a live bus." },
   dtc: { kind: "bus", why: "Reading or clearing trouble codes needs a connected bus." },
 
@@ -192,7 +188,9 @@ function startPolling(view) {
   else if (view === "scheduler") pollTimer = setInterval(pollTx, 700);
   else if (view === "dtc") pollTimer = setInterval(pollDtc, 700);
   else if (view === "decoder") pollTimer = setInterval(pollDecode, 500);
-  else if (view === "txverify") pollTimer = setInterval(pollTxVerify, 500);
+  // The TX view's playback state rides the WebSocket, but the "on the wire"
+  // preview is its own REST read, so it needs a poll of its own.
+  else if (view === "replay") pollTimer = setInterval(pollTxVerify, 500);
 }
 function setStatus(t) { $("statusText").textContent = t; }
 
@@ -280,6 +278,25 @@ function connectWS() {
 }
 connectWS();
 
+// ------------------------------------------------------------------------ TX
+// One view, five steps: Source -> Playlist -> Patch -> Send -> Verify. The
+// optional steps collapse to a one-line summary in their header, so the page
+// stays short and each step still says its state without being opened.
+document.querySelectorAll(".tx-step-toggle").forEach((el) => {
+  const flip = () => {
+    const step = $(el.dataset.step);
+    step.dataset.open = step.dataset.open === "1" ? "" : "1";
+  };
+  el.addEventListener("click", flip);
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); }
+  });
+});
+// Open a step programmatically — used when an action only makes sense with it
+// visible (adding to the playlist, loading a DBC to patch against).
+function txOpenStep(id) { if ($(id)) $(id).dataset.open = "1"; }
+const txSum = (id, text) => { if ($(id)) $(id).textContent = text; };
+
 // ------------------------------------------------------------------ TX Replay
 async function refreshLogs() {
   const { logs } = await api("/api/logs");
@@ -342,11 +359,14 @@ async function pushPlan() {
   $("replayMeta").textContent = `reading ${txItems.length} log${txItems.length > 1 ? "s" : ""}…`;
   showReplayMeta(await POST("/api/tx/plan", { items: txItems, name: $("txScenario").value || "" }));
 }
-$("btnTxAdd").addEventListener("click", () => {
+// NB: distinct from the TX Scheduler's own "btnTxAdd" — sharing that id made
+// getElementById return the scheduler's button and silently killed one of them.
+$("btnTxPlaylistAdd").addEventListener("click", () => {
   const paths = txSelectedPaths();
   if (!paths.length) return setStatus("select one or more logs first");
   const gap = $("txAutoGap").checked ? "auto" : 0;
   paths.forEach((p) => txItems.push({ path: p, gap_before_ms: gap, repeat: 1 }));
+  txOpenStep("stepPlaylist");            // the result of the click must be visible
   pushPlan();
 });
 $("btnTxClear").addEventListener("click", () => {
@@ -447,12 +467,14 @@ $("txDbcFile").addEventListener("change", async (e) => {
   const r = await POST("/api/tx/patch/dbc", { path: up.path });
   if (!r.ok) return setStatus(r.error);
   $("txPatchMsg").innerHTML = "";            // force a rebuild for the new DBC
+  txOpenStep("stepPatch");                   // the result of the click must be visible
   refreshPatch(r);
 });
 $("btnTxDbcViewer").addEventListener("click", async () => {
   const r = await POST("/api/tx/patch/dbc", { use_viewer: true });
   if (!r.ok) return setStatus(r.error);
   $("txPatchMsg").innerHTML = "";
+  txOpenStep("stepPatch");
   refreshPatch(r);
 });
 
@@ -469,6 +491,14 @@ function renderPatchRules() {
   const rules = (txPatch && txPatch.rules) || [];
   const checks = (txPatch && txPatch.checksums) || [];
   const KIND = { set: "forced", monotonic: "continuous", counter: "regenerated" };
+  // Patching changes what goes on the wire, so a collapsed step must still say
+  // so plainly — silently-active overrides would invalidate a byte comparison.
+  txSum("sumPatch", !rules.length && !checks.length
+    ? (txPatch && txPatch.loaded ? `${txPatch.dbc} loaded · no rules` : "off — bytes go out exactly as captured")
+    : [rules.filter((r) => r.kind === "set").map((r) => `${r.signal}=${r.value}`).join(", "),
+       rules.some((r) => r.kind === "monotonic") ? "odometer continuous" : null,
+       rules.some((r) => r.kind === "counter") ? "counters regenerated" : null,
+       checks.length ? `${checks.length} checksum` : null].filter(Boolean).join(" · "));
   $("txPatchRules").innerHTML = rules.map((r) => `<tr>
       <td class="tx-name">${r.message}.${r.signal}
         <div class="muted-line" style="margin:2px 0 0">${KIND[r.kind] || r.kind}${
@@ -578,6 +608,20 @@ function showReplayMeta(r) {
   $("replayWarn").innerHTML = (r.warnings || [])
     .map((w) => `<div class="warn-line">⚠ ${w}</div>`).join("");
   $("btnReplayBitrate").classList.toggle("hidden", !m.baud);
+
+  // Header summaries, so a collapsed step still reports what it holds. A
+  // warning always shows in the summary — it must not be hidden by collapsing.
+  const name = (m.path || "").split(/[\\/]/).pop().replace(/\.[^.]+$/, "");
+  const warn = (r.warnings || []).length;
+  txSum("sumSource", [
+    m.item_count > 1 ? `${m.item_count} files` : name,
+    m.network, `${m.frames.toLocaleString()} frames`,
+    m.baud ? `${(m.baud / 1000).toFixed(0)} kbit/s` : "bitrate unknown",
+    warn ? `⚠ ${warn} note${warn > 1 ? "s" : ""}` : null,
+  ].filter(Boolean).join(" · "));
+  txSum("sumPlaylist", m.item_count > 1
+    ? `${m.item_count} files · ${m.frames.toLocaleString()} frames per pass · ${m.duration_s.toFixed(1)} s`
+    : "single file");
 }
 
 // Reconnect the current adapter at the log's own bitrate — the mismatch that
@@ -645,22 +689,14 @@ function renderReplay(s) {
   } else {
     $("replayHealth").textContent = parts.join(" · ");
   }
-  tvPeek(s);
-}
-
-// A one-line "what's on the wire" readout right where you press Play, because
-// that is where you look for it — the full byte/bit view lives in TX Monitor.
-async function tvPeek(s) {
-  const el = $("replayPeek");
-  if (!el) return;
-  if (s.state !== "playing" && s.state !== "paused") { el.innerHTML = ""; return; }
-  const live = await api("/api/tx/live");
-  if (!live || !live.ok || !live.ids.length) return;
-  const newest = live.ids.reduce((a, b) => (b.last_s > a.last_s ? b : a));
-  el.innerHTML = `on the wire: <b>0x${newest.id_hex}</b> ` +
-    `<span class="mono">${newest.data.replace(/(..)/g, "$1 ").trim()}</span> ` +
-    `· ${live.unique_ids} IDs · ${live.frames.toLocaleString()} frames ` +
-    `<button class="btn-mini" onclick="document.querySelector('.nav[data-view=txverify]').click()">Open TX Monitor →</button>`;
+  // Send's own header summary: state, position and whether it is keeping up —
+  // the three things you glance at while it runs.
+  txSum("sumSend", s.state === "playing" || s.state === "paused"
+    ? [`${(s.progress * 100).toFixed(0)}%`, `${s.sent.toLocaleString()} sent`,
+       h.fps ? `${h.fps.toFixed(0)} fps` : null,
+       h.keeping_up === false ? "⚠ behind" : null].filter(Boolean).join(" · ")
+    : s.state === "done" ? `finished · ${s.sent.toLocaleString()} frames sent`
+    : s.error ? `⚠ ${s.error}` : "ready");
 }
 
 // ----------------------------------------------------------------- TX Monitor
@@ -827,11 +863,17 @@ $("tvCloudFile").addEventListener("change", async (e) => {
 });
 
 function tvRenderReport(r) {
+  txOpenStep("stepVerify");
   if (!r.ok && r.error) {
     $("tvVerdict").innerHTML = `<div class="warn-line">⚠ ${r.error}</div>`;
-    $("tvReport").innerHTML = ""; return;
+    $("tvReport").innerHTML = "";
+    txSum("sumVerify", "⚠ could not read that cloud log");
+    return;
   }
   const pass = r.unknown_payloads === 0;
+  txSum("sumVerify", `${pass ? "✓ byte-identical" : "✗ MISMATCH"} · ` +
+    `${r.matched_frames.toLocaleString()}/${r.cloud_frames.toLocaleString()} cloud frames matched` +
+    (pass ? "" : ` · ${r.unknown_payloads} payload(s) we never sent`));
   $("tvVerdict").innerHTML =
     `<div class="tv-verdict ${pass ? "pass" : "fail"}">${pass ? "✓ BYTE-IDENTICAL" : "✗ MISMATCH"}</div>` +
     `<div class="muted-line">${r.tx_frames.toLocaleString()} transmitted · ` +
