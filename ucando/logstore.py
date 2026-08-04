@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import tempfile
 from array import array
 from typing import Iterable, Optional
@@ -273,8 +274,17 @@ _CACHE_BYTES = ("flags", "dlc", "net")
 
 
 def cache_dir() -> str:
-    home = os.environ.get("UCANDO_HOME") or os.environ.get("CANFORGE_HOME") \
-        or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    """Where parsed-log caches live — ``<app home>/data/cache``.
+
+    Mirrors ``server.APP_HOME``: in a **frozen** build ``__file__`` points inside
+    the PyInstaller bundle, so deriving the path from it would write the cache
+    into the program folder instead of beside the exe with the rest of the
+    writable state.
+    """
+    home = os.environ.get("UCANDO_HOME") or os.environ.get("CANFORGE_HOME")
+    if not home:
+        home = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
+            else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(home, "data", "cache")
 
 
