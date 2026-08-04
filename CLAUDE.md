@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Roadmap status
 
-Full plan & benchmark: `docs/PRODUCT_PLAN.md`. **Auto-ID/RE design (current focus): `docs/AUTO_RE_PLAN.md`.** Target: India-first, fleet/telematics-focused CAN workbench. Worked **phase-by-phase, one branch + one merge to `main` per phase**; now on **feature branches per release** (`v0.1`, `v0.2`).
+Full plan & benchmark: `docs/PRODUCT_PLAN.md`. **Auto-ID/RE design (current focus): `docs/AUTO_RE_PLAN.md`.** Target: India-first, fleet/telematics-focused CAN workbench. Worked **phase-by-phase, one branch + one merge to `main` per phase**.
+
+### Branch naming — the branch name *is* the version
+
+A branch is named for the version it produces: `v0.2`, `v0.4.14`, `v1.4.1`, `v1.5.0`, `v1.5.1`. Never `feature-*`. Bump `ucando.__version__` on the branch so the running app, `/api/info`, the UI chip, the packaged zip name and the branch all report the same number — a build handed to someone else is otherwise impossible to place. **A version that has been packaged and shared is closed**: start a new branch (next patch number) rather than adding to it, so the artifact and its branch keep matching.
+
+What the branch *contains* goes in its **git branch description**, not its name (`git config branch.<v>.description`, or `git branch --edit-description`). Read them with `git config --get-regexp '^branch\..*\.description$'`. Each one ends with a "Next" line naming the branch that should follow, so the plan survives between sessions.
 
 **🚗 RX hardware-validated (2026-06-13):** real Intrepid neoVI FIRE → live Hyundai Aura 2023 capture (HSCAN1 @ 500k). Built the **first real OEM profile**: EngineRPM (`0x316`/`0x556`, LE ×0.25, confirmed vs OBD) + Odometer (`0x5B0`, 24-bit LE ×0.1 km, confirmed vs dash). Two RE techniques proven on real data: **OBD correlation** (dynamic signals) + **known-value matching** (static). Field tools `cli drive` / `cli sniff`. See `ucando-neovi-hardware` memory + `oem_packs/`.
 
