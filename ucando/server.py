@@ -702,9 +702,22 @@ class TxViewReq(BaseModel):
 
 @app.get("/api/tx/live")
 def tx_live(frame_id: int | None = None, limit: int = 60):
-    """What is on the wire right now: latest payload per ID + a recent window."""
+    """What is on the wire right now: latest payload per ID + a recent window.
+
+    ``def_ids`` is which of those IDs the loaded definition can actually decode.
+    A partially reverse-engineered DBC covers a fraction of a real bus (the MG
+    pack describes 54 of the 116 IDs this capture transmits), so without this the
+    UI cannot tell "no signals" from "this ID isn't in your file".
+    """
+    if _tx_view_json is not None:
+        def_ids = sorted(_tx_view_json)
+    elif _tx_view_db is not None:
+        def_ids = sorted(m.frame_id for m in _tx_view_db.messages)
+    else:
+        def_ids = []
     return {"ok": True, **tx_recorder.status(),
             "definition": _tx_view_name,
+            "def_ids": def_ids,
             "ids": tx_recorder.ids(),
             "recent": tx_recorder.recent(limit, frame_id)}
 
@@ -721,14 +734,24 @@ def tx_live_decode(frame_id: int, data: str | None = None):
         if row is None:
             return _err("that ID has not been transmitted yet")
         data = row["data"]
+    if _tx_view_json is None and _tx_view_db is None:
+        return _err("load a Signature JSON or DBC to decode against")
+    known = _tx_view_json is not None and frame_id in _tx_view_json
+    if _tx_view_db is not None:
+        known = any(m.frame_id == frame_id for m in _tx_view_db.messages)
+    if not known:
+        # cantools raises a bare KeyError(<decimal id>) here, which reads as
+        # nonsense in a UI. A partially reverse-engineered DBC covering only some
+        # of a real bus is the normal case, not an error.
+        total = len(_tx_view_json) if _tx_view_json is not None else len(_tx_view_db.messages)
+        return _err(f"0x{frame_id:X} is not described in {_tx_view_name} "
+                    f"({total} messages) — the raw bytes are still shown")
     try:
         if _tx_view_json is not None:
             return {"ok": True, "source": "json", **jsondecode.decode_frame(
                 _tx_view_json, frame_id, data)}
-        if _tx_view_db is not None:
-            return {"ok": True, "source": "dbc", **framedecode.decode_frame(
-                _tx_view_db, frame_id, data)}
-        return _err("load a Signature JSON or DBC to decode against")
+        return {"ok": True, "source": "dbc", **framedecode.decode_frame(
+            _tx_view_db, frame_id, data)}
     except Exception as exc:
         return _err(str(exc))
 

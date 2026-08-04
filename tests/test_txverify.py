@@ -237,6 +237,48 @@ def test_compare_without_a_recording_says_what_to_do():
     assert "start TX recording" in str(exc.value)
 
 
+def test_api_decode_explains_an_id_the_definition_does_not_cover(tmp_path):
+    """A DBC covering part of a bus is normal, not an error.
+
+    The real MG pack describes 54 of the 116 IDs its own capture transmits, and
+    cantools raises a bare ``KeyError(296)`` for the rest — which reads as
+    nonsense in a UI and looks like "the DBC didn't load".
+    """
+    from fastapi.testclient import TestClient
+    from ucando import server
+    client = TestClient(server.app)
+
+    dbc = tmp_path / "partial.dbc"
+    dbc.write_text('VERSION ""\n\nBO_ 291 Known: 8 Vector__XXX\n'
+                   ' SG_ S : 7|8@0+ (1,0) [0|255] "" Vector__XXX\n', encoding="utf-8")
+    log = _write_vspy(tmp_path / "two.csv", [
+        _row(1, 1.0, "HS CAN", "123", "1122334455667788"),      # 291, in the DBC
+        _row(2, 1.002, "HS CAN", "456", "9988776655443322")])   # 1110, not in it
+
+    server.tx_recorder.reset()
+    client.post("/api/replay/load", json={"path": log})
+    eng = server.replayer
+    eng.play([].append, speed=20.0)
+    deadline = time.time() + 5
+    while eng.status()["state"] == "playing" and time.time() < deadline:
+        time.sleep(0.01)
+
+    with open(dbc, "rb") as fh:
+        client.post("/api/tx/live/definition", files={"file": ("partial.dbc", fh, "text/plain")})
+
+    live = client.get("/api/tx/live").json()
+    assert live["def_ids"] == [291]                  # lets the UI mark decodable rows
+    assert {r["id"] for r in live["ids"]} == {291, 1110}
+
+    ok = client.get("/api/tx/live/decode", params={"frame_id": 291}).json()
+    assert ok["ok"] and ok["signals"][0]["name"] == "S"
+
+    miss = client.get("/api/tx/live/decode", params={"frame_id": 1110}).json()
+    assert miss["ok"] is False
+    assert "0x456" in miss["error"] and "1 messages" in miss["error"]
+    assert "raw bytes are still shown" in miss["error"]
+
+
 def test_signature_json_id_base_is_a_real_footgun():
     """A bare "244" key is decimal, so it decodes frame 0xF4 — not 0x244.
 

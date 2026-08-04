@@ -645,17 +645,35 @@ function renderReplay(s) {
   } else {
     $("replayHealth").textContent = parts.join(" · ");
   }
+  tvPeek(s);
+}
+
+// A one-line "what's on the wire" readout right where you press Play, because
+// that is where you look for it — the full byte/bit view lives in TX Monitor.
+async function tvPeek(s) {
+  const el = $("replayPeek");
+  if (!el) return;
+  if (s.state !== "playing" && s.state !== "paused") { el.innerHTML = ""; return; }
+  const live = await api("/api/tx/live");
+  if (!live || !live.ok || !live.ids.length) return;
+  const newest = live.ids.reduce((a, b) => (b.last_s > a.last_s ? b : a));
+  el.innerHTML = `on the wire: <b>0x${newest.id_hex}</b> ` +
+    `<span class="mono">${newest.data.replace(/(..)/g, "$1 ").trim()}</span> ` +
+    `· ${live.unique_ids} IDs · ${live.frames.toLocaleString()} frames ` +
+    `<button class="btn-mini" onclick="document.querySelector('.nav[data-view=txverify]').click()">Open TX Monitor →</button>`;
 }
 
 // ----------------------------------------------------------------- TX Monitor
 // What we transmitted (post-patch, as handed to the adapter) -> what it should
 // mean -> whether the cloud got the same bytes.
 let tvSelId = null, tvSelSig = 0, tvDecoded = null, tvRecording = false;
+let tvDefIds = new Set();                   // IDs the loaded definition can decode
 
 async function pollTxVerify() {
   const live = await api("/api/tx/live");
   if (!live || !live.ok) return;
   tvRecording = !!live.recording;
+  tvDefIds = new Set(live.def_ids || []);
   $("tvStatus").textContent =
     `${live.frames.toLocaleString()} frames transmitted · ${live.unique_ids} IDs` +
     (live.recording ? ` · recording ${live.recorded.toLocaleString()}` : " · not recording");
@@ -664,12 +682,33 @@ async function pollTxVerify() {
   if (live.definition) $("tvDefName").textContent = live.definition;
 
   const rows = live.ids;
-  if (tvSelId === null && rows.length) tvSelId = rows[0].id;
-  $("tvIdTable").querySelector("tbody").innerHTML = rows.map((r) => `
-    <tr data-id="${r.id}" class="${r.id === tvSelId ? "sel" : ""}" style="cursor:pointer">
-      <td>0x${r.id_hex}</td><td>${r.dlc}</td><td>${r.count.toLocaleString()}</td>
-      <td>${r.data.replace(/(..)/g, "$1 ").trim()}</td></tr>`).join("");
-  if (tvSelId !== null) tvLoadDecode();
+  // Nothing on the wire yet: say what to do instead of showing a blank panel.
+  if (!rows.length) {
+    $("tvIdTable").querySelector("tbody").innerHTML =
+      `<tr><td colspan="4" class="tv-empty">Nothing transmitted yet.<br>
+        Go to <b>TX Replay</b>, load a log and press <b>Play</b> — frames appear here as they go out.</td></tr>`;
+    $("tvDecode").innerHTML = "";
+    return;
+  }
+  // Prefer a first selection the loaded definition can actually decode.
+  if (tvSelId === null || !rows.some((r) => r.id === tvSelId)) {
+    const decodable = rows.find((r) => tvDefIds.has(r.id));
+    tvSelId = (decodable || rows[0]).id;
+  }
+  const known = tvDefIds.size;
+  $("tvIdTable").querySelector("tbody").innerHTML = rows.map((r) => {
+    const inDef = tvDefIds.has(r.id);
+    return `<tr data-id="${r.id}" class="${r.id === tvSelId ? "sel" : ""}${known && !inDef ? " tv-undef" : ""}"
+        style="cursor:pointer"${known && !inDef ? ' title="not in the loaded definition"' : ""}>
+      <td>0x${r.id_hex}${known && inDef ? ' <span class="tv-dot">•</span>' : ""}</td>
+      <td>${r.dlc}</td><td>${r.count.toLocaleString()}</td>
+      <td>${r.data.replace(/(..)/g, "$1 ").trim()}</td></tr>`;
+  }).join("");
+  if (known) {
+    const n = rows.filter((r) => tvDefIds.has(r.id)).length;
+    $("tvIdCount").textContent = `${n}/${rows.length} decodable`;
+  }
+  tvLoadDecode();
 }
 
 $("tvIdTable").addEventListener("click", (e) => {
@@ -679,11 +718,34 @@ $("tvIdTable").addEventListener("click", (e) => {
 
 async function tvLoadDecode() {
   if (tvSelId === null) return;
+  const hex = `0x${tvSelId.toString(16).toUpperCase()}`;
+  $("tvSelId").textContent = hex;
   const r = await api(`/api/tx/live/decode?frame_id=${tvSelId}`);
-  $("tvSelId").textContent = `0x${tvSelId.toString(16).toUpperCase()}`;
-  if (!r || !r.ok) { $("tvDecode").innerHTML = `<div class="muted-line">${(r && r.error) || ""}</div>`; return; }
+  // Every failure here has a different fix, so each says which one it is rather
+  // than leaving an empty panel: no definition loaded, or this ID isn't in it.
+  if (!r || !r.ok || r.error) {
+    const raw = (await api("/api/tx/live")).ids.find((x) => x.id === tvSelId);
+    const why = !tvDefIds.size
+      ? `Load a Signature JSON or DBC above to see what these bytes should mean.`
+      : `<b>${hex} is not in ${$("tvDefName").textContent}</b> — the file describes
+         ${tvDefIds.size} messages; this bus transmits more. Rows marked
+         <span class="tv-dot">•</span> are the ones it can decode.`;
+    $("tvDecode").innerHTML = tvRawOnly(raw) + `<div class="warn-line">${why}</div>`;
+    return;
+  }
   tvDecoded = r;
   tvRenderDecode(r);
+}
+
+// The raw bytes are always worth showing — they are the thing under test, and
+// they do not depend on having a definition at all.
+function tvRawOnly(row) {
+  if (!row) return "";
+  const bytes = row.data.match(/../g) || [];
+  return `<div class="muted-line" style="margin-top:10px">raw payload as transmitted · DLC ${row.dlc}</div>` +
+    `<table class="byteview"><thead><tr><th>byte</th>` +
+    bytes.map((_, i) => `<th>${i}</th>`).join("") + `</tr></thead><tbody><tr><th>hex</th>` +
+    bytes.map((b) => `<td>${b}</td>`).join("") + `</tr></tbody></table>`;
 }
 
 // Purpose-built lightweight renderer — the Frame Decoder's grid is bound to its
