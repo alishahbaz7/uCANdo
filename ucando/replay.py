@@ -132,6 +132,8 @@ class TxEngine:
         # Optional FramePatcher: live signal overrides + loop-seam continuity.
         # Read (never mutated) by the worker, so no lock is needed for the swap.
         self._patcher = None
+        #: Verification tap — see ucando.txverify.TxRecorder.
+        self._tx_tap = None
 
     # ----- loading ---------------------------------------------------------
     def load(self, path: str, network: Optional[str] = None) -> dict:
@@ -388,14 +390,32 @@ class TxEngine:
         self._epoch = now if now is not None else time.perf_counter()
 
     def _message(self, store, idx: int) -> can.Message:
-        """The frame to transmit, after any signal patching."""
+        """The frame to transmit, after any signal patching.
+
+        The single place a transmitted frame is built — playlist, patched or
+        single-stepped — which is why the verification tap belongs here and
+        nowhere else. The tap sees post-patch bytes on purpose: the question a
+        cloud comparison answers is "did what left this machine arrive", not
+        "did the file arrive".
+        """
         msg = store.message(idx)
         patcher = self._patcher
         if patcher is not None:
             patched = patcher.patch(msg.arbitration_id, msg.is_extended_id, msg.data)
             if patched is not None:
                 msg.data = bytearray(patched)
+        tap = self._tx_tap
+        if tap is not None:
+            try:
+                tap(time.perf_counter(), msg.arbitration_id,
+                    bool(msg.is_extended_id), bytes(msg.data))
+            except Exception:
+                pass                       # recording must never break a transmit
         return msg
+
+    def set_tx_tap(self, tap) -> None:
+        """Observe every frame as it is handed to the adapter (or ``None``)."""
+        self._tx_tap = tap
 
     def _run(self, send: Callable[[can.Message], None]) -> None:
         # The store comes from the current segment each iteration — a playlist

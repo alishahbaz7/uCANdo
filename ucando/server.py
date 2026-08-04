@@ -54,6 +54,8 @@ from .signals import SignalViewer
 from .storage import Storage, adopt_legacy_db
 from . import txproject
 from . import txpatch
+from . import txverify
+from . import framedecode, jsondecode
 
 import sys
 
@@ -195,6 +197,9 @@ class ConnectReq(BaseModel):
     bitrate: int = 500_000
     fd: bool = False
     simulate: bool = True
+    #: Loop our own TX back into the receive path, so the logger witnesses what
+    #: actually reached the wire (TX-vs-cloud verification).
+    echo_tx: bool = False
 
 
 class RecordReq(BaseModel):
@@ -362,9 +367,10 @@ def drivers_launch(hw: str):
 @app.post("/api/connect")
 def connect(req: ConnectReq):
     try:
-        conn = bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate)
-        log.info("connected: hw=%s channel=%s bitrate=%s sim=%s",
-                 req.hw, req.channel, req.bitrate, req.simulate)
+        conn = bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate,
+                           req.echo_tx)
+        log.info("connected: hw=%s channel=%s bitrate=%s sim=%s echo_tx=%s",
+                 req.hw, req.channel, req.bitrate, req.simulate, req.echo_tx)
         return {"ok": True, "connection": conn}
     except Exception as exc:
         log.error("connect failed (hw=%s channel=%s): %s", req.hw, req.channel, exc)
@@ -677,6 +683,134 @@ def tx_patch_analyze():
     return {"ok": True,
             "scanned": ", ".join(os.path.basename(s.item.path) for s in sampled),
             "scanned_count": len(sampled), "of_items": len(segs), **found}
+
+
+# ----- TX verification: what we sent vs what the cloud received ------------
+tx_recorder = txverify.TxRecorder()
+replayer.set_tx_tap(tx_recorder.consume)
+#: Signature JSON / DBC used to show what a payload *should* mean on the cloud UI.
+_tx_view_json: dict | None = None
+_tx_view_db = None
+_tx_view_name = ""
+_tx_report: dict | None = None
+
+
+class TxViewReq(BaseModel):
+    frame_id: int | None = None
+    limit: int = 60
+
+
+@app.get("/api/tx/live")
+def tx_live(frame_id: int | None = None, limit: int = 60):
+    """What is on the wire right now: latest payload per ID + a recent window."""
+    return {"ok": True, **tx_recorder.status(),
+            "definition": _tx_view_name,
+            "ids": tx_recorder.ids(),
+            "recent": tx_recorder.recent(limit, frame_id)}
+
+
+@app.get("/api/tx/live/decode")
+def tx_live_decode(frame_id: int, data: str | None = None):
+    """Decode a transmitted payload against the loaded definition.
+
+    Same output shape from either source, so the UI renders the byte view, the
+    signal table and the bit grid identically for a DBC or a Signature JSON.
+    """
+    if data is None:
+        row = next((r for r in tx_recorder.ids() if r["id"] == frame_id), None)
+        if row is None:
+            return _err("that ID has not been transmitted yet")
+        data = row["data"]
+    try:
+        if _tx_view_json is not None:
+            return {"ok": True, "source": "json", **jsondecode.decode_frame(
+                _tx_view_json, frame_id, data)}
+        if _tx_view_db is not None:
+            return {"ok": True, "source": "dbc", **framedecode.decode_frame(
+                _tx_view_db, frame_id, data)}
+        return _err("load a Signature JSON or DBC to decode against")
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/live/definition")
+async def tx_live_definition(file: UploadFile = File(...)):
+    """Upload the definition used for 'what should the cloud show' (JSON or DBC)."""
+    global _tx_view_json, _tx_view_db, _tx_view_name
+    import cantools
+    path = _save_upload(file)
+    try:
+        text = open(path, "r", encoding="utf-8", errors="replace").read()
+        if (file.filename or "").lower().endswith(".json") or text.lstrip()[:1] in "[{":
+            _tx_view_json = jsondecode.load_signature(text)
+            _tx_view_db = None
+            _tx_view_name = f"{file.filename} (Signature JSON)"
+            msgs = jsondecode.signature_messages(_tx_view_json)
+        else:
+            _tx_view_db = cantools.database.load_string(text, database_format="dbc")
+            _tx_view_json = None
+            _tx_view_name = f"{file.filename} (DBC)"
+            msgs = [{"id": m.frame_id, "id_hex": f"{m.frame_id:X}", "name": m.name,
+                     "length": m.length, "signals": [s.name for s in m.signals]}
+                    for m in _tx_view_db.messages]
+        return {"ok": True, "definition": _tx_view_name, "messages": msgs}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/record/start")
+def tx_record_start():
+    """Record every transmitted frame, so a byte diff has something to run on."""
+    return {"ok": True, **tx_recorder.start_recording()}
+
+
+@app.post("/api/tx/record/stop")
+def tx_record_stop():
+    return {"ok": True, **tx_recorder.stop_recording()}
+
+
+@app.post("/api/tx/record/reset")
+def tx_record_reset():
+    tx_recorder.reset()
+    return {"ok": True, **tx_recorder.status()}
+
+
+def _tx_filters() -> dict:
+    """What the TX side deliberately did NOT send — stated, never implied."""
+    meta = replayer.meta()
+    nets = [n for n in meta.get("networks", []) if n["frames"]]
+    return {
+        "network": meta.get("network"),
+        "networks_not_sent": [{"name": n["name"], "frames": n["frames"]}
+                              for n in nets if n["name"] != meta.get("network")],
+        "tool_tx_frames_skipped": meta.get("tx_frames_skipped", 0),
+        "id_filter": meta.get("filter_ids"),
+    }
+
+
+@app.post("/api/tx/verify")
+async def tx_verify(file: UploadFile = File(...)):
+    """Compare a cloud-side raw-frame export against what we transmitted."""
+    global _tx_report
+    path = _save_upload(file)
+    try:
+        text = open(path, "r", encoding="utf-8", errors="replace").read()
+        parsed = txverify.parse_cloud_log(text)
+        patched = [f"{r['message']}.{r['signal']}"
+                   for r in (tx_patcher.config()["rules"] if tx_patcher else [])]
+        report = txverify.compare(tx_recorder.store(), parsed["frames"],
+                                  patched=patched, filtered=_tx_filters())
+        report["cloud_file"] = file.filename
+        report["cloud_dialect"] = parsed["dialect"]
+        _tx_report = report
+        return {"ok": True, **report}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/tx/verify/report")
+def tx_verify_report():
+    return {"ok": True, "report": _tx_report}
 
 
 @app.post("/api/replay/play")

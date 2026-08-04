@@ -50,7 +50,17 @@ class BusManager:
         return self.iface is not None
 
     def connect(self, hw: str, channel: str, bitrate: int = 500_000,
-                fd: bool = False, simulate: bool = True) -> dict:
+                fd: bool = False, simulate: bool = True,
+                echo_tx: bool = False) -> dict:
+        """Open a bus.
+
+        *echo_tx* asks the driver to loop our own transmitted frames back into
+        the receive path (``receive_own_messages``). That turns "what we sent"
+        from a self-reported claim into something the logger actually observed —
+        the basis of the TX-vs-cloud byte comparison. It is off by default
+        because on a normal capture it would double-count our own traffic in the
+        logger's statistics.
+        """
         with self._lock:
             if self.iface is not None:
                 self._teardown()
@@ -61,12 +71,14 @@ class BusManager:
                 self.sim = SyntheticTraffic(channel=str(channel), bitrate=bitrate)
                 self.sim.start()
 
-            self.iface = create_interface(hw, channel, bitrate=bitrate, fd=fd)
+            extra = {"receive_own_messages": True} if echo_tx else {}
+            self.iface = create_interface(hw, channel, bitrate=bitrate, fd=fd, **extra)
             self.logger = CanLogger(self.iface, taps=self._taps)
             self.logger.start()
             self.conn = {
                 "hw": hw, "channel": str(channel), "bitrate": bitrate,
                 "fd": fd, "simulated": bool(self.sim and self.sim.running),
+                "echo_tx": bool(echo_tx),
             }
             return dict(self.conn)
 

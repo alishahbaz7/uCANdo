@@ -471,6 +471,18 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 12px; }
 .tx-list .tx-rep { width: 58px; }
 .tx-list tr.tx-now { background: var(--accent-soft); }
 .tx-list tr.tx-now .tx-n { color: var(--accent); font-weight: 700; }
+/* TX Monitor — ID list beside the payload preview */
+.tv-layout { display: grid; grid-template-columns: 380px 1fr; gap: 14px; align-items: start; }
+.tv-left .table-wrap { max-height: 460px; overflow-y: auto; }
+.tv-right { min-height: 200px; }
+.tv-split { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; margin-top: 10px; }
+.tv-verdict { font-weight: 700; font-size: 15px; letter-spacing: .04em; margin: 10px 0 4px; }
+.tv-verdict.pass { color: var(--green); }
+.tv-verdict.fail { color: var(--red); }
+@media (max-width: 1100px) {
+  .tv-layout, .tv-split { grid-template-columns: 1fr; }
+}
+
 /* Loop-seam candidate lists — two columns of checkboxes */
 .tx-seam { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
 .tx-seam .check { margin: 3px 0; color: var(--text); font-size: 12px; }

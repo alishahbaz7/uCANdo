@@ -62,6 +62,7 @@ const VIEW_META = {
   oem: { t: "OEM Database", d: "Store, fingerprint, and auto-apply vehicle DBC profiles (CANMatch)." },
   signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms — or upload a log to chart it offline." },
   scheduler: { t: "TX Scheduler", d: "Transmit cyclic or one-shot frames on the bus." },
+  txverify: { t: "TX Monitor", d: "Preview the exact bytes being transmitted, decode what they should mean, and diff them against the TCU's cloud log." },
   automation: { t: "Automation", d: "Rules, scheduled jobs, restbus simulation, and scripting." },
   dtc: { t: "DTC Codes", d: "Read and clear trouble codes — OBD-II, UDS, and J1939." },
   decoder: { t: "Protocol Decoder", d: "Live OBD-II / UDS (ISO-TP) / J1939 frame interpretation." },
@@ -131,6 +132,9 @@ const VIEW_READY = {
   logger: { kind: "bus", why: "Capturing frames needs a connected bus." },
   replay: { kind: "bus", why: "Transmitting a log onto the bus needs a connected bus." },
   scheduler: { kind: "bus", why: "Transmitting frames needs a connected bus." },
+  // Not bus-gated: a recorded TX session and a cloud log can be compared long
+  // after the bench run, with nothing plugged in.
+  txverify: { kind: "ready" },
   automation: { kind: "bus", why: "Rules, jobs, restbus and scripting all act on a live bus." },
   dtc: { kind: "bus", why: "Reading or clearing trouble codes needs a connected bus." },
 
@@ -188,6 +192,7 @@ function startPolling(view) {
   else if (view === "scheduler") pollTimer = setInterval(pollTx, 700);
   else if (view === "dtc") pollTimer = setInterval(pollDtc, 700);
   else if (view === "decoder") pollTimer = setInterval(pollDecode, 500);
+  else if (view === "txverify") pollTimer = setInterval(pollTxVerify, 500);
 }
 function setStatus(t) { $("statusText").textContent = t; }
 
@@ -640,6 +645,155 @@ function renderReplay(s) {
   } else {
     $("replayHealth").textContent = parts.join(" · ");
   }
+}
+
+// ----------------------------------------------------------------- TX Monitor
+// What we transmitted (post-patch, as handed to the adapter) -> what it should
+// mean -> whether the cloud got the same bytes.
+let tvSelId = null, tvSelSig = 0, tvDecoded = null, tvRecording = false;
+
+async function pollTxVerify() {
+  const live = await api("/api/tx/live");
+  if (!live || !live.ok) return;
+  tvRecording = !!live.recording;
+  $("tvStatus").textContent =
+    `${live.frames.toLocaleString()} frames transmitted · ${live.unique_ids} IDs` +
+    (live.recording ? ` · recording ${live.recorded.toLocaleString()}` : " · not recording");
+  $("btnTvRecord").textContent = live.recording ? "Stop recording" : "Start recording";
+  $("tvIdCount").textContent = live.unique_ids;
+  if (live.definition) $("tvDefName").textContent = live.definition;
+
+  const rows = live.ids;
+  if (tvSelId === null && rows.length) tvSelId = rows[0].id;
+  $("tvIdTable").querySelector("tbody").innerHTML = rows.map((r) => `
+    <tr data-id="${r.id}" class="${r.id === tvSelId ? "sel" : ""}" style="cursor:pointer">
+      <td>0x${r.id_hex}</td><td>${r.dlc}</td><td>${r.count.toLocaleString()}</td>
+      <td>${r.data.replace(/(..)/g, "$1 ").trim()}</td></tr>`).join("");
+  if (tvSelId !== null) tvLoadDecode();
+}
+
+$("tvIdTable").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  tvSelId = +tr.dataset.id; tvSelSig = 0; tvLoadDecode();
+});
+
+async function tvLoadDecode() {
+  if (tvSelId === null) return;
+  const r = await api(`/api/tx/live/decode?frame_id=${tvSelId}`);
+  $("tvSelId").textContent = `0x${tvSelId.toString(16).toUpperCase()}`;
+  if (!r || !r.ok) { $("tvDecode").innerHTML = `<div class="muted-line">${(r && r.error) || ""}</div>`; return; }
+  tvDecoded = r;
+  tvRenderDecode(r);
+}
+
+// Purpose-built lightweight renderer — the Frame Decoder's grid is bound to its
+// own selection state, and duplicating 30 lines beats refactoring it from under
+// a working view.
+function tvRenderDecode(f) {
+  const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
+  const bytes = f.bytes || [];
+  const sigs = f.signals || [];
+  if (tvSelSig >= sigs.length) tvSelSig = 0;
+
+  const byteRow = `<table class="byteview"><thead><tr><th>byte</th>` +
+    bytes.map((_, i) => `<th>${i}</th>`).join("") + `</tr></thead><tbody><tr><th>hex</th>` +
+    bytes.map((b) => `<td>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("") +
+    `</tr></tbody></table>`;
+
+  const owner = {}, msb = {}, lsb = {};
+  sigs.forEach((s, i) => {
+    (s.cells || []).forEach((c) => { owner[c[0] + ":" + c[1]] = i; });
+    if (s.msb_cell) msb[s.msb_cell[0] + ":" + s.msb_cell[1]] = i;
+    if (s.lsb_cell) lsb[s.lsb_cell[0] + ":" + s.lsb_cell[1]] = i;
+  });
+  let grid = `<table class="bitgrid"><thead><tr><th></th>` +
+    COLS.map((c) => `<th>${c}</th>`).join("") + `</tr></thead><tbody>`;
+  for (let b = 0; b < bytes.length; b++) {
+    grid += `<tr><th>${b}</th>` + COLS.map((c) => {
+      const key = b + ":" + c, bit = (bytes[b] >> c) & 1, mine = owner[key] === tvSelSig;
+      const cls = !mine ? "" : msb[key] === tvSelSig ? "bit-msb"
+                : lsb[key] === tvSelSig ? "bit-lsb" : "bit-hi";
+      return `<td class="${cls}">${bit}</td>`;
+    }).join("") + `</tr>`;
+  }
+  grid += `</tbody></table>`;
+
+  const table = `<table class="data-table" id="tvSigTable"><thead><tr>
+      <th>Signal</th><th>Raw</th><th>Value</th><th>Unit</th><th>Bits</th><th>Order</th></tr></thead><tbody>` +
+    sigs.map((s, i) => `<tr data-sig="${i}" class="${i === tvSelSig ? "sel" : ""}" style="cursor:pointer">
+      <td>${s.name}</td><td class="mono">${s.raw}</td>
+      <td class="mono${s.out_of_range ? " tc-oor" : ""}">${s.physical}</td>
+      <td>${s.unit || ""}</td><td class="mono">${s.start_bit}+${s.length}</td>
+      <td>${s.byte_order === "big_endian" ? "Motorola" : "Intel"}</td></tr>`).join("") +
+    `</tbody></table>`;
+
+  $("tvDecode").innerHTML =
+    `<div class="muted-line" style="margin-top:10px"><b>${f.name || ""}</b> · DLC ${bytes.length}</div>` +
+    byteRow +
+    `<div class="muted-line">This is what the cloud should display for these bytes — click a signal to highlight its bits.</div>` +
+    `<div class="tv-split">${table}<div>${grid}</div></div>`;
+  $("tvSigTable").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-sig]"); if (!tr) return;
+    tvSelSig = +tr.dataset.sig; tvRenderDecode(tvDecoded);
+  });
+}
+
+$("btnTvRecord").addEventListener("click", async () => {
+  const r = await POST(tvRecording ? "/api/tx/record/stop" : "/api/tx/record/start");
+  setStatus(r.recording ? "recording every transmitted frame" : "TX recording stopped");
+});
+$("btnTvReset").addEventListener("click", async () => {
+  await POST("/api/tx/record/reset");
+  tvSelId = null; tvDecoded = null;
+  $("tvDecode").innerHTML = ""; $("tvVerdict").innerHTML = ""; $("tvReport").innerHTML = "";
+});
+
+$("btnTvDef").addEventListener("click", () => $("tvDefFile").click());
+$("tvDefFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = await apiUpload("/api/tx/live/definition", f);
+  if (!r.ok) return setStatus(r.error);
+  $("tvDefName").textContent = r.definition;
+  tvLoadDecode();
+});
+
+$("btnTvCloud").addEventListener("click", () => $("tvCloudFile").click());
+$("tvCloudFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $("tvVerdict").innerHTML = `<div class="muted-line">comparing…</div>`;
+  tvRenderReport(await apiUpload("/api/tx/verify", f));
+});
+
+function tvRenderReport(r) {
+  if (!r.ok && r.error) {
+    $("tvVerdict").innerHTML = `<div class="warn-line">⚠ ${r.error}</div>`;
+    $("tvReport").innerHTML = ""; return;
+  }
+  const pass = r.unknown_payloads === 0;
+  $("tvVerdict").innerHTML =
+    `<div class="tv-verdict ${pass ? "pass" : "fail"}">${pass ? "✓ BYTE-IDENTICAL" : "✗ MISMATCH"}</div>` +
+    `<div class="muted-line">${r.tx_frames.toLocaleString()} transmitted · ` +
+    `${r.cloud_frames.toLocaleString()} at the cloud (${r.cloud_dialect}) · ` +
+    `${r.matched_frames.toLocaleString()} matched · ${r.unknown_payloads} payload(s) we never sent</div>` +
+    (r.warnings || []).map((w) => `<div class="warn-line">⚠ ${w}</div>`).join("") +
+    // What we deliberately did not transmit — stated, so "missing at the cloud"
+    // is never confused with our own filtering.
+    ((r.tx_filters && r.tx_filters.networks_not_sent || []).length
+      ? `<div class="muted-line">not transmitted by us: ` +
+        r.tx_filters.networks_not_sent.map((n) => `${n.name} (${n.frames.toLocaleString()} frames)`).join(", ") +
+        `</div>` : "");
+
+  const V = { complete: "✓ complete", sampled: "· sampled", "not forwarded": "· not forwarded",
+              corrupt: "✗ corrupt", "unexpected id": "? not sent by us" };
+  $("tvReport").innerHTML = `<div class="table-wrap" style="max-height:420px;margin-top:10px">
+    <table class="data-table mono"><thead><tr>
+      <th>ID</th><th>TX</th><th>Cloud</th><th>Matched</th><th>Delivery</th><th>Verdict</th><th>Detail</th>
+    </tr></thead><tbody>` + r.per_id.map((p) => `<tr>
+      <td>0x${p.id_hex}</td><td>${p.tx.toLocaleString()}</td><td>${p.cloud.toLocaleString()}</td>
+      <td>${p.matched.toLocaleString()}</td><td>${p.delivery_pct == null ? "—" : p.delivery_pct + "%"}</td>
+      <td class="${p.verdict === "corrupt" ? "tc-oor" : ""}">${V[p.verdict] || p.verdict}</td>
+      <td>${p.unknown_samples ? "cloud sent " + p.unknown_samples.join(", ") : ""}</td>
+    </tr>`).join("") + `</tbody></table></div>`;
 }
 
 // -------------------------------------------------------- Reverse Engineering
