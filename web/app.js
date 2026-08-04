@@ -77,6 +77,12 @@ function setViewMeta(view) {
 // ---------------------------------------------------------------- navigation
 document.querySelectorAll(".nav").forEach((btn) => {
   btn.addEventListener("click", () => {
+    // A "soon" view isn't usable yet — opening it anyway is what makes a
+    // held-back feature look like a bug. Bus-gated views stay reachable.
+    const ready = VIEW_READY[btn.dataset.view];
+    if (ready && ready.kind === "soon") {
+      return void setStatus(ready.why || `${btn.dataset.label || btn.dataset.view} — coming soon`);
+    }
     document.querySelectorAll(".nav").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     const view = btn.dataset.view;
@@ -86,6 +92,7 @@ document.querySelectorAll(".nav").forEach((btn) => {
     setViewMeta(view);
     startPolling(view);
     if (view === "replay" || view === "re") refreshLogs();
+    if (view === "replay") { refreshScenarios($("txScenario").value); refreshPatch(); }
     if (view === "dbc") renderDbc();
     if (view === "logger") loadLogDir();
     if (view === "autore") initAutoRE();
@@ -95,25 +102,68 @@ document.querySelectorAll(".nav").forEach((btn) => {
   });
 });
 
-// ---- feature availability -------------------------------------------------
-// Views that can do nothing without a bus. They stay CLICKABLE — a disabled
-// nav item hides what the tool can do and reads as broken; a dimmed one with a
-// stated reason teaches instead.
-const LIVE_ONLY_VIEWS = {
-  dashboard: "Decoding live OBD-II / J1939 values needs a connected bus.",
-  logger: "Capturing frames needs a connected bus.",
-  replay: "Transmitting a log onto the bus needs a connected bus.",
-  scheduler: "Transmitting frames needs a connected bus.",
-  automation: "Rules, jobs, restbus and scripting all act on a live bus.",
-  dtc: "Reading or clearing trouble codes needs a connected bus.",
-  decoder: "Live protocol interpretation needs a connected bus.",
+// ---- feature readiness ----------------------------------------------------
+// One entry per view that is NOT "click it and it works right now". A view
+// absent from this table is ready as-is — that absence is the promise the rail
+// makes, so keep the table honest. Three kinds, three distinct treatments:
+//
+//   soon  — not available to the user yet. Greyed out and NOT navigable, with a
+//           "Soon" pill: a reachable view that can't be used is what reads as
+//           broken. Covers both "not built" and "built but held back".
+//   bus   — built, but can do nothing without a connected adapter. Dimmed and
+//           labelled "Bus" only while offline, and still CLICKABLE: a disabled
+//           nav item hides what the tool can do, a dimmed one with a stated
+//           reason teaches. Clears the moment a bus connects.
+//   input — built and works offline, but needs a file first (log / DBC /
+//           signature). Full brightness — it isn't unavailable, it's waiting —
+//           with a muted pill naming what to feed it.
+const VIEW_READY = {
+  // Held back from this release (tagged "Soon" on request, 2026-08-04). These
+  // four are implemented and covered by tests — hidden, not missing. To bring
+  // one back, restore the `kind` noted at the end of its line; nothing else
+  // needs touching (the bus gate and pills follow from `kind`).
+  re: { kind: "soon", why: "Reverse Engineering is coming soon." },           // was: input · Log
+  autore: { kind: "soon", why: "Auto-RE is coming soon." },                   // was: input · Log
+  dbc: { kind: "soon", why: "DBC Builder is coming soon." },                  // was: ready (no tag)
+  decoder: { kind: "soon", why: "Protocol Decoder is coming soon." },         // was: bus
+
+  dashboard: { kind: "bus", why: "Decoding live OBD-II / J1939 values needs a connected bus." },
+  logger: { kind: "bus", why: "Capturing frames needs a connected bus." },
+  replay: { kind: "bus", why: "Transmitting a log onto the bus needs a connected bus." },
+  scheduler: { kind: "bus", why: "Transmitting frames needs a connected bus." },
+  automation: { kind: "bus", why: "Rules, jobs, restbus and scripting all act on a live bus." },
+  dtc: { kind: "bus", why: "Reading or clearing trouble codes needs a connected bus." },
+
+  framedec: { kind: "input", pill: "DBC", why: "Decodes against a DBC or Signature JSON — import one, then paste frames." },
+  convert: { kind: "input", pill: "File", why: "Converts an uploaded DBC / Signature JSON / CSV / CanPlus XML." },
+  signals: { kind: "input", pill: "DBC", why: "Needs a DBC — upload one, or apply an OEM profile." },
 };
+const LIVE_ONLY_VIEWS = Object.fromEntries(          // bus-gated views only
+  Object.entries(VIEW_READY).filter(([, r]) => r.kind === "bus").map(([v, r]) => [v, r.why]));
+
 function applyAvailability() {
   const off = !state.connected;
   document.querySelectorAll(".nav").forEach((btn) => {
-    const reason = LIVE_ONLY_VIEWS[btn.dataset.view];
-    btn.classList.toggle("nav-unavail", !!reason && off);
-    btn.title = reason && off ? reason + " Click to open anyway." : "";
+    const r = VIEW_READY[btn.dataset.view] || {};
+    const dim = r.kind === "bus" && off, soon = r.kind === "soon";
+    btn.classList.toggle("nav-unavail", dim);
+    btn.classList.toggle("nav-soon", soon);
+    btn.setAttribute("aria-disabled", soon ? "true" : "false");
+    // A pill only earns rail space while it's telling the truth: "Bus"
+    // disappears on connect, "Log"/"DBC" state a standing requirement.
+    let pill = btn.querySelector(".nav-pill");
+    if (!pill) {
+      pill = document.createElement("span");
+      pill.className = "nav-pill";
+      btn.appendChild(pill);
+    }
+    const text = soon ? "Soon" : dim ? "Bus" : r.kind === "input" ? r.pill : "";
+    pill.textContent = text;
+    pill.hidden = !text;
+    pill.classList.toggle("pill-soon", soon);
+    btn.title = soon ? (r.why || "Coming soon.")
+      : dim ? `${r.why} Click to open anyway.`
+      : r.why || btn.dataset.label || "";
   });
   for (const [view, reason] of Object.entries(LIVE_ONLY_VIEWS)) {
     const section = $("view-" + view);
@@ -252,27 +302,344 @@ $("replayFile").addEventListener("change", async (e) => {
   await refreshLogs();
   if (r.path) { $("replaySelect").value = r.path; loadReplay(); }
 });
-$("replaySelect").addEventListener("change", loadReplay);
+let replayMeta = null;                      // last loaded meta, for the bitrate button
+let txItems = [];                           // the playlist being edited (TxItem dicts)
+
+const txSelectedPaths = () => [...$("replaySelect").selectedOptions].map((o) => o.value).filter(Boolean);
+
+$("replaySelect").addEventListener("change", () => {
+  const n = txSelectedPaths().length;
+  $("replaySelCount").textContent = n > 1 ? `${n} files selected` : "";
+  // One file selected and no playlist yet: behave like the old single-file picker.
+  if (n === 1 && txItems.length <= 1) loadReplay();
+});
+
 async function loadReplay() {
-  const path = $("replaySelect").value; if (!path) return;
-  const r = await POST("/api/replay/load", { path });
-  if (r.ok) $("replayMeta").textContent =
-    `${r.meta.frames} frames · ${r.meta.duration_s}s · ${r.meta.ids.length} IDs · ch ${r.meta.channels.join("+") || "?"}`;
-  else $("replayMeta").textContent = r.error;
+  const path = txSelectedPaths()[0]; if (!path) return;
+  $("replayMeta").textContent = "reading log…";
+  $("replayWarn").textContent = "";
+  txItems = [{ path, gap_before_ms: 0, repeat: 1 }];
+  renderTxItems();
+  showReplayMeta(await POST("/api/replay/load", { path }));
+}
+// Re-target an already-parsed log: network / tool-TX filter. Cheap — no re-parse.
+async function reselectReplay() {
+  if (!replayMeta) return;
+  showReplayMeta(await POST("/api/replay/select", {
+    network: $("replayNetwork").value || null,
+    skip_tx: $("replaySkipTx").checked,
+  }));
+}
+
+// ----- playlist ------------------------------------------------------------
+async function pushPlan() {
+  if (!txItems.length) return;
+  $("replayMeta").textContent = `reading ${txItems.length} log${txItems.length > 1 ? "s" : ""}…`;
+  showReplayMeta(await POST("/api/tx/plan", { items: txItems, name: $("txScenario").value || "" }));
+}
+$("btnTxAdd").addEventListener("click", () => {
+  const paths = txSelectedPaths();
+  if (!paths.length) return setStatus("select one or more logs first");
+  const gap = $("txAutoGap").checked ? "auto" : 0;
+  paths.forEach((p) => txItems.push({ path: p, gap_before_ms: gap, repeat: 1 }));
+  pushPlan();
+});
+$("btnTxClear").addEventListener("click", () => {
+  txItems = []; replayMeta = null;
+  renderTxItems(); $("replayMeta").textContent = ""; $("replayWarn").textContent = "";
+});
+$("txAutoGap").addEventListener("change", () => {
+  const gap = $("txAutoGap").checked ? "auto" : 0;
+  txItems.forEach((it) => { it.gap_before_ms = gap; });
+  pushPlan();
+});
+
+function renderTxItems(resolved) {
+  $("txEmpty").classList.toggle("hidden", txItems.length > 0);
+  $("txItems").innerHTML = txItems.map((it, i) => {
+    const info = resolved && resolved[i];
+    const detail = info
+      ? `${info.frames.toLocaleString()} frames · ${info.duration_s.toFixed(1)} s` +
+        (info.gap_s ? ` · +${info.gap_s.toFixed(2)} s gap` : "")
+      : "…";
+    return `<tr data-i="${i}">
+      <td class="tx-n">${i + 1}</td>
+      <td class="tx-name" title="${it.path}">${(info && info.label) || it.path.split(/[\\/]/).pop()}
+        <div class="muted-line" style="margin:2px 0 0">${detail}</div></td>
+      <td>×<input type="number" class="tx-rep" min="0" max="100000" value="${it.repeat || 1}"
+             title="Passes of this file (0 = endless)" /></td>
+      <td class="tx-btns">
+        <button class="btn-mini" data-act="up" ${i === 0 ? "disabled" : ""}>↑</button>
+        <button class="btn-mini" data-act="down" ${i === txItems.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="btn-mini" data-act="del">✕</button></td></tr>`;
+  }).join("");
+  const totalFrames = resolved ? resolved.reduce((a, r, i) => a + r.frames * Math.max(1, txItems[i].repeat || 1), 0) : 0;
+  $("txTotals").textContent = txItems.length > 1 && resolved
+    ? `${txItems.length} items · ${totalFrames.toLocaleString()} frames per pass` : "";
+}
+
+$("txItems").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]"); if (!btn) return;
+  const i = +btn.closest("tr").dataset.i;
+  const act = btn.dataset.act;
+  if (act === "del") txItems.splice(i, 1);
+  else if (act === "up") txItems.splice(i - 1, 0, txItems.splice(i, 1)[0]);
+  else if (act === "down") txItems.splice(i + 1, 0, txItems.splice(i, 1)[0]);
+  txItems.length ? pushPlan() : renderTxItems();
+});
+$("txItems").addEventListener("change", (e) => {
+  if (!e.target.classList.contains("tx-rep")) return;
+  txItems[+e.target.closest("tr").dataset.i].repeat = Math.max(0, parseInt(e.target.value, 10) || 1);
+  pushPlan();
+});
+
+// ----- signal overrides & loop-seam continuity -----------------------------
+let txPatch = null;                         // last /api/tx/patch state
+let txSeamFound = null;                     // last "Detect from log" result
+
+async function refreshPatch(state) {
+  txPatch = state || await api("/api/tx/patch");
+  const on = !!txPatch.loaded;
+  $("txPatchNone").classList.toggle("hidden", on);
+  $("txPatchBody").classList.toggle("hidden", !on);
+  if (!on) return;
+  if (txPatch.messages && txPatch.messages.length && !$("txPatchMsg").options.length) {
+    $("txPatchMsg").innerHTML = txPatch.messages
+      .map((m) => `<option value="${m.message}">${m.message} (0x${m.id_hex})</option>`).join("");
+    fillPatchSignals();
+  }
+  renderPatchRules();
+}
+function patchMessages() { return (txPatch && txPatch.messages) || []; }
+function fillPatchSignals() {
+  const msg = patchMessages().find((m) => m.message === $("txPatchMsg").value);
+  $("txPatchSig").innerHTML = msg
+    ? msg.signals.map((s) => `<option value="${s.signal}">${s.signal}${s.unit ? " (" + s.unit + ")" : ""}</option>`).join("")
+    : "";
+  // Byte-aligned 8-bit fields are the only ones we can recompute a checksum into.
+  $("txCsumSig").innerHTML = `<option value="">— none —</option>` + (msg
+    ? msg.signals.filter((s) => s.length === 8)
+        .map((s) => `<option value="${s.signal}">${msg.message}.${s.signal}</option>`).join("")
+    : "");
+  showPatchHint();
+}
+function showPatchHint() {
+  const msg = patchMessages().find((m) => m.message === $("txPatchMsg").value);
+  const sig = msg && msg.signals.find((s) => s.signal === $("txPatchSig").value);
+  $("txPatchHint").textContent = sig
+    ? `${sig.length} bit ${sig.signed ? "signed" : "unsigned"} · ×${sig.scale}` +
+      (sig.offset ? ` ${sig.offset > 0 ? "+" : ""}${sig.offset}` : "") +
+      (sig.minimum != null && sig.maximum != null ? ` · range ${sig.minimum}…${sig.maximum}` : "")
+    : "";
+}
+$("txPatchMsg").addEventListener("change", fillPatchSignals);
+$("txPatchSig").addEventListener("change", showPatchHint);
+
+$("btnTxDbcUpload").addEventListener("click", () => $("txDbcFile").click());
+$("txDbcFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const up = await apiUpload("/api/upload", f);
+  const r = await POST("/api/tx/patch/dbc", { path: up.path });
+  if (!r.ok) return setStatus(r.error);
+  $("txPatchMsg").innerHTML = "";            // force a rebuild for the new DBC
+  refreshPatch(r);
+});
+$("btnTxDbcViewer").addEventListener("click", async () => {
+  const r = await POST("/api/tx/patch/dbc", { use_viewer: true });
+  if (!r.ok) return setStatus(r.error);
+  $("txPatchMsg").innerHTML = "";
+  refreshPatch(r);
+});
+
+$("btnTxPatchAdd").addEventListener("click", async () => {
+  const value = parseFloat($("txPatchVal").value);
+  if (Number.isNaN(value)) return setStatus("enter a value to force");
+  const r = await POST("/api/tx/patch/override", {
+    message: $("txPatchMsg").value, signal: $("txPatchSig").value, value });
+  r.ok ? refreshPatch(r) : setStatus(r.error);
+});
+$("btnTxPatchClear").addEventListener("click", async () => refreshPatch(await POST("/api/tx/patch/clear")));
+
+function renderPatchRules() {
+  const rules = (txPatch && txPatch.rules) || [];
+  const checks = (txPatch && txPatch.checksums) || [];
+  const KIND = { set: "forced", monotonic: "continuous", counter: "regenerated" };
+  $("txPatchRules").innerHTML = rules.map((r) => `<tr>
+      <td class="tx-name">${r.message}.${r.signal}
+        <div class="muted-line" style="margin:2px 0 0">${KIND[r.kind] || r.kind}${
+          r.kind === "set" ? ` at ${r.value}${r.unit ? " " + r.unit : ""}` : ""}${
+          r.last != null ? ` · last sent ${r.last}${r.unit ? " " + r.unit : ""}` : ""}</div></td>
+      <td class="tx-btns"><button class="btn-mini" data-msg="${r.message}" data-sig="${r.signal}">✕</button></td>
+    </tr>`).join("") + checks.map((c) => `<tr>
+      <td class="tx-name">${c.message}.${c.signal}
+        <div class="muted-line" style="margin:2px 0 0">checksum recomputed (${c.algorithm})</div></td>
+      <td class="tx-btns"></td></tr>`).join("");
+}
+$("txPatchRules").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-sig]"); if (!btn) return;
+  refreshPatch(await POST("/api/tx/patch/override",
+    { message: btn.dataset.msg, signal: btn.dataset.sig, remove: true }));
+});
+
+$("btnTxPatchAnalyze").addEventListener("click", async () => {
+  $("txPatchSeamInfo").textContent = "scanning the log…";
+  const r = await POST("/api/tx/patch/analyze");
+  if (!r.ok) { $("txPatchSeamInfo").textContent = ""; return setStatus(r.error); }
+  txSeamFound = r;
+  $("txPatchSeamInfo").textContent =
+    `${r.monotonic.length} rising · ${r.counters.length} counter-like in ${r.scanned}`;
+  $("txSeamBox").classList.remove("hidden");
+  // Nothing is pre-checked on purpose: "rose during this capture" is not the
+  // same claim as "must climb forever". A battery temperature drifting up over
+  // 41 s is monotonic in the data and would be wrong to accumulate on a loop.
+  const list = (items, group, label) => `<div><div class="muted-line"><b>${label}</b></div>` +
+    (items.length ? items.slice(0, 12).map((e) => `<label class="check">
+        <input type="checkbox" data-group="${group}" data-msg="${e.message}" data-sig="${e.signal}" />
+        ${e.accumulator_hint ? "★ " : ""}${e.message}.${e.signal}
+        <span class="muted-line" style="margin:0">${
+          group === "monotonic" ? `+${e.rise}${e.unit ? " " + e.unit : ""}` : `step ${e.step}, ${e.wraps} wraps`}</span>
+      </label>`).join("") : `<div class="muted-line">none detected</div>`) + `</div>`;
+  $("txSeamLists").innerHTML =
+    list(r.monotonic, "monotonic", "Rose through this capture — ★ = name looks like an accumulator") +
+    list(r.counters, "counters", "Rolls over — safe to regenerate");
+});
+
+$("btnTxSeamApply").addEventListener("click", async () => {
+  const pick = (group) => [...document.querySelectorAll(`#txSeamLists input[data-group="${group}"]:checked`)]
+    .map((el) => [el.dataset.msg, el.dataset.sig]);
+  const body = { monotonic: pick("monotonic"), counters: pick("counters"), checksums: [] };
+  if ($("txCsumSig").value) {
+    body.checksums = [{ message: $("txPatchMsg").value, signal: $("txCsumSig").value,
+                        algorithm: $("txCsumAlgo").value }];
+  }
+  const r = await POST("/api/tx/patch/seam", body);
+  r.ok ? refreshPatch(r) : setStatus(r.error);
+});
+
+// ----- saved scenarios -----------------------------------------------------
+async function refreshScenarios(selected) {
+  const r = await api("/api/tx/scenarios");
+  $("txScenario").innerHTML = `<option value="">— saved scenarios —</option>` +
+    (r.scenarios || []).map((s) => `<option value="${s}"${s === selected ? " selected" : ""}>${s}</option>`).join("");
+}
+$("btnTxScenarioSave").addEventListener("click", async () => {
+  if (!txItems.length) return setStatus("nothing to save — build a playlist first");
+  const name = prompt("Save this playlist as:", $("txScenario").value || "bench-scenario");
+  if (!name) return;
+  const r = await POST("/api/tx/save", { name });
+  if (!r.ok) return setStatus(r.error);
+  await refreshScenarios(name);
+  setStatus(`saved scenario "${name}"`);
+});
+$("btnTxScenarioLoad").addEventListener("click", async () => {
+  const name = $("txScenario").value; if (!name) return;
+  const r = await POST("/api/tx/load", { name });
+  if (!r.ok) return setStatus(r.error);
+  txItems = r.meta.items.map((it) => ({
+    path: it.path, repeat: it.repeat, network: it.network,
+    gap_before_ms: $("txAutoGap").checked ? "auto" : 0,
+  }));
+  showReplayMeta(r);
+  renderTxItems(r.meta.items);
+});
+$("btnTxScenarioDelete").addEventListener("click", async () => {
+  const name = $("txScenario").value; if (!name) return;
+  if (!confirm(`Delete scenario "${name}"?`)) return;
+  await POST("/api/tx/delete", { name });
+  refreshScenarios();
+});
+$("replayNetwork").addEventListener("change", reselectReplay);
+$("replaySkipTx").addEventListener("change", reselectReplay);
+
+function showReplayMeta(r) {
+  if (!r.ok) { replayMeta = null; $("replayMeta").textContent = r.error; return; }
+  const m = replayMeta = r.meta;
+  // Networks come from the log itself; a Vehicle Spy capture holds several.
+  const carrying = (m.networks || []).filter((n) => n.frames);
+  $("replayNetwork").innerHTML = carrying.length
+    ? carrying.map((n) => `<option value="${n.name}"${n.name === m.network ? " selected" : ""}>${n.name} · ${n.frames.toLocaleString()} frames</option>`).join("")
+    : `<option value="">—</option>`;
+  renderTxItems(m.items);
+  const bits = [
+    m.item_count > 1 ? `${m.item_count} files` : null,
+    `${m.frames.toLocaleString()} frames`,
+    `${m.duration_s.toFixed(1)} s`,
+    `${m.ids.length} IDs`,
+    m.fps ? `${m.fps.toFixed(0)} fps` : null,
+    m.baud ? `${(m.baud / 1000).toFixed(0)} kbit/s (from log)` : "bitrate unknown",
+    m.load_pct != null ? `~${m.load_pct}% bus load` : null,
+  ].filter(Boolean);
+  $("replayMeta").textContent = bits.join(" · ");
+  $("replayWarn").innerHTML = (r.warnings || [])
+    .map((w) => `<div class="warn-line">⚠ ${w}</div>`).join("");
+  $("btnReplayBitrate").classList.toggle("hidden", !m.baud);
+}
+
+// Reconnect the current adapter at the log's own bitrate — the mismatch that
+// otherwise looks like "the bus is dead" on the bench.
+$("btnReplayBitrate").addEventListener("click", async () => {
+  if (!replayMeta || !replayMeta.baud) return;
+  const conn = (await api("/api/status")).connection;
+  if (!conn) { setStatus("connect an adapter first, then apply the log bitrate"); return; }
+  if (conn.bitrate === replayMeta.baud) { setStatus("already at the log's bitrate"); return; }
+  const r = await POST("/api/connect", { hw: conn.hw, channel: conn.channel,
+    bitrate: replayMeta.baud, fd: !!conn.fd, simulate: !!conn.simulated });
+  setStatus(r.ok ? `reconnected at ${(replayMeta.baud / 1000).toFixed(0)} kbit/s` : r.error);
+  reselectReplay();
+});
+
+$("replayRepeat").addEventListener("change", () => {
+  $("replayCount").classList.toggle("hidden", $("replayRepeat").value !== "n");
+});
+function replayPasses() {
+  const mode = $("replayRepeat").value;
+  if (mode === "0") return 0;                              // endless
+  if (mode === "n") return Math.max(2, parseInt($("replayCount").value, 10) || 2);
+  return 1;
 }
 $("btnPlay").addEventListener("click", () =>
-  POST("/api/replay/play", { speed: parseFloat($("speedRange").value), loop: $("replayLoop").checked })
+  POST("/api/replay/play", { speed: parseFloat($("speedRange").value), repeat: replayPasses() })
     .then((r) => { if (!r.ok) setStatus(r.error); }));
 $("btnPause").addEventListener("click", () => POST("/api/replay/pause"));
 $("btnStop").addEventListener("click", () => POST("/api/replay/stop"));
 $("btnStep").addEventListener("click", () => POST("/api/replay/step"));
 $("speedRange").addEventListener("input", () => {
   $("speedLabel").textContent = parseFloat($("speedRange").value).toFixed(1) + "×";
+  POST("/api/replay/speed", { speed: parseFloat($("speedRange").value) });
 });
 function renderReplay(s) {
-  $("replayState").textContent = s.state;
+  $("replayState").textContent = s.state === "playing" && s.passes !== 1
+    ? `playing ${s.pass_no}/${s.passes || "∞"}` : s.state;
   $("replayBar").style.width = (s.progress * 100).toFixed(1) + "%";
-  $("replayCursor").textContent = `${s.cursor_s.toFixed(3)} s · ${s.sent} sent · ${s.cursor}/${s.total}`;
+  $("replayCursor").textContent = `${s.cursor_s.toFixed(3)} s · ${s.sent.toLocaleString()} sent · ${s.cursor}/${s.total}`;
+  // Which file of the playlist is on the wire right now.
+  $("replayNow").textContent = s.item_count > 1
+    ? `item ${s.item + 1}/${s.item_count} — ${s.item_label}` +
+      (s.item_repeat !== 1 ? ` (pass ${s.item_pass}/${s.item_repeat || "∞"})` : "")
+    : "";
+  document.querySelectorAll("#txItems tr").forEach((tr, i) =>
+    tr.classList.toggle("tx-now", s.item_count > 1 && i === s.item &&
+                                  (s.state === "playing" || s.state === "paused")));
+  const h = s.health;
+  if (!h) return;
+  // Health, not decoration: on a real capture the OS clock is the limit, so show
+  // achieved vs target rate and how far off the deadlines we ran.
+  const parts = [`${h.fps.toFixed(0)} fps sent`];
+  if (h.target_fps) parts.push(`target ${h.target_fps.toFixed(0)}`);
+  parts.push(`drift ${h.drift_ms.toFixed(0)} ms`,
+             `late ${h.late_pct.toFixed(1)}% (max ${h.max_late_ms.toFixed(1)} ms)`,
+             `burst ≤${h.burst_max}`);
+  if (h.errors) parts.push(`TX errors ${h.errors}`);
+  if (s.error) {
+    $("replayHealth").innerHTML = `<span class="warn-line">⚠ ${s.error}</span>`;
+  } else if (h.keeping_up === false) {
+    // Say it plainly rather than leaving it to be inferred from late_pct.
+    $("replayHealth").innerHTML = parts.join(" · ") +
+      `<div class="warn-line">⚠ cannot sustain ${s.speed}× — sending ${h.fps.toFixed(0)} of ` +
+      `${h.target_fps.toFixed(0)} fps, ${(h.drift_ms / 1000).toFixed(1)} s behind. Lower the speed.</div>`;
+  } else {
+    $("replayHealth").textContent = parts.join(" · ");
+  }
 }
 
 // -------------------------------------------------------- Reverse Engineering
@@ -2562,7 +2929,8 @@ const NAV_ICONS = {
 document.querySelectorAll(".nav").forEach((b) => {
   const ic = NAV_ICONS[b.dataset.view];
   const label = b.textContent.trim();
-  if (ic) b.innerHTML = ic + `<span>${label}</span>`;
+  b.dataset.label = label;    // kept for the readiness tooltips (innerHTML is rewritten)
+  if (ic) b.innerHTML = ic + `<span class="nav-label">${label}</span>`;
   b.title = label;            // tooltip — useful when the rail is collapsed
 });
 

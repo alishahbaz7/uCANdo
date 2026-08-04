@@ -52,6 +52,8 @@ from .reverse import analyze_log
 from .scheduler import TxScheduler
 from .signals import SignalViewer
 from .storage import Storage, adopt_legacy_db
+from . import txproject
+from . import txpatch
 
 import sys
 
@@ -208,6 +210,49 @@ class PlayReq(BaseModel):
     speed: float = 1.0
     loop: bool = False
     filter_ids: list[int] | None = None
+    #: passes to transmit — 1 = once, n = limited count, 0 = endless
+    repeat: int | None = None
+
+
+class ReplayLoadReq(BaseModel):
+    path: str
+    network: str | None = None
+
+
+class ReplaySelectReq(BaseModel):
+    network: str | None = None
+    filter_ids: list[int] | None = None
+    skip_tx: bool | None = None
+
+
+class TxPlanReq(BaseModel):
+    """A playlist: ordered items, each a log file with its own repeat/gap."""
+    items: list[dict] = []
+    name: str = ""
+
+
+class TxScenarioReq(BaseModel):
+    name: str
+
+
+class TxPatchDbcReq(BaseModel):
+    path: str | None = None            # an uploaded/absolute .dbc path
+    use_viewer: bool = False           # reuse the DBC already in the Signal Viewer
+    oem_profile_id: int | None = None  # or an OEM Database profile
+
+
+class TxOverrideReq(BaseModel):
+    message: str
+    signal: str
+    value: float | None = None         # None (or remove) clears the override
+    remove: bool = False
+
+
+class TxSeamReq(BaseModel):
+    """Signals whose continuity must survive a loop seam."""
+    monotonic: list[list[str]] = []    # [[message, signal], ...]
+    counters: list[list[str]] = []
+    checksums: list[dict] = []         # [{message, signal, algorithm}]
 
 
 class DbcModelReq(BaseModel):
@@ -397,6 +442,13 @@ def set_log_dir(req: LogDirReq):
     return {"ok": True, "dir": _active_log_dir()}
 
 
+#: Depth of sub-folders scanned under the log/upload dirs. Real captures arrive
+#: as a folder per session ("MG Commute 01Aug26/Moving Data/*.csv"), so a flat
+#: listdir hides most of them; the cap keeps a deep tree from stalling the UI.
+_LOG_SCAN_DEPTH = 4
+_LOG_SCAN_MAX = 2000
+
+
 @app.get("/api/logs")
 def list_logs():
     out = []
@@ -406,10 +458,19 @@ def list_logs():
         if base in seen or not os.path.isdir(base):
             continue
         seen.add(base)
-        for name in sorted(os.listdir(base)):
-            p = os.path.join(base, name)
-            if os.path.isfile(p) and name.lower().endswith((".asc", ".blf", ".csv", ".log")):
-                out.append({"name": name, "path": p, "size": os.path.getsize(p)})
+        for root, subdirs, files in os.walk(base):
+            depth = root[len(base):].count(os.sep)
+            if depth >= _LOG_SCAN_DEPTH:
+                subdirs[:] = []
+            subdirs.sort()
+            for name in sorted(files):
+                if not name.lower().endswith((".asc", ".blf", ".csv", ".log", ".trc")):
+                    continue
+                p = os.path.join(root, name)
+                rel = os.path.relpath(p, base).replace(os.sep, "/")
+                out.append({"name": rel, "path": p, "size": os.path.getsize(p)})
+                if len(out) >= _LOG_SCAN_MAX:
+                    return {"logs": out, "truncated": True}
     return {"logs": out}
 
 
@@ -421,12 +482,201 @@ async def upload(file: UploadFile = File(...)):
 # ===========================================================================
 # TX Replay
 # ===========================================================================
+def _replay_warnings(meta: dict) -> list[str]:
+    """Pre-flight notes shown under the file picker — bench-safety, not errors."""
+    # Plan-level notes first (mixed bitrates, overlapping files, dead filters),
+    # then the live-bus checks that only the server can make.
+    out: list[str] = list(replayer.warnings())
+    carrying = [n for n in meta.get("networks", []) if n["frames"]]
+    if len(carrying) > 1:
+        others = ", ".join(f"{n['name']} ({n['frames']:,} frames)"
+                           for n in carrying if n["name"] != meta.get("network"))
+        out.append(f"log holds {len(carrying)} networks — transmitting "
+                   f"{meta.get('network')} only, not {others}")
+    baud = meta.get("baud")
+    conn = bus.conn or {}
+    if baud and conn.get("bitrate") and int(conn["bitrate"]) != int(baud):
+        out.append(f"log was captured at {baud:,} bit/s but the bus is connected at "
+                   f"{int(conn['bitrate']):,} — reconnect before transmitting")
+    if not baud:
+        out.append("log does not record its bitrate — set it yourself on connect")
+    if meta.get("load_pct") and meta["load_pct"] > 70:
+        out.append(f"~{meta['load_pct']}% estimated bus load at 1× "
+                   f"(excludes bit stuffing) — a busy bus may drop frames")
+    if meta.get("tx_frames_skipped"):
+        out.append(f"skipping {meta['tx_frames_skipped']:,} frames the capture tool "
+                   f"transmitted itself (not vehicle traffic)")
+    return out
+
+
 @app.post("/api/replay/load")
-def replay_load(req: PathReq):
+def replay_load(req: ReplayLoadReq):
     try:
-        return {"ok": True, "meta": replayer.load(req.path)}
+        meta = replayer.load(req.path, req.network)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
     except Exception as exc:
         return _err(str(exc))
+
+
+@app.post("/api/replay/select")
+def replay_select(req: ReplaySelectReq):
+    """Re-target playback (network / ID filter) without re-parsing the log."""
+    try:
+        meta = replayer.select(req.network, req.filter_ids, req.skip_tx)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/plan")
+def tx_plan(req: TxPlanReq):
+    """Install a playlist: several logs, in order, each with its own repeat/gap."""
+    try:
+        meta = replayer.set_plan(req.items, req.name)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/tx/scenarios")
+def tx_scenarios():
+    return {"scenarios": txproject.list_saved(storage), "current": replayer.meta().get("name", "")}
+
+
+@app.post("/api/tx/save")
+def tx_save(req: TxScenarioReq):
+    """Persist the current playlist under a name (reproducible bench test)."""
+    plan = replayer.plan()
+    if plan is None:
+        return _err("Build a playlist before saving it")
+    if not req.name.strip():
+        return _err("Give the scenario a name")
+    txproject.save(storage, req.name.strip(), [s.item for s in plan.segments])
+    return {"ok": True, "scenarios": txproject.list_saved(storage)}
+
+
+@app.post("/api/tx/load")
+def tx_load(req: TxScenarioReq):
+    try:
+        meta = replayer.set_plan(txproject.load_saved(storage, req.name), req.name)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/delete")
+def tx_delete(req: TxScenarioReq):
+    txproject.delete_saved(storage, req.name)
+    return {"ok": True, "scenarios": txproject.list_saved(storage)}
+
+
+# ----- TX signal patching (overrides + loop-seam continuity) ---------------
+#: One patcher lives alongside the replayer; it is installed on the engine as
+#: soon as a DBC is loaded and stays installed across plays.
+tx_patcher: txpatch.FramePatcher | None = None
+
+#: Playlist items sampled by /api/tx/patch/analyze. Spread across the playlist so
+#: a long drive is judged end-to-end, while bounding the scan cost.
+_ANALYZE_SEGMENTS = 6
+
+
+def _patch_state(extra: dict | None = None) -> dict:
+    base = {"ok": True, "loaded": tx_patcher is not None}
+    if tx_patcher is not None:
+        base.update(tx_patcher.config())
+    return {**base, **(extra or {})}
+
+
+@app.post("/api/tx/patch/dbc")
+def tx_patch_dbc(req: TxPatchDbcReq):
+    """Load the DBC used to name and locate signals for patching."""
+    global tx_patcher
+    import cantools                       # noqa: E402  (local to this feature)
+    try:
+        if req.use_viewer:
+            db = viewer.db()
+            if db is None:
+                return _err("the Signal Viewer has no DBC loaded")
+            name = viewer.info().get("dbc") or "Signal Viewer DBC"
+        elif req.oem_profile_id is not None:
+            prof = oem.get_profile(req.oem_profile_id)
+            if not prof or not prof.get("dbc"):
+                return _err("that OEM profile has no DBC")
+            db = cantools.database.load_string(prof["dbc"], database_format="dbc")
+            name = prof.get("name") or f"profile {req.oem_profile_id}"
+        elif req.path:
+            db = cantools.database.load_file(req.path)
+            name = os.path.basename(req.path)
+        else:
+            return _err("give a path, an OEM profile, or use the Signal Viewer's DBC")
+        tx_patcher = txpatch.FramePatcher(db, name)
+        replayer.set_patcher(tx_patcher)
+        return _patch_state({"messages": tx_patcher.messages()})
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/tx/patch")
+def tx_patch_get():
+    if tx_patcher is None:
+        return {"ok": True, "loaded": False, "rules": [], "checksums": [], "messages": []}
+    return _patch_state({"messages": tx_patcher.messages()})
+
+
+@app.post("/api/tx/patch/override")
+def tx_patch_override(req: TxOverrideReq):
+    """Force a signal to a value — applies to the very next frame transmitted."""
+    if tx_patcher is None:
+        return _err("load a DBC for patching first")
+    try:
+        if req.remove or req.value is None:
+            tx_patcher.clear(req.message, req.signal)
+        else:
+            tx_patcher.set_override(req.message, req.signal, req.value)
+        return _patch_state()
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/patch/seam")
+def tx_patch_seam(req: TxSeamReq):
+    if tx_patcher is None:
+        return _err("load a DBC for patching first")
+    try:
+        tx_patcher.set_monotonic([(m, s) for m, s in req.monotonic])
+        tx_patcher.set_counters([(m, s) for m, s in req.counters])
+        for c in req.checksums:
+            tx_patcher.set_checksum(c["message"], c["signal"], c.get("algorithm", "none"))
+        return _patch_state()
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/patch/clear")
+def tx_patch_clear():
+    if tx_patcher is not None:
+        tx_patcher.clear_all()
+    return _patch_state()
+
+
+@app.post("/api/tx/patch/analyze")
+def tx_patch_analyze():
+    """Scan the loaded playlist for signals that behave monotonically / as counters."""
+    if tx_patcher is None or tx_patcher.db is None:
+        return _err("load a DBC for patching first")
+    plan = replayer.plan()
+    if plan is None or not plan.segments:
+        return _err("load a log or playlist first")
+    # Sample evenly across the playlist, not just the first file: the MG Windsor
+    # drive's odometer never moves in its opening 41 s chunk, so scanning item 1
+    # alone would report no odometer to keep continuous.
+    segs = plan.segments
+    step = max(1, len(segs) // _ANALYZE_SEGMENTS)
+    sampled = segs[::step][:_ANALYZE_SEGMENTS]
+    found = txpatch.analyze_many([(s.store, s.sel) for s in sampled], tx_patcher.db)
+    return {"ok": True,
+            "scanned": ", ".join(os.path.basename(s.item.path) for s in sampled),
+            "scanned_count": len(sampled), "of_items": len(segs), **found}
 
 
 @app.post("/api/replay/play")
@@ -434,7 +684,7 @@ def replay_play(req: PlayReq):
     if not bus.connected:
         return _err("Connect a bus before replaying")
     try:
-        replayer.play(bus.send, req.speed, req.loop, req.filter_ids)
+        replayer.play(bus.send, req.speed, req.loop, req.filter_ids, req.repeat)
         return {"ok": True}
     except Exception as exc:
         return _err(str(exc))
@@ -453,6 +703,12 @@ def replay_resume():
 @app.post("/api/replay/stop")
 def replay_stop():
     replayer.stop(); return {"ok": True}
+
+
+@app.post("/api/replay/speed")
+def replay_speed(req: PlayReq):
+    """Change speed mid-playback; the engine re-anchors its deadline clock."""
+    replayer.set_speed(req.speed); return {"ok": True}
 
 
 @app.post("/api/replay/step")

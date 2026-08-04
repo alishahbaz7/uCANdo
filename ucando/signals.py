@@ -63,6 +63,15 @@ class SignalViewer:
             self._t0 = None
         return self.info()
 
+    def db(self):
+        """The loaded cantools database, or ``None``.
+
+        Lets other subsystems (TX signal patching) reuse the DBC the operator
+        already loaded here instead of asking for it twice.
+        """
+        with self._lock:
+            return self._db
+
     def info(self) -> dict:
         with self._lock:
             if not self._db:

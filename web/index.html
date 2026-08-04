@@ -50,6 +50,15 @@
       <div class="nav-group-label">Diagnostics</div>
       <button class="nav" data-view="dtc">DTC Codes</button>
       <button class="nav" data-view="decoder">Protocol Dec.</button>
+
+      <!-- Explains the rail's dim/pill convention, so a dimmed tab reads as
+           "needs something" rather than "broken". Kept in sync with VIEW_READY. -->
+      <div class="nav-legend">
+        <span><b>Bus</b> · dimmed until an adapter is connected</span>
+        <span><b>Log / DBC / File</b> · works offline, needs a file first</span>
+        <span><b>Soon</b> · not available in this release</span>
+        <span>No tag · ready to use now</span>
+      </div>
     </aside>
 
     <main class="main">
@@ -127,30 +136,118 @@
       <section id="view-replay" class="view hidden">
         <div class="panel" style="margin-bottom:16px">
           <div class="panel-head"><span>Log file</span>
-            <span><input type="file" id="replayFile" accept=".asc,.blf,.csv,.log" hidden />
-              <button class="btn-mini" id="btnReplayUpload">Load .asc / .blf</button>
+            <span><input type="file" id="replayFile" accept=".asc,.blf,.csv,.log,.trc" hidden />
+              <button class="btn-mini" id="btnReplayUpload">Upload log</button>
               <button class="btn-mini" id="btnReplayRescan">Logs</button></span>
           </div>
           <div style="padding:12px 16px">
-            <select id="replaySelect" style="width:100%"></select>
+            <select id="replaySelect" size="6" multiple
+                    title="Pick one file, or Ctrl/Shift-click several to build a playlist"
+                    style="width:100%"></select>
+            <div class="controls" style="margin-top:10px">
+              <button class="btn-mini" id="btnTxAdd" title="Append the selected files to the playlist below">Add to playlist ▾</button>
+              <span id="replaySelCount" class="muted-line" style="margin:0"></span>
+              <span style="flex:1"></span>
+              <label>Network <select id="replayNetwork" title="One log can hold several physically separate buses — only one can go out of a single-channel adapter"></select></label>
+              <label class="check"><input type="checkbox" id="replaySkipTx" checked
+                title="Frames the capture tool transmitted itself are the previous tester's traffic, not the vehicle's" /> Skip tool TX</label>
+              <span style="flex:1"></span>
+              <button class="btn-mini hidden" id="btnReplayBitrate" title="Reconnect the bus at the bitrate recorded in this log">Use log bitrate</button>
+            </div>
             <div id="replayMeta" class="muted-line"></div>
+            <div id="replayWarn" class="muted-line"></div>
           </div>
         </div>
+
+        <!-- Playlist: ordered items, each with its own repeat and lead-in gap -->
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Playlist</span>
+            <span>
+              <select id="txScenario" style="max-width:160px"><option value="">— saved scenarios —</option></select>
+              <button class="btn-mini" id="btnTxScenarioLoad">Load</button>
+              <button class="btn-mini" id="btnTxScenarioSave">Save as…</button>
+              <button class="btn-mini" id="btnTxScenarioDelete" title="Delete the selected scenario">✕</button>
+            </span>
+          </div>
+          <div style="padding:12px 16px">
+            <table class="tx-list"><tbody id="txItems"></tbody></table>
+            <div id="txEmpty" class="muted-line">No playlist — pick one file above to replay it, or select several and click <b>Add to playlist</b>.</div>
+            <div class="controls">
+              <button class="btn-mini" id="btnTxClear">Clear</button>
+              <label class="check"><input type="checkbox" id="txAutoGap"
+                title="Vehicle Spy splits one session into chunks that share a clock — reconstruct the real pause between consecutive files instead of splicing them" />
+                Preserve real gaps between files</label>
+              <span style="flex:1"></span>
+              <span id="txTotals" class="muted-line" style="margin:0"></span>
+            </div>
+          </div>
+        </div>
+        <!-- Signal overrides + loop-seam continuity: patch signals into the
+             frames as they go out, so a recorded drive can be pushed to states
+             it never contained and looped indefinitely without teleporting. -->
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><span>Signal overrides &amp; loop continuity</span>
+            <span>
+              <input type="file" id="txDbcFile" accept=".dbc" hidden />
+              <button class="btn-mini" id="btnTxDbcUpload">Load .dbc</button>
+              <button class="btn-mini" id="btnTxDbcViewer" title="Reuse the DBC already loaded in the Signal Viewer">Use Signal Viewer DBC</button>
+            </span>
+          </div>
+          <div style="padding:12px 16px">
+            <div id="txPatchNone" class="muted-line">No DBC — load one to force a signal to a value while the log plays, or to keep the odometer climbing across loops.</div>
+            <div id="txPatchBody" class="hidden">
+              <div class="controls" style="margin-top:0">
+                <label>Message <select id="txPatchMsg" style="max-width:200px"></select></label>
+                <label>Signal <select id="txPatchSig" style="max-width:200px"></select></label>
+                <label>Value <input type="number" id="txPatchVal" step="any" style="width:100px" /></label>
+                <span id="txPatchHint" class="muted-line" style="margin:0"></span>
+                <span style="flex:1"></span>
+                <button class="btn-mini" id="btnTxPatchAdd">Force value</button>
+              </div>
+              <table class="tx-list"><tbody id="txPatchRules"></tbody></table>
+              <div class="controls">
+                <button class="btn-mini" id="btnTxPatchAnalyze" title="Scan the loaded log for signals that only rise (odometer, energy totals) or roll over (counters)">Detect from log</button>
+                <button class="btn-mini" id="btnTxPatchClear">Clear all</button>
+                <span id="txPatchSeamInfo" class="muted-line" style="margin:0"></span>
+              </div>
+              <div id="txSeamBox" class="hidden">
+                <div class="muted-line"><b>Keep continuous across a loop seam</b> — pick what must not step backwards when the log restarts.</div>
+                <div id="txSeamLists" class="tx-seam"></div>
+                <div class="controls">
+                  <button class="btn-mini" id="btnTxSeamApply">Apply continuity</button>
+                  <label>Checksum <select id="txCsumSig" style="max-width:190px"><option value="">— none —</option></select></label>
+                  <select id="txCsumAlgo"><option value="sum8">sum8</option><option value="xor8">xor8</option></select>
+                  <span class="muted-line" style="margin:0">only if you have confirmed the algorithm</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="panel">
           <div class="panel-head"><span>Playback</span><span id="replayState" class="tag">ready</span></div>
           <div style="padding:16px">
             <div class="progress"><div id="replayBar" class="progress-bar"></div></div>
             <div class="muted-line" id="replayCursor">0.000 s</div>
+            <div class="muted-line" id="replayNow"></div>
             <div class="controls">
               <button class="btn" id="btnPlay">Play</button>
               <button class="btn" id="btnPause">Pause</button>
               <button class="btn" id="btnStop">Stop</button>
               <button class="btn" id="btnStep">Step</button>
-              <label class="check"><input type="checkbox" id="replayLoop" /> Loop</label>
+              <label>Repeat
+                <select id="replayRepeat">
+                  <option value="1">Once</option>
+                  <option value="n">Count…</option>
+                  <option value="0">Endless</option>
+                </select></label>
+              <input type="number" id="replayCount" min="2" max="100000" step="1" value="10"
+                     style="width:78px" class="hidden" title="Number of passes" />
               <span style="flex:1"></span>
               <label>Speed <span id="speedLabel">1.0×</span></label>
               <input type="range" id="speedRange" min="0.1" max="10" step="0.1" value="1" />
             </div>
+            <div class="muted-line" id="replayHealth"></div>
           </div>
         </div>
       </section>

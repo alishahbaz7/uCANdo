@@ -5,6 +5,7 @@ venv/
 data/logs/
 data/uploads/
 data/drivers/
+data/cache/
 data/*.log
 data/*.log.*
 *.asc

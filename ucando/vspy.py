@@ -37,31 +37,60 @@ def is_vspy_csv(text: str) -> bool:
     return bool(head) and head[0].strip().lower().startswith(_SIGNATURE)
 
 
-def _network_protocols(lines: list[str]) -> dict[str, str]:
-    """``{network_name: protocol}`` from the ``Network Description`` table.
+def network_table(text: str) -> dict[str, dict]:
+    """``{network_name: {"protocol": str, "baud": int|None}}`` from the file.
 
     Header is ``Network Description,Hardware,Network,Protocol,Baud Rate`` —
-    the row's own name repeats in the "Network" column, protocol is index 3.
-    Only CAN-protocol networks use the Arb-ID/Remote/Xtd column layout this
-    parser understands; LIN/J1708/etc. rows on the same file are skipped.
+    the row's own name repeats in the "Network" column, protocol is index 3
+    and **baud rate index 4**. This is where a Vehicle Spy capture records the
+    bitrate it was taken at, so a replay can restore it without the operator
+    having to remember (`neoVI` and other rows may leave baud blank).
+
+    Note it is Vehicle Spy's *static* network config — every network it knows
+    about, not only the ones that appear in the traffic. Callers should read
+    baud for the networks they actually saw frames on.
     """
-    protos: dict[str, str] = {}
+    return _network_table(text.lstrip("﻿").splitlines())
+
+
+def _network_table(lines: list[str]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
     start = next((i for i, ln in enumerate(lines) if ln.startswith("Network Description,")), None)
     if start is None:
-        return protos
+        return out
     for ln in lines[start + 1:]:
         if not ln.strip() or ln.startswith("Line,"):
             break
         cols = ln.split(",")
         if len(cols) >= 5:                      # name, hardware, network, protocol, baud
-            protos[cols[0].strip()] = cols[3].strip()
-    return protos
+            baud = cols[4].strip()
+            out[cols[0].strip()] = {
+                "protocol": cols[3].strip(),
+                "baud": int(baud) if baud.isdigit() else None,
+            }
+    return out
+
+
+def _network_protocols(lines: list[str]) -> dict[str, str]:
+    """``{network_name: protocol}`` — the protocol column only."""
+    return {k: v["protocol"] for k, v in _network_table(lines).items()}
 
 
 def parse_frames(text: str) -> list[dict]:
     """Parse Vehicle Spy CSV text into a list of frame dicts, capture order.
 
-    Each frame: ``{timestamp, network, id, id_hex, is_extended, is_remote, data}``.
+    Each frame: ``{timestamp, network, id, id_hex, is_extended, is_remote,
+    is_tx, data}``.
+    """
+    return list(iter_frames(text))
+
+
+def iter_frames(text: str):
+    """Streaming :func:`parse_frames` — yields one frame dict at a time.
+
+    A 100k-row capture is ~6 MB of CSV; TX replay stores frames in packed
+    arrays (:mod:`ucando.logstore`) rather than a list of dicts, so it wants
+    them one at a time instead of materialising the whole list first.
     """
     if not is_vspy_csv(text):
         raise ValueError("not a Vehicle Spy 3 Bus Traffic File")
@@ -74,7 +103,6 @@ def parse_frames(text: str) -> list[dict]:
         raise ValueError("Vehicle Spy CAN header row (Arb ID/Remote/Xtd) not found")
     header = lines[hdr_idx].split(",")
 
-    frames = []
     for row in csv.reader(lines[hdr_idx + 1:]):
         if not row or not row[0].strip().isdigit():
             continue                            # blank line / trailer, not a data row
@@ -87,16 +115,19 @@ def parse_frames(text: str) -> list[dict]:
             continue                            # bus-event row, not a frame (see below)
         byte_cols = [d.get(f"B{i}", "") for i in range(1, 9)]
         data = bytes.fromhex("".join(b for b in byte_cols if b.strip() != ""))
-        frames.append({
+        yield {
             "timestamp": float(d["Abs Time(Sec)"]),
             "network": net,
             "id": int(id_hex, 16),
             "id_hex": id_hex.upper(),
             "is_extended": (d.get("Xtd") or "").strip().upper() == "T",
             "is_remote": (d.get("Remote") or "").strip().upper() == "T",
+            # Frames the capturing tool transmitted itself. Replaying them back
+            # is usually wrong (they are the tester's own traffic, not the
+            # vehicle's), so TX replay can filter on this.
+            "is_tx": (d.get("Tx") or "").strip().upper() == "T",
             "data": data,
-        })
-    return frames
+        }
 
 
 def to_frames_by_id(frames: list[dict], max_frames_per_id: int = 20000) -> dict:

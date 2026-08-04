@@ -10,6 +10,7 @@
   --green: #46b86a;
   --green-bg: #16361f;
   --red: #e25555;
+  --warn: #d9a441;
   --mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
 }
 
@@ -457,6 +458,23 @@ input::placeholder, textarea::placeholder { color: #6b7280; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 textarea { resize: vertical; font-family: var(--mono); font-size: 12px; }
 .muted-line { color: var(--muted); font-size: 12px; margin-top: 8px; }
+/* Pre-flight notes above a transmit — advisory, not an error state. */
+.warn-line { color: var(--warn, #d19a34); font-size: 12px; margin-top: 4px; line-height: 1.5; }
+
+/* TX playlist — ordered items, the one on the wire highlighted */
+.tx-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tx-list td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tx-list tr:last-child td { border-bottom: none; }
+.tx-list .tx-n { color: var(--muted); width: 24px; font-family: var(--mono); }
+.tx-list .tx-name { width: 100%; }
+.tx-list .tx-btns { white-space: nowrap; text-align: right; }
+.tx-list .tx-rep { width: 58px; }
+.tx-list tr.tx-now { background: var(--accent-soft); }
+.tx-list tr.tx-now .tx-n { color: var(--accent); font-weight: 700; }
+/* Loop-seam candidate lists — two columns of checkboxes */
+.tx-seam { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+.tx-seam .check { margin: 3px 0; color: var(--text); font-size: 12px; }
+@media (max-width: 900px) { .tx-seam { grid-template-columns: 1fr; } }
 .controls { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 .controls input[type=range] { width: 180px; }
 .check { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
@@ -581,9 +599,27 @@ canvas.chart { width: 100%; height: 90px; background: var(--bg); border: 1px sol
 .sum-bad { color: var(--red); }
 .sum-warn { color: #e0a82e; }
 
-/* Unavailable features: dimmed but still reachable, with an in-view reason. */
+/* Feature readiness in the rail — see VIEW_READY in app.js.
+   Bus-gated: dimmed but still reachable, with an in-view reason.
+   Not built:  greyed harder and inert. Needs a file: full brightness + pill. */
 .nav.nav-unavail { opacity: .45; }
 .nav.nav-unavail:hover { opacity: .75; }
+.nav.nav-soon { opacity: .35; cursor: not-allowed; }
+.nav.nav-soon:hover { background: none; color: var(--muted); }
+.nav-pill {
+  margin-left: auto; flex: none; font-size: 9.5px; line-height: 1.5;
+  letter-spacing: .05em; text-transform: uppercase; padding: 0 5px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel-2); color: var(--muted);
+}
+.nav-pill[hidden] { display: none; }              /* [hidden] loses to flex otherwise */
+.nav-pill.pill-soon { border-color: #5a4a22; background: #33291333; color: var(--warn); }
+.nav-legend {
+  margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 4px; color: #6b7280; font-size: 10.5px;
+}
+.app.nav-rail .nav-legend,
+.app.nav-auto .sidebar:not(:hover) .nav-legend { display: none; }
 .view-gate { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 9px 14px;
   background: var(--panel); border: 1px solid var(--line); border-left: 3px solid #e0a82e;
   border-radius: 8px; color: var(--muted); font-size: 12.5px; }

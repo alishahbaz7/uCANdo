@@ -11,6 +11,7 @@ HAL + subsystems the server uses, so behaviour matches the UI exactly.
 from __future__ import annotations
 
 import argparse
+import os
 import time
 
 from .bus_manager import BusManager
@@ -54,16 +55,79 @@ def cmd_identify(args) -> int:
     return 0
 
 
+def cmd_tx(args) -> int:
+    """Play a saved scenario or an ad-hoc list of files, in order.
+
+    The unattended form of the TX Simulator: same engine, no UI, so a bench
+    soak or a CI regression against a telematics unit is one command.
+    """
+    import json as _json
+    from . import txproject
+
+    if args.scenario:
+        if os.path.isfile(args.scenario):
+            items = _json.load(open(args.scenario, encoding="utf-8"))
+            items = items.get("items", items)          # accept a bare list too
+        else:
+            items = [i.to_dict() for i in txproject.load_saved(Storage(), args.scenario)]
+    else:
+        items = [{"path": p, "network": args.network, "repeat": args.item_repeat,
+                  "gap_before_ms": args.gap} for p in args.files]
+
+    bus = _connect(args)
+    rep = LogReplayer()
+    meta = rep.set_plan(items)
+    print(f"playlist: {meta['item_count']} item(s) · {meta['frames']:,} frames/pass · "
+          f"{meta['duration_s']:.1f}s · {meta.get('network') or 'bus'}"
+          + (f" · {meta['baud']:,} bit/s" if meta.get("baud") else ""))
+    for i, it in enumerate(meta["items"], 1):
+        print(f"  {i:2}. {it['label']}  {it['frames']:,} frames · {it['duration_s']:.1f}s"
+              + (f" ×{it['repeat']}" if it["repeat"] != 1 else "")
+              + (f" · +{it['gap_s']:.2f}s gap" if it["gap_s"] else ""))
+    for w in rep.warnings():
+        print(f"  ! {w}")
+
+    rep.play(bus.send, speed=args.speed, repeat=args.repeat)
+    last = -1
+    while rep.status()["state"] in ("playing", "paused"):
+        st = rep.status()
+        if st["item"] != last:
+            last = st["item"]
+            print(f"  -> {st['item_label']}")
+        time.sleep(0.2)
+    st = rep.status()
+    bus.disconnect()
+    h = st["health"]
+    print(f"sent {st['sent']:,} frames · {h['fps']:.0f} fps · drift {h['drift_ms']:.0f} ms · "
+          f"late {h['late_pct']:.1f}% (max {h['max_late_ms']:.1f} ms) · errors {h['errors']}")
+    if st["state"] == "error":
+        print(f"stopped: {st['error']}")
+        return 1
+    return 0
+
+
 def cmd_replay(args) -> int:
     bus = _connect(args)
     rep = LogReplayer()
-    meta = rep.load(args.file)
-    print(f"replaying {meta['frames']} frames ({meta['duration_s']}s) at {args.speed}x")
-    rep.play(bus.send, speed=args.speed)
-    while rep.status()["state"] == "playing":
+    meta = rep.load(args.file, args.network)
+    baud = f", captured at {meta['baud']:,} bit/s" if meta.get("baud") else ""
+    print(f"replaying {meta['frames']} frames ({meta['duration_s']}s) on "
+          f"{meta.get('network') or 'bus'} at {args.speed}x{baud}")
+    for net in meta.get("networks", []):
+        if net["frames"] and net["name"] != meta.get("network"):
+            print(f"  note: skipping {net['frames']:,} frames on {net['name']} "
+                  f"(separate bus — use --network to play it instead)")
+    rep.play(bus.send, speed=args.speed, repeat=args.repeat)
+    while rep.status()["state"] in ("playing", "paused"):
         time.sleep(0.2)
+    st = rep.status()
     bus.disconnect()
-    print(f"sent {rep.status()['sent']} frames")
+    h = st["health"]
+    print(f"sent {st['sent']} frames · {h['fps']:.0f} fps · drift {h['drift_ms']:.0f} ms · "
+          f"late {h['late_pct']:.1f}% (max {h['max_late_ms']:.1f} ms) · errors {h['errors']}")
+    if st["state"] == "error":
+        print(f"stopped: {st['error']}")
+        return 1
     return 0
 
 
@@ -203,7 +267,26 @@ def main(argv=None) -> int:
     rp = sub.add_parser("replay", help="replay a log onto the bus")
     rp.add_argument("--file", required=True)
     rp.add_argument("--speed", type=float, default=1.0)
+    rp.add_argument("--network", default=None,
+                    help="bus to transmit when the log holds several (default: the busiest)")
+    rp.add_argument("--repeat", type=int, default=1,
+                    help="passes to transmit: 1 once, n a count, 0 endless")
     rp.set_defaults(func=cmd_replay)
+
+    tx = sub.add_parser("tx", help="play a playlist of logs, in order (vehicle mimic)")
+    tx.add_argument("files", nargs="*", help="log files, in playback order")
+    tx.add_argument("--scenario", default=None,
+                    help="a saved scenario name, or a .json playlist file")
+    tx.add_argument("--speed", type=float, default=1.0)
+    tx.add_argument("--network", default=None, help="bus to transmit (default: the busiest)")
+    tx.add_argument("--repeat", type=int, default=1,
+                    help="passes of the whole playlist: 1 once, n a count, 0 endless")
+    tx.add_argument("--item-repeat", type=int, default=1,
+                    help="passes of each file within a playlist pass")
+    tx.add_argument("--gap", default=0.0,
+                    help="ms of silence before each file, or 'auto' to use the "
+                         "real pause recorded between session chunks")
+    tx.set_defaults(func=cmd_tx)
 
     dr = sub.add_parser("drive", help="record + poll OBD PIDs (for correlation labeling)")
     dr.add_argument("--seconds", type=float, default=120.0)
