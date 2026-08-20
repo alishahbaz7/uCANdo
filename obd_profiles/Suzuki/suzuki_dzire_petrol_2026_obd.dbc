@@ -1,0 +1,141 @@
+VERSION "Maruti Suzuki Dzire 2026 - OBD-II diagnostic profile, uCANdo RE 2026-08-20"
+
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: Tester ECM Module2
+
+BO_ 2015 OBD2_Request_Functional: 8 Tester
+ SG_ Length : 7|8@0+ (1,0) [0|8] "" Vector__XXX
+ SG_ Service : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ ParameterID : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2016 UDS_Request_ECM: 8 Tester
+ SG_ PciByte : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ ServiceOrFlowControl : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ DataIdentifier : 23|16@0+ (1,0) [0|65535] "" Vector__XXX
+
+BO_ 2024 OBD2_Response_ECM: 8 ECM
+ SG_ Length : 7|8@0+ (1,0) [0|8] "" Vector__XXX
+ SG_ ResponseService : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ ParameterID M : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ SupportedPIDs_01_20 m0 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ SupportedPIDs_21_40 m32 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ SupportedPIDs_41_60 m64 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ MonitorStatus m1 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ FuelSystemStatus m3 : 31|16@0+ (1,0) [0|65535] "" Vector__XXX
+ SG_ CalcEngineLoad m4 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ CoolantTemp m5 : 31|8@0+ (1,-40) [-40|215] "degC" Vector__XXX
+ SG_ ShortTermFuelTrimB1 m6 : 31|8@0+ (0.78125,-100) [-100|99.2] "%" Vector__XXX
+ SG_ LongTermFuelTrimB1 m7 : 31|8@0+ (0.78125,-100) [-100|99.2] "%" Vector__XXX
+ SG_ IntakeManifoldPressure m11 : 31|8@0+ (1,0) [0|255] "kPa" Vector__XXX
+ SG_ EngineRPM m12 : 31|16@0+ (0.25,0) [0|16383.75] "rpm" Vector__XXX
+ SG_ VehicleSpeed m13 : 31|8@0+ (1,0) [0|255] "km/h" Vector__XXX
+ SG_ TimingAdvance m14 : 31|8@0+ (0.5,-64) [-64|63.5] "deg" Vector__XXX
+ SG_ IntakeAirTemp m15 : 31|8@0+ (1,-40) [-40|215] "degC" Vector__XXX
+ SG_ MafRate m16 : 31|16@0+ (0.01,0) [0|655.35] "g/s" Vector__XXX
+ SG_ ThrottlePosition m17 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ O2SensorsPresent m19 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ O2SensorB1S2Voltage m21 : 31|8@0+ (0.005,0) [0|1.275] "V" Vector__XXX
+ SG_ ObdStandard m28 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ RunTimeSinceStart m31 : 31|16@0+ (1,0) [0|65535] "s" Vector__XXX
+ SG_ DistanceWithMIL m33 : 31|16@0+ (1,0) [0|65535] "km" Vector__XXX
+ SG_ CommandedEGR m44 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ CommandedEvapPurge m46 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ WarmupsSinceCodesCleared m48 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ DistanceSinceCodesCleared m49 : 31|16@0+ (1,0) [0|65535] "km" Vector__XXX
+ SG_ BarometricPressure m51 : 31|8@0+ (1,0) [0|255] "kPa" Vector__XXX
+ SG_ O2S1WrLambdaRatio m52 : 31|16@0+ (3.052e-05,0) [0|2] "" Vector__XXX
+ SG_ ControlModuleVoltage m66 : 31|16@0+ (0.001,0) [0|65.535] "V" Vector__XXX
+ SG_ AbsoluteLoad m67 : 31|16@0+ (0.39215686,0) [0|25700] "%" Vector__XXX
+ SG_ RelativeThrottle m69 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ AbsoluteThrottleB m71 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ AccelPedalD m73 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ AccelPedalE m74 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+ SG_ CommandedThrottle m76 : 31|8@0+ (0.39215686,0) [0|100] "%" Vector__XXX
+
+BO_ 2030 OBD2_Response_Module2: 8 Module2
+ SG_ Length : 7|8@0+ (1,0) [0|8] "" Vector__XXX
+ SG_ ResponseService : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ ParameterID M : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ SupportedPIDs_01_20 m0 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ SupportedPIDs_21_40 m32 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ SupportedPIDs_41_60 m64 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ MonitorStatus m1 : 31|32@0+ (1,0) [0|4294967295] "" Vector__XXX
+ SG_ DistanceWithMIL m33 : 31|16@0+ (1,0) [0|65535] "km" Vector__XXX
+ SG_ WarmupsSinceCodesCleared m48 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ DistanceSinceCodesCleared m49 : 31|16@0+ (1,0) [0|65535] "km" Vector__XXX
+ SG_ ControlModuleVoltage m66 : 31|16@0+ (0.001,0) [0|65.535] "V" Vector__XXX
+
+CM_ BO_ 2015 "OBD-II functional request, tester -> all ECUs. A Mode-01 read is the three bytes 02 01 <PID> padded to 8. Send at no more than about 20 requests/s - this vehicle was polled at ~85 ms per PID with no dropped replies.";
+CM_ BO_ 2016 "Physical request to the ECM. Used for UDS ReadDataByIdentifier (03 22 F1 90 = VIN) and for the ISO-TP flow-control frame (30 00 00) that a multi-frame reply requires. NOTE: this vehicle IGNORES OBD-II Mode 09 PID 02 and KWP 1A 90 - UDS 22 F190 on this address is the only VIN path that answered.";
+CM_ BO_ 2024 "ECM response. This vehicle broadcasts NOTHING on its OBD-2 port - every frame here exists only because the tester asked. The ECM reports 33 supported PIDs; 20 were confirmed answering and 11 more are claimed but untested. See docs/SUZUKI_DZIRE_2026_GATEWAY.md.";
+CM_ BO_ 2030 "Second module. Answers only PIDs 01, 21, 30, 31 and 42. It reports its OWN DistanceSinceCodesCleared (5217 km) and voltage, which differ from the ECM (5214 km) - key responses by responder ID or two constants will look like one varying signal.";
+CM_ SG_ 2024 MonitorStatus "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 FuelSystemStatus "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 CalcEngineLoad "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 CoolantTemp "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 ShortTermFuelTrimB1 "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 LongTermFuelTrimB1 "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 IntakeManifoldPressure "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 EngineRPM "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 VehicleSpeed "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 TimingAdvance "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 IntakeAirTemp "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 MafRate "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 ThrottlePosition "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 O2SensorsPresent "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 O2SensorB1S2Voltage "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 ObdStandard "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 RunTimeSinceStart "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 DistanceWithMIL "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 CommandedEGR "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 CommandedEvapPurge "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 WarmupsSinceCodesCleared "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 DistanceSinceCodesCleared "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 BarometricPressure "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 O2S1WrLambdaRatio "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 ControlModuleVoltage "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 AbsoluteLoad "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 RelativeThrottle "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 AbsoluteThrottleB "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 AccelPedalD "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+CM_ SG_ 2024 AccelPedalE "CONFIRMED: this ECU answered it in the 2026-08-20 capture.";
+CM_ SG_ 2024 CommandedThrottle "CLAIMED: the ECU lists it in its supported-PID bitmap but it was never polled in the capture, so the response is untested.";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+
+VAL_ 2015 Service 1 "Mode01_CurrentData" 3 "Mode03_StoredDTC" 4 "Mode04_ClearDTC" 7 "Mode07_PendingDTC" 9 "Mode09_VehicleInfo" ;
+VAL_ 2024 ResponseService 65 "Mode01_Response" 67 "Mode03_Response" 71 "Mode07_Response" 73 "Mode09_Response" 98 "UDS_ReadDataByIdentifier" 127 "NegativeResponse" ;
+VAL_ 2030 ResponseService 65 "Mode01_Response" 67 "Mode03_Response" 71 "Mode07_Response" 73 "Mode09_Response" 98 "UDS_ReadDataByIdentifier" 127 "NegativeResponse" ;

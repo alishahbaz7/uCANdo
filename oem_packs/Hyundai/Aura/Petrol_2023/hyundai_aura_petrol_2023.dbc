@@ -1,58 +1,130 @@
-VERSION ""
-
-
-NS_ : 
-	NS_DESC_
-	CM_
-	BA_DEF_
-	BA_
-	VAL_
-	CAT_DEF_
-	CAT_
-	FILTER
-	BA_DEF_DEF_
-	EV_DATA_
-	ENVVAR_DATA_
-	SGTYPE_
-	SGTYPE_VAL_
-	BA_DEF_SGTYPE_
-	BA_SGTYPE_
-	SIG_TYPE_REF_
-	VAL_TABLE_
-	SIG_GROUP_
-	SIG_VALTYPE_
-	SIGTYPE_VALTYPE_
-	BO_TX_BU_
-	BA_DEF_REL_
-	BA_REL_
-	BA_DEF_DEF_REL_
-	BU_SG_REL_
-	BU_EV_REL_
-	BU_BO_REL_
-	SG_MUL_VAL_
-
-BS_:
-
-BU_: 
-
-
-BO_ 790 HYUNDAI_316: 8 Vector__XXX
- SG_ EngineRPM : 16|16@1+ (0.25,0.0) [0|8000] "rpm" Vector__XXX
-
-BO_ 1366 HYUNDAI_556: 8 Vector__XXX
- SG_ EngineRPM : 16|16@1+ (0.25,0.0) [0|8000] "rpm" Vector__XXX
-
-BO_ 1456 HYUNDAI_5B0: 4 Vector__XXX
- SG_ Odometer : 0|24@1+ (0.1,0.0) [0|1000000] "km" Vector__XXX
-
-
-
-
-
-
-
-
-
-
-
-
+VERSION "Hyundai Aura petrol - uCANdo RE, captures 2026-06-13 + 2026-08-20"
+
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_:
+
+BO_ 790 ECM_Engine: 8 Vector__XXX
+ SG_ EngineSpeed : 16|16@1+ (0.25,0) [0|16383.75] "rpm" Vector__XXX
+
+BO_ 1366 ECM_Engine2: 8 Vector__XXX
+ SG_ EngineSpeed2 : 16|16@1+ (0.25,0) [0|16383.75] "rpm" Vector__XXX
+
+BO_ 1456 CLUSTER_Odometer: 4 Vector__XXX
+ SG_ Odometer : 0|24@1+ (0.1,0) [0|1677721.5] "km" Vector__XXX
+
+BO_ 512 VehicleSpeed: 6 Vector__XXX
+ SG_ VehicleSpeed : 32|16@1+ (0.03125,0) [0|2047.97] "km/h" Vector__XXX
+
+BO_ 902 ABS_WheelSpeed: 8 Vector__XXX
+ SG_ WheelSpeed1 : 0|14@1+ (0.03125,0) [0|511.97] "km/h" Vector__XXX
+ SG_ WheelSpeed2 : 16|14@1+ (0.03125,0) [0|511.97] "km/h" Vector__XXX
+ SG_ WheelSpeed3 : 32|14@1+ (0.03125,0) [0|511.97] "km/h" Vector__XXX
+ SG_ WheelSpeed4 : 48|14@1+ (0.03125,0) [0|511.97] "km/h" Vector__XXX
+
+BO_ 809 ECM_Pedals: 8 Vector__XXX
+ SG_ BrakePedal : 33|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ ClutchPedal : 31|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 399 BCM_Status: 8 Vector__XXX
+ SG_ ParkingBrake : 44|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ AcCompressorOn : 43|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1345 BCM_Doors_Lights: 8 Vector__XXX
+ SG_ HeadlampOn : 32|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ DoorOpenDriver : 8|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1351 BCM_Belt: 8 Vector__XXX
+ SG_ DriverSeatbeltUnfastened : 16|1@0+ (1,0) [0|1] "" Vector__XXX
+
+CM_ BO_ 790 "Primary engine frame, 10 ms.";
+CM_ SG_ 790 EngineSpeed "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Engine speed. Median 929 rpm at idle against 931 rpm on a Teltonika FMB001 read in the same session, and the dedicated rev capture sweeps 905 to 5386 rpm cleanly. Carried unchanged from the 2026-06-13 pack and re-confirmed on this 2026-08-20 set.";
+CM_ BO_ 1366 "Secondary engine-speed broadcast, 10 ms.";
+CM_ SG_ 1366 EngineSpeed2 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Second engine-speed broadcast. Tracks ECM_Engine.EngineSpeed to under 1 rpm at idle and within 6 rpm across a full rev sweep.";
+CM_ BO_ 1456 "Odometer, 1000 ms.";
+CM_ SG_ 1456 Odometer "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Odometer. CONFIRMED BY MOTION, which is new for this library: across the four moving captures the raw went 402419 -> 402430, i.e. 40241.9 -> 40243.0 km, and the recorded dash readings either side were 40241 and 40243 - the cluster floors to whole km, so both displayed integers are reproduced exactly. Note the naive arithmetic is a trap: dividing the 2 km of DISPLAYED difference by 11 counts gives a bogus 0.18 km/count. 0.1 is the only scale that fits both endpoints and the absolute reading.";
+CM_ BO_ 512 "Vehicle speed, 10 ms.";
+CM_ SG_ 512 VehicleSpeed "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Vehicle speed. Integrated over the whole moving session it gives 1.16 km against the 1.10 km the odometer recorded - inside the odometer's own quantisation (11 counts of 0.1 km carries about +/-0.1 km, i.e. +/-9 %). Peak 35.4 km/h, agreeing with the four wheel speeds to 0.2 km/h. Reads exactly 0 in every stationary capture.";
+CM_ BO_ 902 "Wheel speeds, 20 ms. Scale confirmed by integration against the odometer; wheel-to-field mapping is not.";
+CM_ SG_ 902 WheelSpeed1 "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Wheel speed, 14-bit (the top 2 bits of the 16-bit word are flags). Integrated across the moving session the four wheels give 1.150, 1.148, 1.143 and 1.136 km against the odometer's 1.10 km, and peak within 0.3 km/h of each other - four independent sensors agreeing is what identifies this frame. The wheel each field belongs to is NOT established; they are numbered in byte order.";
+CM_ SG_ 902 WheelSpeed2 "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Wheel speed, 14-bit (the top 2 bits of the 16-bit word are flags). Integrated across the moving session the four wheels give 1.150, 1.148, 1.143 and 1.136 km against the odometer's 1.10 km, and peak within 0.3 km/h of each other - four independent sensors agreeing is what identifies this frame. The wheel each field belongs to is NOT established; they are numbered in byte order.";
+CM_ SG_ 902 WheelSpeed3 "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Wheel speed, 14-bit (the top 2 bits of the 16-bit word are flags). Integrated across the moving session the four wheels give 1.150, 1.148, 1.143 and 1.136 km against the odometer's 1.10 km, and peak within 0.3 km/h of each other - four independent sensors agreeing is what identifies this frame. The wheel each field belongs to is NOT established; they are numbered in byte order.";
+CM_ SG_ 902 WheelSpeed4 "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Wheel speed, 14-bit (the top 2 bits of the 16-bit word are flags). Integrated across the moving session the four wheels give 1.150, 1.148, 1.143 and 1.136 km against the odometer's 1.10 km, and peak within 0.3 km/h of each other - four independent sensors agreeing is what identifies this frame. The wheel each field belongs to is NOT established; they are numbered in byte order.";
+CM_ BO_ 809 "Pedal switches, 10 ms.";
+CM_ SG_ 809 BrakePedal "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Set during the five brake presses of the brake-pedal capture. It also moves in the parking-brake capture, which is correct rather than contradictory - the foot brake is pressed while setting the handbrake. Quiet in the other eleven captures. Bit 0 of the same byte is its complement.";
+CM_ SG_ 809 ClutchPedal "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Ten transitions in the clutch capture, two in the gear capture, and EXACTLY ZERO in all eleven others. Moving in both of those captures is the confirmation, not a weakness: the clutch has to be pressed to change gear.";
+CM_ BO_ 399 "Body status, 10 ms.";
+CM_ SG_ 399 ParkingBrake "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Reads 1 through the first four captures, changes state during the parking-brake capture, and reads 0 for every capture after it - the brake was released during that test and left off. 1 = engaged.";
+CM_ SG_ 399 AcCompressorOn "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Toggles five times in the AC capture. It also blips once during the parking-brake capture, which is consistent with the compressor cycling on its own thermostat rather than with a mis-identification.";
+CM_ BO_ 1345 "Doors and lighting, 100 ms.";
+CM_ SG_ 1345 HeadlampOn "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Five clean on/off cycles in the headlamp capture and reads 0 in every one of the other twelve. The cleanest isolation in this pack.";
+CM_ SG_ 1345 DoorOpenDriver "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Steps 0/1 in the driver-door capture and is 0 elsewhere. NOTE bit 2 of the same byte is set in three earlier captures and was never isolated - byte 1 is a door bitfield of which only the driver bit is identified.";
+CM_ BO_ 1351 "Seatbelt, 100 ms.";
+CM_ SG_ 1351 DriverSeatbeltUnfastened "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Changes in the seatbelt capture, but it also changes in six others - which is what a seatbelt does when people get in and out for the door tests, so it is consistent rather than isolated. POLARITY IS NOT ESTABLISHED. Treat as a lead: a capture where nothing but the belt is touched would settle it.";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ SG_ "SignalConfidence" ENUM "A_Confirmed","B_Corroborated","C_Inferred";
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "SignalConfidence" "C_Inferred";
+BA_ "GenMsgCycleTime" BO_ 790 10;
+BA_ "GenMsgCycleTime" BO_ 1366 10;
+BA_ "GenMsgCycleTime" BO_ 1456 1000;
+BA_ "GenMsgCycleTime" BO_ 512 10;
+BA_ "GenMsgCycleTime" BO_ 902 20;
+BA_ "GenMsgCycleTime" BO_ 809 10;
+BA_ "GenMsgCycleTime" BO_ 399 10;
+BA_ "GenMsgCycleTime" BO_ 1345 100;
+BA_ "GenMsgCycleTime" BO_ 1351 100;
+BA_ "SignalConfidence" SG_ 790 EngineSpeed 0;
+BA_ "SignalConfidence" SG_ 1366 EngineSpeed2 0;
+BA_ "SignalConfidence" SG_ 1456 Odometer 0;
+BA_ "SignalConfidence" SG_ 512 VehicleSpeed 0;
+BA_ "SignalConfidence" SG_ 902 WheelSpeed1 1;
+BA_ "SignalConfidence" SG_ 902 WheelSpeed2 1;
+BA_ "SignalConfidence" SG_ 902 WheelSpeed3 1;
+BA_ "SignalConfidence" SG_ 902 WheelSpeed4 1;
+BA_ "SignalConfidence" SG_ 809 BrakePedal 1;
+BA_ "SignalConfidence" SG_ 809 ClutchPedal 1;
+BA_ "SignalConfidence" SG_ 399 ParkingBrake 1;
+BA_ "SignalConfidence" SG_ 399 AcCompressorOn 1;
+BA_ "SignalConfidence" SG_ 1345 HeadlampOn 1;
+BA_ "SignalConfidence" SG_ 1345 DoorOpenDriver 1;
+BA_ "SignalConfidence" SG_ 1351 DriverSeatbeltUnfastened 2;
+
+VAL_ 809 BrakePedal 1 "Pressed" 0 "NotPressed" ;
+VAL_ 809 ClutchPedal 1 "Pressed" 0 "NotPressed" ;
+VAL_ 399 ParkingBrake 1 "Engaged" 0 "Released" ;
+VAL_ 399 AcCompressorOn 1 "On" 0 "Off" ;
+VAL_ 1345 HeadlampOn 1 "On" 0 "Off" ;
+VAL_ 1345 DoorOpenDriver 1 "Open" 0 "Closed" ;

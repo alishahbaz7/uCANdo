@@ -1,0 +1,20 @@
+{
+  "vin_patterns": [
+    "MALB241CLS*"
+  ],
+  "vin_pattern_confidence": "low",
+  "notes": [
+    "Read from a Teltonika FMB001 attached in the same session (the vehicle",
+    "does not broadcast its VIN on this bus, so it came from the device's",
+    "OBD-II read rather than from the capture).",
+    "WMI MAL = Hyundai Motor India.",
+    "Only characters 1-9 are stored: manufacturer + model/body/powertrain.",
+    "The unit-identifying tail is deliberately omitted.",
+    "CAUTION: position 10 is 'S', which ISO 3779 reads as model year 2025,",
+    "while this pack's folder says Petrol_2023 (from the 2026-06-13 capture",
+    "that created it). Either the folder year is wrong or these are two",
+    "different model years sharing one bus map - the pack's three original",
+    "signals decode correctly on BOTH capture sets, so the map is shared",
+    "either way. Resolve before trusting the folder name."
+  ]
+}

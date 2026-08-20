@@ -1,0 +1,21 @@
+{
+  "vin_patterns": [
+    "MA3CZF63S*"
+  ],
+  "vin_pattern_confidence": "low",
+  "notes": [
+    "Read live off the bus: 0x500 broadcasts the VIN in three ASCII blocks",
+    "selected by byte 1 (see VIN_Block in the DBC). WMI MA3 = Maruti Suzuki",
+    "India, which independently confirms the make.",
+    "Derived from a SINGLE observed VIN, so this prefix may be too narrow",
+    "(missing other Dzire builds) or too wide (also matching Swift, which",
+    "shares the platform). Collect VINs from several cars to tighten it.",
+    "Only characters 1-9 are stored: manufacturer + model/body/powertrain.",
+    "The unit-identifying tail (plant, serial) is deliberately omitted, so",
+    "this identifies a MODEL, not a car.",
+    "Position 10 on this VIN is 'J', which ISO 3779 would read as model year",
+    "2018. That is NOT confirmed for Maruti Suzuki India and the folder",
+    "carries no year because of it - see the MG note in oem_packs/README.md",
+    "for why a VIN year code must not be trusted for an Indian marque."
+  ]
+}

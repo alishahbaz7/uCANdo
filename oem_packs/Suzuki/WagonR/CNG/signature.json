@@ -1,0 +1,282 @@
+{
+ "ids": [
+  {
+   "id": 273,
+   "ext": false,
+   "dlc": 5,
+   "period_ms": 10.0
+  },
+  {
+   "id": 276,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 288,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 290,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 291,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 292,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 304,
+   "ext": false,
+   "dlc": 7,
+   "period_ms": 10.0
+  },
+  {
+   "id": 309,
+   "ext": false,
+   "dlc": 4,
+   "period_ms": 10.0
+  },
+  {
+   "id": 319,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 428,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 12.0
+  },
+  {
+   "id": 431,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 438,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 440,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 495,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 672,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 50.0
+  },
+  {
+   "id": 784,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 788,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 792,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 99.12
+  },
+  {
+   "id": 815,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 928,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 929,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 930,
+   "ext": false,
+   "dlc": 4,
+   "period_ms": 100.0
+  },
+  {
+   "id": 952,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 102.64
+  },
+  {
+   "id": 953,
+   "ext": false,
+   "dlc": 6,
+   "period_ms": 102.64
+  },
+  {
+   "id": 959,
+   "ext": false,
+   "dlc": 3,
+   "period_ms": 199.98
+  },
+  {
+   "id": 963,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 976,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 977,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 980,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 981,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 985,
+   "ext": false,
+   "dlc": 5,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1000,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1007,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.03
+  },
+  {
+   "id": 1012,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 1013,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 1014,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 1120,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 1026.34
+  },
+  {
+   "id": 1280,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.02
+  }
+ ],
+ "id_set": [
+  "111",
+  "114",
+  "120",
+  "122",
+  "123",
+  "124",
+  "130",
+  "135",
+  "13F",
+  "1AC",
+  "1AF",
+  "1B6",
+  "1B8",
+  "1EF",
+  "2A0",
+  "310",
+  "314",
+  "318",
+  "32F",
+  "3A0",
+  "3A1",
+  "3A2",
+  "3B8",
+  "3B9",
+  "3BF",
+  "3C3",
+  "3D0",
+  "3D1",
+  "3D4",
+  "3D5",
+  "3D9",
+  "3E8",
+  "3EF",
+  "3F4",
+  "3F5",
+  "3F6",
+  "460",
+  "500"
+ ],
+ "_source": "data/uploads/Wagon R/Petrol + CNG - Vehicle Spy 3 (neoVI 3G), 2026-08-20, single HS CAN at 500 kbit/s, 33 s stationary idle",
+ "notes": [
+  "Excludes 0x7DF / 0x7E8 / 0x7EE: an OBD-II scan tool was plugged in during",
+  "this capture, so those frames describe the bench, not the vehicle. A live",
+  "identify on a car with no tool attached would never see them.",
+  "38 IDs. Shares 28 of them with the Suzuki Dzire pack - the two vehicles are",
+  "the same platform family, and all 13 decodable Dzire messages are present",
+  "here. WagonR-only IDs: 0x111 0x123 0x130 0x135 0x1B6 0x3A2 0x3EF 0x3F4",
+  "0x3F5 0x3F6."
+ ]
+}
