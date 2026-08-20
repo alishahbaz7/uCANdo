@@ -1,9 +1,18 @@
-# Hyundai Aura (petrol) — CAN decode (2026-08-20)
+# Hyundai Aura (petrol + CNG bi-fuel) — CAN decode (2026-08-20)
 
-Reverse-engineering record for a **Hyundai Aura**, captured with **Vehicle Spy 3
-/ neoVI 3G** on the OBD-2 port. Artefact:
-`oem_packs/Hyundai/Aura/Petrol_2023/hyundai_aura_petrol_2023.dbc`
-(**9 messages, 15 signals** — up from 3 signals).
+Reverse-engineering record for a **Hyundai Aura petrol + CNG (bi-fuel)**,
+captured with **Vehicle Spy 3 / neoVI 3G** on the OBD-2 port. Artefact:
+`oem_packs/Hyundai/Aura/CNG_2024/hyundai_aura_cng_2024.dbc`
+(**9 messages, 15 signals**).
+
+> **This is a bi-fuel CNG vehicle, not the petrol car of the `Petrol_2023` pack.**
+> Two independent signs say so: OBD-II PID 51 reported **fuel type 13 = "bifuel
+> running CNG"**, and the cluster photo shows a **CNG · PETROL** indicator with CNG
+> active, a dedicated CNG gauge under the tachometer, and the petrol gauge near
+> empty with its low-fuel lamp lit. An earlier revision of this record wrongly
+> merged these findings into `Petrol_2023`; they now live in their own pack. The
+> two share a bus map — the petrol pack's three signals decode correctly here —
+> and each records that.
 
 Conventions: `.claude/skills/dbc-pack/SKILL.md`. Confidence: **A = 4, B = 10,
 C = 1**.
@@ -131,18 +140,57 @@ established.** Shipped as a lead.
   decodes to 88-91 °C with the usual −40 offset. Nothing discriminates them. **A
   cold-start capture would isolate it in one run** — the warm-up ramp is
   unmistakable.
-- **Fuel level not identified.** No byte matched the device's 86 % under the
-  usual scalings, and with a full session at one level there is nothing to
-  correlate against.
+- **Fuel and CNG level not identified** — see §7 for the full reasoning.
 - **Passenger door not isolated.** `0x541` byte 1 is clearly a door bitfield —
   bit 2 is set in three earlier captures — but the passenger-door capture moved
   no byte cleanly.
 - **Blinker and gear not isolated.** Every candidate that moved in those captures
   also moved in most others.
-- **No VIN on the bus.** The VIN came from the Teltonika's OBD-II read, not from
-  a broadcast frame.
+- **No VIN on the bus** — and this is a data limitation, not a capability one.
+  The Teltonika got the VIN by *asking* for it over OBD; these seventeen captures
+  are purely passive, with no scan tool attached, so no request and therefore no
+  response exists in them. The same reassembly on the 2026 Dzire capture — where a
+  tool *was* on the bus — recovered its VIN in full. **Nothing about the Aura's
+  VIN is hidden; it simply was not asked for while recording.**
+- **MAF, throttle position and DTC count are absent for the same reason.** The
+  Teltonika reported all three because it polls OBD PIDs 10, 11 and Mode 03. MAF
+  and throttle are very likely on the broadcast bus too, but with no calibrated,
+  time-aligned reference there is nothing to correlate them against. DTC count
+  never will be broadcast — Mode 03 is request/response by definition.
 
-## 7. A year discrepancy to resolve
+## 7. Fuel and CNG level — NOT identified, and why
+
+The car has **two** gauges. Neither could be located, and the reasons are
+concrete rather than a shrug:
+
+- **Neither level moves.** The car ran on CNG the whole session, so the petrol
+  level is untouched, and 33 minutes of idling barely dents a CNG tank. With no
+  variation there is nothing to correlate or isolate — **~25 constant bytes are
+  equally good candidates** and nothing separates them.
+- **The 86 % is not a usable known-value match.** It came from the Teltonika's
+  **OBD-II request** (PID 2F), not from a broadcast frame. It proves the ECU
+  *answers* a fuel-level PID; it says nothing about whether the value is
+  broadcast, or in what units. (It is the **CNG** level — the OBD PID reports the
+  *active* fuel.)
+- **The one arithmetically-attractive hit is unconvincing.** `0x492` byte 5 = 56,
+  which is 87.5 % of 64. But it is dead constant across all seventeen captures —
+  a real CNG gauge would have moved a little — and the rest of that frame
+  (`40 FE 0F 00 00 38 00`) looks like fixed configuration.
+- **`0x445` was rejected on rate.** It is the only clean monotonic faller in the
+  set (25 → 9 over 33 min, 13 falls / 0 rises, one step every ~2 minutes
+  regardless of load). Tempting, but ~12× too fast for CNG tank pressure and
+  ~25× too fast for a petrol gauge. It behaves like a timer.
+
+**What would settle it, cheapest first:**
+
+1. **Poll OBD PID 2F while capturing.** Gives a calibrated, time-aligned
+   reference — exactly what made the WagonR's signals Tier A.
+2. **Switch to petrol mid-capture.** The petrol level starts falling and the CNG
+   level goes flat: whichever field swaps behaviour is which.
+3. **Refuel during a capture.** A tank going from near-empty to full is an
+   unmissable step, and it isolates the low-fuel lamp bit at the same time.
+
+## 8. A year discrepancy to resolve
 
 The pack folder is `Petrol_2023`, from the 2026-06-13 capture that created it.
 This vehicle's VIN has **`S` at position 10, which ISO 3779 reads as 2025**.
@@ -154,7 +202,7 @@ renaming a pack folder has artifact consequences and one VIN is thin evidence.
 This is the second marque where the ISO year code looks trustworthy (see the
 Maruti note in `oem_packs/README.md`), MG remaining the exception.
 
-## 8. Reproducing
+## 9. Reproducing
 
 ```powershell
 python -m ucando.cli identify --log "data/uploads/Aura/Aura/Normal data/Normal data on vehicle ON 8-20-2026 2-31-08 pm.csv"
@@ -165,9 +213,11 @@ integration tests against the recorded odometer. Adding this pack did not distur
 the Suzuki packs: WagonR and Dzire still identify at 1.000, and the Aura's
 runner-up is ZS EV at 0.124 — the Hyundai map shares nothing with the Suzuki one.
 
-## 9. Open items
+## 10. Open items
 
-1. **A cold-start capture** — isolates coolant temperature, and probably intake
+1. **Poll OBD PID 2F, or capture a fuel switchover** (§7) — the only way to get
+   either fuel level.
+2. **A cold-start capture** — isolates coolant temperature, and probably intake
    air and ambient with it. Cheapest high-value follow-up.
 2. **A longer drive** to tighten the speed scale beyond the ±9 % this 1.1 km
    reference allows, and to look for a systematic speedo bias.
