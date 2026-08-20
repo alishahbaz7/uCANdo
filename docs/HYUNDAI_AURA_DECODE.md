@@ -144,8 +144,29 @@ established.** Shipped as a lead.
 - **Passenger door not isolated.** `0x541` byte 1 is clearly a door bitfield —
   bit 2 is set in three earlier captures — but the passenger-door capture moved
   no byte cleanly.
-- **Blinker and gear not isolated.** Every candidate that moved in those captures
-  also moved in most others.
+- **Turn indicators are not on this bus.** The first pass missed them by method:
+  it looked for long, blocky runs, which *by construction* rejects a lamp that
+  toggles every ~0.35 s. A second pass hunted specifically for blink rate —
+  regular square wave, 1-2 Hz, ~50 % duty — and **every candidate came back
+  irregular** (coefficient of variation on run length 1.2-2.4, i.e. jitter on the
+  low bits of fast analogue bytes, not blinking). The last survivor, `0x557`
+  byte 1 bits 3-4, turned out to be the middle bits of an *analogue* byte drifting
+  107-122 across the session; the apparent bit toggles were it crossing bit
+  boundaries. Rejected.
+- **Gear position is not broadcast — demonstrated, not assumed.** The car is a
+  manual, so rpm/speed is constant per gear. Over the drive that ratio resolves
+  into **four clean bands** (1st ≈ 145, 2nd ≈ 85, 3rd ≈ 55, 4th ≈ 40 rpm per
+  km/h; 30 / 555 / 338 / 18 samples), so the gearbox demonstrably went through
+  four gears. **No byte on any of the 30 IDs is a clean function of that band.**
+  Consistent with a manual gearbox, which usually has no gear-position sensor —
+  at most reverse and neutral switches.
+- **`0x445` is the strongest unexplained signal in the set.** A 5-bit field
+  (byte 1 is always a multiple of 8) falling **25 → 9 over 33 minutes, 13 falls
+  and 0 rises, one step every ~2 minutes regardless of engine load**. It is the
+  only clean monotonic faller on the bus. Rejected as a fuel gauge on rate — ~12×
+  too fast for CNG tank pressure and ~25× too fast for petrol — and its
+  load-independence makes it look like a timer. Worth naming if anyone gets a
+  longer session.
 - **No VIN on the bus** — and this is a data limitation, not a capability one.
   The Teltonika got the VIN by *asking* for it over OBD; these seventeen captures
   are purely passive, with no scan tool attached, so no request and therefore no
@@ -221,7 +242,8 @@ runner-up is ZS EV at 0.124 — the Hyundai map shares nothing with the Suzuki o
    air and ambient with it. Cheapest high-value follow-up.
 2. **A longer drive** to tighten the speed scale beyond the ±9 % this 1.1 km
    reference allows, and to look for a systematic speedo bias.
-3. **Re-run the door and blinker tests** with nothing else touched.
+4. **Re-run the passenger-door test** with nothing else touched — the driver door
+   isolated cleanly, the passenger one did not.
 4. **Resolve the model year** (§7).
 5. **Fuel level** — capture across a refuel, or a long enough drive to see it
    fall.
