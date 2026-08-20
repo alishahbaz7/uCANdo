@@ -3,7 +3,7 @@
 Reverse-engineering record for a **Hyundai Aura petrol + CNG (bi-fuel)**,
 captured with **Vehicle Spy 3 / neoVI 3G** on the OBD-2 port. Artefact:
 `oem_packs/Hyundai/Aura/CNG_2024/hyundai_aura_cng_2024.dbc`
-(**9 messages, 15 signals**).
+(**9 messages, 12 signals**).
 
 > **This is a bi-fuel CNG vehicle, not the petrol car of the `Petrol_2023` pack.**
 > Two independent signs say so: OBD-II PID 51 reported **fuel type 13 = "bifuel
@@ -14,8 +14,13 @@ captured with **Vehicle Spy 3 / neoVI 3G** on the OBD-2 port. Artefact:
 > two share a bus map — the petrol pack's three signals decode correctly here —
 > and each records that.
 
-Conventions: `.claude/skills/dbc-pack/SKILL.md`. Confidence: **A = 4, B = 10,
-C = 1**.
+Conventions: `.claude/skills/dbc-pack/SKILL.md`.
+
+> **The four wheel speeds are documented here but deliberately NOT shipped in the
+> DBC.** Which field belongs to which wheel was never established, so four
+> unnamed speeds are clutter next to `VehicleSpeed`, which carries the same
+> information. Their evidential role survives: their mutual agreement is what
+> corroborates the 1/32 km/h scale, and `VehicleSpeed`'s signal comment says so.
 
 > **This is the first capture set in the library with the vehicle in motion**, and
 > it settles the question every other pack left open: the odometer quantum, and
@@ -201,6 +206,16 @@ concrete rather than a shrug:
   set (25 → 9 over 33 min, 13 falls / 0 rises, one step every ~2 minutes
   regardless of load). Tempting, but ~12× too fast for CNG tank pressure and
   ~25× too fast for a petrol gauge. It behaves like a timer.
+
+**One candidate ships, named as such.** `0x492` byte 5 = 56 reads 87.5 % on a
+0-64 scale against the device's 86 %, and it is the only *unexplained* byte that
+fits: of **145 bytes constant across all seventeen captures**, exactly three land
+in the 84-88 % window under any plausible full scale, and the other two are
+already identified (`0x5B0` byte 1 is part of the odometer, `0x329` byte 4
+carries the brake bit). It ships as `CngLevelCandidate`, grade C, with the
+argument against it in its own comment: **it did not move by a single count in
+33 minutes of running on CNG**, where a gauge at this resolution should have
+sagged about 2. It is in the DBC so the next drive tests it automatically.
 
 **What would settle it, cheapest first:**
 
