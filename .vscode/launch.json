@@ -1,0 +1,47 @@
+{
+  // Run uCANdo with F5 (Run and Debug panel) instead of the editor's "Run Python
+  // File" button. That button builds a PowerShell command with the path wrapped
+  // in quotes twice ('"d:/.../CAN utlity/main.py"'); PowerShell 7.3+ passes the
+  // inner quotes to Python literally, so it fails with "can't open file ...
+  // [Errno 22]". These configs never go through a shell: "internalConsole"
+  // starts Python directly and prints to the Debug Console.
+  //
+  // The interpreter is pinned to .venv: it is the only Python on this machine
+  // with python-ics (neoVI hardware).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "uCANdo: run app",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "console": "internalConsole",
+      "justMyCode": true
+    },
+    {
+      "name": "uCANdo: run app (no browser)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "args": ["--no-browser"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "console": "internalConsole",
+      "justMyCode": true
+    },
+    {
+      "name": "uCANdo: tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "console": "internalConsole",
+      "justMyCode": false
+    }
+  ]
+}
