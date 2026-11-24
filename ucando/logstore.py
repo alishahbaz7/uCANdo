@@ -36,7 +36,7 @@ from typing import Iterable, Optional
 
 import can
 
-from . import vspy
+from . import pcantrc, vspy
 
 #: :attr:`FrameStore.flags` bits.
 FLAG_EXT = 0x01
@@ -66,7 +66,15 @@ class FrameStore:
         self.off = array("L")                # start of this frame's bytes in self.data
         self.data = bytearray()
         self.networks: list[str] = []
-        self.meta: dict[str, dict] = {}      # network name -> {"baud": int|None, "protocol": str}
+        self.meta: dict[str, dict] = {}      # network name -> {"baud", "baud_source", "protocol"}
+        #: Sentences the operator should read before transmitting this file —
+        #: rows that were counted but not loaded, a bitrate that had to be
+        #: assumed, an adapter unplugged mid-capture. Surfaced through the TX
+        #: plan's warnings, never raised: none of it stops a replay, all of it
+        #: changes how far to trust the result.
+        self.notes: list[str] = []
+        #: Reader-specific accounting, e.g. the .trc row census by type code.
+        self.reader: dict = {}
         self._net_idx: dict[str, int] = {}
         self._stats: list[dict] = []         # per network index, accumulated during load
 
@@ -159,6 +167,15 @@ class FrameStore:
             out.append({
                 "name": name,
                 "protocol": info.get("protocol", "CAN"),
+                # Where `baud` came from: "log" (the format records it),
+                # "assumed" (a format-level default — .trc carries no bitrate)
+                # or "none". A bus-load figure and a "reconnect, the bus is at
+                # the wrong bitrate" warning are only as true as this field.
+                "baud_source": info.get("baud_source", "log" if baud else "none"),
+                # The bitrate floor the file itself proves: these frames exist
+                # and they took this long, so a slower bus could not have
+                # carried them. Nothing has to declare it and it cannot be wrong.
+                "min_baud": pcantrc.min_baud(st["bits"], dur),
                 "frames": st["frames"],
                 "ids": len(st["ids"]),
                 "tx_frames": st["tx"],
@@ -186,6 +203,8 @@ class FrameStore:
             # The bitrate to connect at: only meaningful when every network that
             # actually carries frames agrees, which is the common case.
             "baud_hint": _single_baud(nets),
+            "notes": list(self.notes),
+            "reader": dict(self.reader),
         }
 
 
@@ -246,6 +265,9 @@ def _parse(path: str) -> FrameStore:
                       for name in store.networks}
         return store
 
+    if pcantrc.is_trc(path):
+        return _parse_trc(path)
+
     store = FrameStore(path, "python-can")
     with can.LogReader(path) as reader:
         for msg in reader:
@@ -254,8 +276,36 @@ def _parse(path: str) -> FrameStore:
             store.append(msg.timestamp, msg.arbitration_id, bytes(msg.data or b""),
                          network=str(msg.channel) if msg.channel is not None else _DEFAULT_NETWORK,
                          extended=bool(msg.is_extended_id),
-                         remote=bool(msg.is_remote_frame))
-    store.meta = {name: {"protocol": "CAN", "baud": None} for name in store.networks}
+                         remote=bool(msg.is_remote_frame),
+                         # Direction was being dropped for every format
+                         # python-can reads, which made `skip_tx` a no-op on all
+                         # of them. `is_rx` defaults True, so a format without a
+                         # direction column still reads as vehicle traffic.
+                         tx=not getattr(msg, "is_rx", True))
+    store.meta = {name: {"protocol": "CAN", "baud": None, "baud_source": "none"}
+                  for name in store.networks}
+    return store
+
+
+def _parse_trc(path: str) -> FrameStore:
+    """PEAK PCAN-View trace -> :class:`FrameStore` (see :mod:`ucando.pcantrc`).
+
+    Not routed through ``can.LogReader`` even though it can read the format:
+    its timestamps are anchored wrong (hardware-timer offset plus a UTC/local
+    mix-up), the Rx/Tx column and every non-frame row are discarded, and the
+    network ends up named after python-can's default channel number.
+    """
+    with open(path, "r", encoding="latin-1", errors="replace") as fh:
+        text = fh.read()                    # PCAN-View writes ASCII; latin-1 never fails
+    log = pcantrc.TrcLog(text)
+    store = FrameStore(path, "pcan-trc")
+    for fr in log.frames():
+        store.append(fr["timestamp"], fr["id"], fr["data"], network=fr["network"],
+                     extended=fr["is_extended"], remote=fr["is_remote"], tx=fr["is_tx"])
+    store.meta = {name: {"protocol": "CAN", "baud": pcantrc.DEFAULT_BAUD,
+                         "baud_source": "assumed"} for name in store.networks}
+    store.notes = log.notes()
+    store.reader = log.summary()
     return store
 
 
@@ -268,7 +318,7 @@ def _parse(path: str) -> FrameStore:
 # falls back to parsing, so the cache can only ever cost time, never
 # correctness.
 # ===========================================================================
-_CACHE_VERSION = 2
+_CACHE_VERSION = 3      # 3: + notes/reader (PCAN .trc row census)
 _CACHE_ARRAYS = (("t", "d"), ("ids", "L"), ("off", "L"))
 _CACHE_BYTES = ("flags", "dlc", "net")
 
@@ -304,6 +354,8 @@ def _cache_header(store: FrameStore, stat: os.stat_result) -> dict:
         "frames": len(store),
         "networks": store.networks,
         "meta": store.meta,
+        "notes": store.notes,
+        "reader": store.reader,
         # itemsize travels with the file: array("L") is 4 bytes on Windows and
         # 8 on most Linux builds, so a cache copied between them must be refused.
         "itemsize": {code: array(code).itemsize for _, code in _CACHE_ARRAYS},
@@ -341,6 +393,8 @@ def _cache_read(path: str, stat: os.stat_result) -> Optional[FrameStore]:
         store.networks = list(head["networks"])
         store._net_idx = {name: i for i, name in enumerate(store.networks)}
         store.meta = head["meta"]
+        store.notes = list(head.get("notes") or [])
+        store.reader = dict(head.get("reader") or {})
         store._stats = [{**s, "ids": set(s["ids"])} for s in head["stats"]]
         return store
     except (OSError, ValueError, KeyError, TypeError):

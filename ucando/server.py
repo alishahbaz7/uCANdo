@@ -222,6 +222,9 @@ class PlayReq(BaseModel):
 class ReplayLoadReq(BaseModel):
     path: str
     network: str | None = None
+    #: Bitrate the log was captured at, when the operator knows it and the file
+    #: does not (.trc records none). Overrides the reader's assumption.
+    baud: int | None = None
 
 
 class ReplaySelectReq(BaseModel):
@@ -499,13 +502,33 @@ def _replay_warnings(meta: dict) -> list[str]:
                            for n in carrying if n["name"] != meta.get("network"))
         out.append(f"log holds {len(carrying)} networks — transmitting "
                    f"{meta.get('network')} only, not {others}")
+    # Bitrate, with its provenance. A format that records no bitrate (.trc, at
+    # every version) gets an assumed one so bus load can be estimated at all —
+    # but an assumption must never be reported in the words used for a fact,
+    # because the operator's next action depends on which it is.
     baud = meta.get("baud")
+    src = meta.get("baud_source") or ("log" if baud else "none")
+    floor = meta.get("min_baud")
     conn = bus.conn or {}
-    if baud and conn.get("bitrate") and int(conn["bitrate"]) != int(baud):
-        out.append(f"log was captured at {baud:,} bit/s but the bus is connected at "
-                   f"{int(conn['bitrate']):,} — reconnect before transmitting")
+    connected = int(conn["bitrate"]) if conn.get("bitrate") else None
+    if baud and connected and connected != int(baud):
+        if src == "assumed":
+            out.append(f"assuming {baud:,} bit/s (this log format records no bitrate) but "
+                       f"the bus is connected at {connected:,} — declare the capture "
+                       f"bitrate, or reconnect")
+        else:
+            out.append(f"log was captured at {baud:,} bit/s but the bus is connected at "
+                       f"{connected:,} — reconnect before transmitting")
+    elif baud and src == "assumed":
+        out.append(f"{baud:,} bit/s assumed — this log format records no bitrate; declare "
+                   f"it if this vehicle's bus runs at something else")
     if not baud:
         out.append("log does not record its bitrate — set it yourself on connect")
+    # The one bitrate statement that needs nobody's word for it: these frames
+    # exist and they took this long, so a slower bus could not have carried them.
+    if floor and connected and connected < floor:
+        out.append(f"the bus is connected at {connected:,} bit/s but this capture carries "
+                   f"{floor:,} bit/s of traffic — it cannot go out in real time that slowly")
     if meta.get("load_pct") and meta["load_pct"] > 70:
         out.append(f"~{meta['load_pct']}% estimated bus load at 1× "
                    f"(excludes bit stuffing) — a busy bus may drop frames")
@@ -518,7 +541,7 @@ def _replay_warnings(meta: dict) -> list[str]:
 @app.post("/api/replay/load")
 def replay_load(req: ReplayLoadReq):
     try:
-        meta = replayer.load(req.path, req.network)
+        meta = replayer.load(req.path, req.network, req.baud)
         return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
     except Exception as exc:
         return _err(str(exc))

@@ -326,6 +326,10 @@ $("replayFile").addEventListener("change", async (e) => {
 });
 let replayMeta = null;                      // last loaded meta, for the bitrate button
 let txItems = [];                           // the playlist being edited (TxItem dicts)
+// Bitrate the operator declared for these captures. A PCAN .trc records none at
+// any format version, so the reader assumes 500 k; this overrides that and is
+// what the bus-load estimate and the bitrate-mismatch check then use.
+let txBaud = null;
 
 const txSelectedPaths = () => [...$("replaySelect").selectedOptions].map((o) => o.value).filter(Boolean);
 
@@ -340,10 +344,31 @@ async function loadReplay() {
   const path = txSelectedPaths()[0]; if (!path) return;
   $("replayMeta").textContent = "reading log…";
   $("replayWarn").textContent = "";
-  txItems = [{ path, gap_before_ms: 0, repeat: 1 }];
+  txItems = [{ path, gap_before_ms: 0, repeat: 1, baud: txBaud }];
   renderTxItems();
-  showReplayMeta(await POST("/api/replay/load", { path }));
+  showReplayMeta(await POST("/api/replay/load", { path, baud: txBaud }));
 }
+// A bitrate is not a bitrate: where it came from decides what the operator
+// should do next. "from log" needs no action; "assumed" invites a declaration;
+// a mismatch against the connected bus means different things in each case. So
+// the provenance is never dropped from the wording.
+function baudLabel(m) {
+  if (!m.baud) return "bitrate unknown";
+  const k = `${(m.baud / 1000).toFixed(0)} kbit/s`;
+  if (m.baud_source === "assumed") return `${k} assumed — this format records none`;
+  if (m.baud_source === "declared") return `${k} (you declared)`;
+  if (m.baud_source === "mixed") return `${k} (mixed sources)`;
+  return `${k} (from log)`;
+}
+
+// Declaring the capture bitrate rebuilds the plan: bus load and the mismatch
+// check are derived from it. The parse cache means this costs no re-read.
+$("replayBaud").addEventListener("change", async () => {
+  txBaud = $("replayBaud").value ? +$("replayBaud").value : null;
+  txItems.forEach((it) => { it.baud = txBaud; });
+  if (txItems.length) await pushPlan();
+});
+
 // Re-target an already-parsed log: network / tool-TX filter. Cheap — no re-parse.
 async function reselectReplay() {
   if (!replayMeta) return;
@@ -365,7 +390,7 @@ $("btnTxPlaylistAdd").addEventListener("click", () => {
   const paths = txSelectedPaths();
   if (!paths.length) return setStatus("select one or more logs first");
   const gap = $("txAutoGap").checked ? "auto" : 0;
-  paths.forEach((p) => txItems.push({ path: p, gap_before_ms: gap, repeat: 1 }));
+  paths.forEach((p) => txItems.push({ path: p, gap_before_ms: gap, repeat: 1, baud: txBaud }));
   txOpenStep("stepPlaylist");            // the result of the click must be visible
   pushPlan();
 });
@@ -601,13 +626,18 @@ function showReplayMeta(r) {
     `${m.duration_s.toFixed(1)} s`,
     `${m.ids.length} IDs`,
     m.fps ? `${m.fps.toFixed(0)} fps` : null,
-    m.baud ? `${(m.baud / 1000).toFixed(0)} kbit/s (from log)` : "bitrate unknown",
+    baudLabel(m),
     m.load_pct != null ? `~${m.load_pct}% bus load` : null,
   ].filter(Boolean);
   $("replayMeta").textContent = bits.join(" · ");
   $("replayWarn").innerHTML = (r.warnings || [])
     .map((w) => `<div class="warn-line">⚠ ${w}</div>`).join("");
   $("btnReplayBitrate").classList.toggle("hidden", !m.baud);
+  // Offer the declaration only for formats that record no bitrate — otherwise
+  // the log already knows and overriding it would just be a way to be wrong.
+  const declarable = m.baud_source === "assumed" || m.baud_source === "declared";
+  $("replayBaudWrap").classList.toggle("hidden", !declarable);
+  if (declarable) $("replayBaud").value = m.baud_source === "declared" ? String(m.baud) : "";
 
   // Header summaries, so a collapsed step still reports what it holds. A
   // warning always shows in the summary — it must not be hidden by collapsing.
@@ -616,7 +646,8 @@ function showReplayMeta(r) {
   txSum("sumSource", [
     m.item_count > 1 ? `${m.item_count} files` : name,
     m.network, `${m.frames.toLocaleString()} frames`,
-    m.baud ? `${(m.baud / 1000).toFixed(0)} kbit/s` : "bitrate unknown",
+    m.baud ? `${(m.baud / 1000).toFixed(0)} kbit/s${m.baud_source === "assumed" ? " (assumed)" : ""}`
+           : "bitrate unknown",
     warn ? `⚠ ${warn} note${warn > 1 ? "s" : ""}` : null,
   ].filter(Boolean).join(" · "));
   txSum("sumPlaylist", m.item_count > 1

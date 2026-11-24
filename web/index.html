@@ -160,6 +160,18 @@
               <label>Network <select id="replayNetwork" title="One log can hold several physically separate buses — only one can go out of a single-channel adapter"></select></label>
               <label class="check"><input type="checkbox" id="replaySkipTx" checked
                 title="Frames the capture tool transmitted itself are the previous tester's traffic, not the vehicle's" /> Skip tool TX</label>
+              <label id="replayBaudWrap" class="hidden">Captured at
+                <select id="replayBaud" title="A PCAN .trc records no bitrate at any format version, so it has to be assumed. Declare the real one and the bus-load estimate and mismatch check use it instead.">
+                  <option value="">assumed 500 k</option>
+                  <option value="1000000">1 Mbit/s</option>
+                  <option value="800000">800 kbit/s</option>
+                  <option value="500000">500 kbit/s</option>
+                  <option value="250000">250 kbit/s</option>
+                  <option value="125000">125 kbit/s</option>
+                  <option value="100000">100 kbit/s</option>
+                  <option value="50000">50 kbit/s</option>
+                  <option value="33333">33.3 kbit/s</option>
+                </select></label>
               <button class="btn-mini hidden" id="btnReplayBitrate" title="Reconnect the bus at the bitrate recorded in this log">Use log bitrate</button>
               <span style="flex:1"></span>
               <span id="replaySelCount" class="muted-line" style="margin:0"></span>

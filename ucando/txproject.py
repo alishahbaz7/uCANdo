@@ -52,6 +52,11 @@ class TxItem:
     trim_end_s: Optional[float] = None
     gap_before_ms: Union[float, str] = 0.0   # number, or "auto"
     label: str = ""
+    #: Bitrate this log was captured at, when the operator knows it and the file
+    #: does not. A ``.trc`` records no bitrate at any version, so the reader
+    #: assumes 500 kbit/s; declaring the real value here overrides that and is
+    #: what the bus-load estimate and the bitrate-mismatch check then use.
+    baud: Optional[int] = None
 
     def to_dict(self) -> dict:
         return {
@@ -59,7 +64,7 @@ class TxItem:
             "filter_ids": list(self.filter_ids) if self.filter_ids else None,
             "skip_tx": self.skip_tx, "trim_start_s": self.trim_start_s,
             "trim_end_s": self.trim_end_s, "gap_before_ms": self.gap_before_ms,
-            "label": self.label,
+            "label": self.label, "baud": self.baud,
         }
 
     @classmethod
@@ -77,6 +82,7 @@ class TxItem:
             trim_end_s=_opt_float(d.get("trim_end_s")),
             gap_before_ms=gap if gap == AUTO else float(gap or 0.0),
             label=d.get("label") or "",
+            baud=int(d["baud"]) if d.get("baud") else None,
         )
 
 
@@ -96,7 +102,15 @@ class Segment:
     last_t: float
     duration_s: float
     gap_s: float = 0.0                     # resolved pause before each pass
+    #: The pause actually measured between this item and the previous one, kept
+    #: even when :attr:`gap_s` does not reproduce it. On a PCAN event-capture
+    #: session the real pauses are minutes long (a human was operating a
+    #: control between recordings) and nobody wants a bench run to sit idle for
+    #: 35 minutes — but they should be told that is what was skipped.
+    real_gap_s: Optional[float] = None
     baud: Optional[int] = None
+    baud_source: str = "none"              # "log" | "declared" | "assumed" | "none"
+    min_baud: Optional[int] = None         # bitrate floor the file itself proves
     load_pct: Optional[float] = None
     skipped_tx: int = 0
 
@@ -123,8 +137,11 @@ class Segment:
             "frames": self.frames,
             "duration_s": round(self.duration_s, 3),
             "gap_s": round(self.gap_s, 3),
+            "real_gap_s": round(self.real_gap_s, 3) if self.real_gap_s is not None else None,
             "repeat": self.item.repeat,
             "baud": self.baud,
+            "baud_source": self.baud_source,
+            "min_baud": self.min_baud,
             "load_pct": self.load_pct,
             "ids": len({self.store.ids[i] for i in self.sel}),
             "trim_start_s": self.item.trim_start_s,
@@ -181,6 +198,12 @@ class TxPlan:
             "total_frames": len(first.store) if first else 0,
             "baud": bauds.pop() if len(bauds) == 1 else None,
             "baud_hint": None if len(bauds) != 1 else next(iter({s.baud for s in segs if s.baud})),
+            # Where that bitrate came from, and the floor the files themselves
+            # prove. Both travel with it: a bus-load figure and a "reconnect at
+            # the right bitrate" warning are only as true as their input, and a
+            # replay must never state an assumed number as if the log said it.
+            "baud_source": _one_source(segs),
+            "min_baud": max([s.min_baud for s in segs if s.min_baud], default=None),
             "load_pct": max([s.load_pct for s in segs if s.load_pct is not None], default=None),
             "fps": round(frames / duration, 1) if duration > 0 else 0.0,
             "skip_tx": first.item.skip_tx if first else True,
@@ -215,6 +238,15 @@ def build(items: list[Union[TxItem, dict, str]], name: str = "",
             stores[os.path.abspath(item.path)] = store
         segments.append(_resolve(item, store, warnings))
 
+    # A reader may have things to say about its file that no amount of plan
+    # inspection could find — rows it counted but could not transmit, a bitrate
+    # it had to assume, an adapter unplugged mid-capture. `warnings` is already
+    # the channel the UI reads, so they go there rather than into new plumbing.
+    for path in dict.fromkeys(os.path.abspath(i.path) for i in resolved):
+        store = stores[path]
+        for note in store.notes:
+            warnings.append(f"{os.path.basename(store.path)}: {note}")
+
     _resolve_gaps(segments, warnings)
     _check_consistency(segments, warnings)
     return TxPlan(segments, warnings, name)
@@ -247,11 +279,25 @@ def _resolve(item: TxItem, store: FrameStore, warnings: list[str]) -> Segment:
 
     last_t = store.t[sel[-1]]
     net = next((n for n in store.network_summary() if n["name"] == network), {})
+    # Precedence: what the operator declared, then what the file recorded, then
+    # whatever the reader had to assume. Bus load is recomputed when a
+    # declaration overrides an assumption, or it would still be a percentage of
+    # the wrong bitrate.
+    baud = item.baud or net.get("baud")
+    baud_source = "declared" if item.baud else net.get("baud_source", "none")
+    min_b = net.get("min_baud")
+    load_pct = net.get("load_pct")
+    if item.baud and min_b:
+        load_pct = round(100.0 * min_b / item.baud, 1)
+    if item.baud and min_b and item.baud < min_b:
+        warnings.append(f"{os.path.basename(item.path)}: declared {item.baud:,} bit/s but "
+                        f"the capture carries {min_b:,} bit/s of traffic — impossible, "
+                        f"the real bus is at least that fast")
     return Segment(
         item=item, store=store, sel=sel, network=network,
         label=item.label or _auto_label(item),
         first_t=first_t, last_t=last_t, duration_s=max(0.0, last_t - first_t),
-        baud=net.get("baud"), load_pct=net.get("load_pct"),
+        baud=baud, baud_source=baud_source, min_baud=min_b, load_pct=load_pct,
         skipped_tx=net.get("tx_frames", 0) if item.skip_tx else 0,
     )
 
@@ -276,6 +322,8 @@ def _resolve_gaps(segments: list[Segment], warnings: list[str]) -> None:
         same_session = (os.path.dirname(os.path.abspath(prev.item.path))
                         == os.path.dirname(os.path.abspath(seg.item.path)))
         delta = seg.first_t - prev.last_t
+        if same_session:
+            seg.real_gap_s = delta          # measured, whether or not it is reproduced
         if same_session and 0.0 <= delta <= _AUTO_GAP_MAX_S:
             seg.gap_s = delta
         else:
@@ -284,6 +332,14 @@ def _resolve_gaps(segments: list[Segment], warnings: list[str]) -> None:
                 warnings.append(
                     f"{os.path.basename(seg.item.path)} overlaps the previous file by "
                     f"{-delta:.1f}s — playing back-to-back instead")
+            elif same_session and delta > _AUTO_GAP_MAX_S:
+                # Not clamped to the cap: a bench run should not sit idle for
+                # half an hour. But the operator has to be told, or "auto" looks
+                # like it decided the files were contiguous.
+                warnings.append(
+                    f"{os.path.basename(seg.item.path)}: real pause before this file was "
+                    f"{_hms(delta)} — playing back-to-back instead; set an explicit "
+                    f"gap if the pause matters")
 
 
 def _check_consistency(segments: list[Segment], warnings: list[str]) -> None:
@@ -300,6 +356,24 @@ def _check_consistency(segments: list[Segment], warnings: list[str]) -> None:
         first = next(s for s in segments[:-1] if s.item.repeat == 0)
         warnings.append(f"{os.path.basename(first.item.path)} repeats endlessly — "
                         f"later items will never play")
+
+
+def _one_source(segs: list[Segment]) -> str:
+    """The plan's bitrate provenance — ``"mixed"`` when the items disagree."""
+    got = {s.baud_source for s in segs if s.baud}
+    if not got:
+        return "none"
+    return got.pop() if len(got) == 1 else "mixed"
+
+
+def _hms(seconds: float) -> str:
+    """``2129.8`` -> ``'35m30s'`` — a pause between captures is read, not computed."""
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m{total % 60:02d}s"
+    return f"{total // 3600}h{(total % 3600) // 60:02d}m"
 
 
 def _auto_label(item: TxItem) -> str:

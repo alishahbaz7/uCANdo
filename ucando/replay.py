@@ -136,7 +136,8 @@ class TxEngine:
         self._tx_tap = None
 
     # ----- loading ---------------------------------------------------------
-    def load(self, path: str, network: Optional[str] = None) -> dict:
+    def load(self, path: str, network: Optional[str] = None,
+             baud: Optional[int] = None) -> dict:
         """Parse one log and select a network to transmit.
 
         A single file is just a one-item playlist, so everything below — repeat,
@@ -145,7 +146,7 @@ class TxEngine:
         holds several physically separate buses and only one can go out of a
         single-channel adapter.
         """
-        return self.set_plan([txproject.TxItem(path=path, network=network)])
+        return self.set_plan([txproject.TxItem(path=path, network=network, baud=baud)])
 
     def set_plan(self, items, name: str = "") -> dict:
         """Install a playlist (list of :class:`~ucando.txproject.TxItem`/dicts)."""
@@ -179,7 +180,8 @@ class TxEngine:
                                if filter_ids is not None else item.filter_ids,
                     skip_tx=item.skip_tx if skip_tx is None else bool(skip_tx),
                     trim_start_s=item.trim_start_s, trim_end_s=item.trim_end_s,
-                    gap_before_ms=item.gap_before_ms, label=item.label))
+                    gap_before_ms=item.gap_before_ms, label=item.label,
+                    baud=item.baud))
             name = self._plan.name
         plan = txproject.build(items, name=name)
         with self._lock:
