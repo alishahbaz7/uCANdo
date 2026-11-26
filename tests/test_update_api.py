@@ -21,11 +21,11 @@ def test_a_source_run_does_not_check_and_says_why():
         assert c.post("/api/update/install").json()["available"] is False
 
 
-def test_the_channel_is_the_public_releases_repo():
+def test_the_channel_is_this_repos_own_releases():
     from ucando.update import config
-    # the source repo is private: copies could never read its releases (the user, 2026-11-26)
-    assert config.REPO == "alishahbaz7/uCANdo-releases"
-    assert config.MANIFEST_URL.endswith("/uCANdo-releases/releases/latest/download/latest.json")
+    # copies read it without logging in, so the repo is public (the user, 2026-11-26)
+    assert config.REPO == "alishahbaz7/uCANdo"
+    assert config.MANIFEST_URL.endswith("/uCANdo/releases/latest/download/latest.json")
     assert config.asset_url("1.6.0").endswith("/download/v1.6.0/uCANdo-v1.6.0.zip")
 
 

@@ -21,8 +21,8 @@ Outputs in dist/:
     latest.json             the version, the notes and the zip's SHA-256 — what copies read
     notes.md                the CHANGELOG section, for the release text
 
-Publish both files as a GitHub release of the repo named in ucando/update/config.py (the public
-releases-only repo), as the *latest* release, tag ``v<version>`` — never a pre-release, which
+Publish both files as a GitHub release of the repo named in ucando/update/config.py (this repo,
+public), as the *latest* release, tag ``v<version>`` — never a pre-release, which
 copies cannot see. The build never zips or deletes a ``data/`` folder.
 """
 

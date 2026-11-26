@@ -49,11 +49,11 @@ old folder, so the old `data\` is already in the right place.
 
 ## Updates and publishing a release
 
-Copies read `https://github.com/alishahbaz7/uCANdo-releases/releases/latest/download/latest.json`
-— GitHub's redirect, no API, no token, no rate limit (`ucando/update/config.py`). The source repo is
-private and a copy cannot log in, so releases go to that **separate public repo, which holds
-releases only — no source** (the user's choice, 2026-11-26). It must exist once (created on
-github.com, empty).
+Copies read `https://github.com/alishahbaz7/uCANdo/releases/latest/download/latest.json`
+— GitHub's redirect, no API, no token, no rate limit (`ucando/update/config.py`). A copy cannot log
+in, so the repo is **public** (the user's choice, 2026-11-26, when CAN-utlity became uCANdo).
+Never commit customer or bench material: it lives in the git-ignored `docs/private/`, and device
+logs never enter the repo at all.
 
 On start a release copy checks the channel (60 s at most, whatever the network does), offers a
 newer version once per run — after the first-start name — with its notes and what the restart
@@ -68,7 +68,7 @@ usage event (`update_offered`, `update_installed`, `update_failed`, …).
 To publish (only on the user's word — a published release reaches every copy):
 
 1. `.\packaging\build.ps1 --rebuild` → `dist\uCANdo-v<version>.zip`, `latest.json`, `notes.md`.
-2. github.com/alishahbaz7/uCANdo-releases → *Draft a new release* → tag `v<version>`, title
+2. github.com/alishahbaz7/uCANdo → *Releases* → *Draft a new release* → tag `v<version>`, title
    `uCANdo <version>`, the text from `notes.md`, attach the zip **and** `latest.json`.
 3. Publish it as the **latest** release — never a pre-release, which copies cannot see.
 4. Watch a copy of the previous version offer it, install it and restart into it.

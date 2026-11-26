@@ -6,7 +6,7 @@ downloads it, refuses it unless the SHA-256 matches, unpacks it beside the runni
 restarts into it through the launcher. The running version is never touched; a failure anywhere
 leaves it as it was, and is said only in Settings.
 
-    config.py     the channel (the GitHub releases of alishahbaz7/uCANdo-releases) and names
+    config.py     the channel (the GitHub releases of alishahbaz7/uCANdo, a public repo) and names
     semver.py     x.y.z comparison
     manifest.py   latest.json, read and validated
     transport.py  HTTP: text with a size cap, downloads hashed while they stream, time limits

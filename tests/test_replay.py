@@ -696,7 +696,7 @@ def _chunk(tmp_path, name, t0, n=5, step=0.1):
 
 
 def test_separate_captures_play_back_to_back_without_a_line_per_file(tmp_path):
-    """The TML S0-S8 scenarios share one start clock, so each "overlaps" the one before. With
+    """A bench's S0-S8 scenarios share one start clock, so each "overlaps" the one before. With
     real gaps kept that used to raise a warning per file for a perfectly good playlist — the
     user asked twice what was wrong. None follows on from another: they are separate
     captures, back-to-back is the only sensible play, and nothing needs saying."""

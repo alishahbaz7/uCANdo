@@ -312,7 +312,7 @@ def _resolve_gaps(segments: list[Segment], warnings: list[str]) -> None:
     """
     # An overlap is only news inside a set that is otherwise one continuous session: there it
     # points at a duplicated or misordered chunk. When NO file follows on from the one before,
-    # the files are separate captures (the TML S0-S8 scenarios share one start clock): there is
+    # the files are separate captures (a bench's S0-S8 scenarios share one start clock): there is
     # no real gap to keep, back-to-back is the only sensible play, and a line per file just
     # reads like a fault (the user asked "why am I getting this" twice, 24-25-11-2026).
     overlaps: list[str] = []

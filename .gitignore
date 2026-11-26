@@ -23,3 +23,5 @@ data/usage.json
 build/
 dist/
 .pytest_cache/
+# Local-only notes (customer bench findings, session handoff) - never pushed: the repo is public
+docs/private/
