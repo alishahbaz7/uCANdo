@@ -7,6 +7,11 @@ import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT = os.path.dirname(SPECPATH)            # project root (spec lives in packaging/)
+import sys
+sys.path.insert(0, ROOT)
+from ucando.install import release_name  # noqa: E402
+# uCANdo-v<version>: the program the launcher starts from versions/uCANdo-v<version>/ (app-updates)
+NAME = release_name()
 
 # read-only assets bundled next to the code
 datas = [
@@ -45,7 +50,7 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 # uCANdo's logo on the exe — also what a button pinned from uCANdo's window shows (desktop.py)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="uCANdo",
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=NAME,
           icon=os.path.join(SPECPATH, "ucando.ico"),
           console=True, disable_windowed_traceback=False)
-coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="uCANdo")
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name=NAME)

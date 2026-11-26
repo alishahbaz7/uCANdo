@@ -25,6 +25,8 @@ from pydantic import BaseModel
 
 from . import __app_name__, __version__
 from . import applog
+from . import install
+from .update.service import UpdateService
 from .bus_manager import BusManager
 import can
 
@@ -97,14 +99,52 @@ BUILD = channel.CHANNEL
 # Usage reporting (user skill app-control): one reporter, started with the app.
 usage = usage_mod.create(DATA_DIR, BUILD)
 
+# Self-update (user skill app-updates; ucando/update): a launcher install checks the public release
+# channel on start, offers a newer version once and installs it beside this one. Release builds
+# only (a source run checks only when UCANDO_UPDATE_MANIFEST_URL points it at a test channel).
+updates: UpdateService | None = None
+
+
+def _update_interrupts() -> list[str]:
+    """What restarting into a new version stops, in words — the offer says so before Update."""
+    out: list[str] = []
+    try:
+        st = replayer.status().get("state")
+        if st in ("playing", "recovering"):
+            out.append("TX replay is playing: it stops")
+        elif st == "paused":
+            out.append("TX replay is paused: it is unloaded")
+    except Exception:
+        pass
+    try:
+        if bus.logger is not None and bus.logger.snapshot(0).get("recording"):
+            out.append("A recording is running: it is saved and stops")
+    except Exception:
+        pass
+    try:
+        if restbus.status().get("running"):
+            out.append("The restbus simulation stops")
+    except Exception:
+        pass
+    if bus.connected:
+        out.append("The bus disconnects: connect again after the restart")
+    return out
+
 
 @asynccontextmanager
 async def _lifespan(_app):
-    # Silent by design: a reporter that cannot start must never stop uCANdo.
+    global updates
+    # Silent by design: a reporter or an updater that cannot start must never stop uCANdo.
     try:
         usage.start()
     except Exception:
         log.exception("usage reporting did not start")
+    try:
+        updates = UpdateService(data_dir=DATA_DIR, root=install.launcher_root() if install.FROZEN else None,
+                                on_event=usage.record, busy_with=_update_interrupts)
+        updates.start()
+    except Exception:
+        log.exception("updates did not start")
     yield
     try:
         usage.stop()
@@ -384,6 +424,55 @@ def usage_send():
     if usage.enabled and not usage.sending:
         threading.Thread(target=usage.flush, daemon=True, name="usage-send").start()
     return {**usage_mod.status(usage, BUILD), "sending": usage.enabled}
+
+
+def _upd():
+    """The updater, or an error while uCANdo is still starting."""
+    return updates if updates is not None else _err("Updates are starting", 503)
+
+
+@app.get("/api/update")
+def update_status():
+    """The update state the page shows: the offer, the banner chip, Settings → Updates."""
+    u = _upd()
+    return u.status() if isinstance(u, UpdateService) else u
+
+
+@app.post("/api/update/check")
+def update_check():
+    """Settings → Check now. Answers at once; the check runs on its own thread (60 s at most)."""
+    u = _upd()
+    if not isinstance(u, UpdateService):
+        return u
+    u.check_async()
+    return {**u.status(), "stage": "checking" if u.stage != "disabled" else "disabled"}
+
+
+@app.post("/api/update/offered")
+def update_offered():
+    """The offer was shown — once per run, whichever view the person is on."""
+    u = _upd()
+    if not isinstance(u, UpdateService):
+        return u
+    u.mark_offered()
+    return u.status()
+
+
+@app.post("/api/update/later")
+def update_later():
+    u = _upd()
+    if not isinstance(u, UpdateService):
+        return u
+    u.postpone()
+    return u.status()
+
+
+@app.post("/api/update/install")
+def update_install():
+    """Download, verify, install beside this version, restart through the launcher. A copy that
+    is not a launcher install gets the release page to open instead ("open")."""
+    u = _upd()
+    return u.install_async() if isinstance(u, UpdateService) else u
 
 
 @app.post("/api/usage/view")

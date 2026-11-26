@@ -70,3 +70,40 @@ def test_counts_are_camel_case_numbers_only():
 def test_send_now_answers_at_once_when_off():
     r = client.post("/api/usage/send").json()
     assert r["sending"] is False and r["enabled"] is False
+
+
+class _FakeReporter:
+    def __init__(self, fail: bool = False):
+        self.stops, self.fail = 0, fail
+
+    def stop(self):
+        self.stops += 1
+        if self.fail:
+            raise RuntimeError("network down")
+
+
+def test_closing_the_console_ends_the_session():
+    # Found on the v1.6.0 release build: closing the console window (the documented way to stop
+    # uCANdo) ended the process before uvicorn's shutdown, so the session never ended.
+    for kind in (2, 5, 6):  # CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT
+        r = _FakeReporter()
+        assert usage_mod.on_console_event(kind, r) is False  # Windows still ends the process
+        assert r.stops == 1
+
+
+def test_ctrl_c_is_left_to_uvicorn_and_a_failing_stop_is_silent():
+    r = _FakeReporter()
+    for kind in (0, 1):  # Ctrl+C, Ctrl+Break: uvicorn shuts down cleanly and stops it itself
+        assert usage_mod.on_console_event(kind, r) is False
+    assert r.stops == 0
+    assert usage_mod.on_console_event(2, _FakeReporter(fail=True)) is False
+    assert usage_mod.on_console_event(2, None) is False
+
+
+def test_console_handler_registers_on_windows():
+    import ctypes
+    import os
+    registered = usage_mod.end_session_on_console_close(lambda: None)
+    assert registered is (os.name == "nt")
+    if registered:  # leave the test process as it was
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(usage_mod._console_handler, False)

@@ -13,6 +13,7 @@
 
 | Feature | Details |
 |---|---|
+| **Updates itself** | Pin `uCANdo.exe` (now a small launcher) once: each start checks for a newer version and offers it with its notes; *Update* downloads it, checks its SHA-256, installs it beside the running one and restarts into it. Your `data` stays put; Shift while starting picks an earlier version. Releases are published to a public releases-only repo (`docs/RELEASE_PACKAGING.md`) |
 | **The house design** | The look shared by this user's utilities: Supabase's palette and the Inter font (bundled, offline), Auto / Light / Dark, a fixed banner (uCANdo · *Hello, Name* · the page), a resizable rail with *Expanded / Collapsed / Expand on hover*, house dialogs, sentence case, no help text on screen — explanations are hold-tips |
 | **Its own window** | `python main.py` / `uCANdo.exe` open uCANdo as an app window, not a browser tab — its own taskbar button with uCANdo's logo (pin it and it starts uCANdo), the title bar following the theme |
 | **Release and dev side by side** | The packaged exe on **8765**, a run from source on **8865** (marked *Dev*), separate data folders; a second start just opens a window on the running copy |

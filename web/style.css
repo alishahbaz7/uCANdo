@@ -432,6 +432,21 @@ button.ui-chip:hover, button.ui-chip[aria-expanded="true"] { background: color-m
 .stale-chip { --c: var(--warn); }
 .rec-chip .ui-chip-dot { animation: recBlink 1.2s ease-in-out infinite; }
 @keyframes recBlink { 50% { opacity: .35; } }
+/* a newer version, after Later on its offer (app-updates): the brand green, amber when required */
+.update-chip { --c: var(--accent); }
+.update-chip.is-required { --c: var(--warn); }
+
+/* the update offer: facts, the release notes as text, the download */
+dialog.upd-dlg { width: min(560px, calc(100vw - 32px)); }
+.upd-facts { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.upd-notes { max-height: 42vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--r-2); background: var(--panel-2); color: var(--dim); font-size: 13px;
+  line-height: 1.55; white-space: pre-line; user-select: text; }
+.upd-notes:empty { display: none; }
+.upd-prog { display: grid; gap: 8px; margin-top: 12px; }
+.upd-prog-line { font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.upd-dlg .ui-notice { margin-top: 10px; }
+.set-cta { margin-top: 10px; }
 
 /* ==== the rail: views as items under their group ========================================= */
 /* Supabase's side menu: a step off the canvas, items in soft grey, the open view a quiet raised

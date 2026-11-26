@@ -43,6 +43,10 @@
     <span class="ui-chip stale-chip" id="staleChip" hidden
       data-tip="uCANdo's code changed after this copy started, so new buttons may not work yet. Close the uCANdo console and run python main.py again.">
       <span class="ui-chip-dot"></span>Restart to load new code</span>
+    <!-- a newer version, after Later on its offer (app.js paintUpdateChip) -->
+    <button type="button" class="ui-chip update-chip" id="updateChip" hidden>
+      <span class="ui-chip-dot"></span><span id="updateChipT">Update</span>
+    </button>
     <button type="button" class="ui-chip rec-chip" id="recChip" hidden data-tip="Recording to disk. Click to stop and save.">
       <span class="ui-chip-dot"></span><span id="recChipT">Recording</span>
     </button>
@@ -877,6 +881,21 @@ Never reported: CAN frames, IDs, payloads, signal values, DBCs, log files or the
           </dl>
           <div id="usageErr" class="ui-notice warn" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="usageErrT"></span></div>
         </div>
+        <!-- shown by app.js once /api/update answers (refreshUpdate) -->
+        <div class="set-sec" id="setUpdates" hidden>
+          <div class="set-h"><span class="set-title" data-tip="uCANdo checks for a newer version each time it starts and offers it once; Later leaves an Update chip in the banner. Update installs it beside this version and restarts into it; your data stays. Hold Shift while starting uCANdo.exe to start an earlier version.">Updates</span>
+            <span class="spacer"></span>
+            <button type="button" class="btn-mini" id="btnUpdCheck">Check now</button></div>
+          <div id="updOff" class="ui-notice muted" hidden><span data-icon="info"></span><span class="ui-notice-t" id="updOffT"></span></div>
+          <dl class="set-facts" id="updFacts">
+            <dt>Version</dt><dd id="updCurrent">—</dd>
+            <dt>Latest</dt><dd id="updLatest">—</dd>
+            <dt>Last checked</dt><dd id="updChecked">—</dd>
+            <dt>Channel</dt><dd class="mono" id="updChannel">—</dd>
+          </dl>
+          <div class="set-cta" id="updCta" hidden><button type="button" class="btn btn-primary btn-ico" id="btnUpdOpen"></button></div>
+          <div id="updErr" class="ui-notice warn" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="updErrT"></span></div>
+        </div>
         <div class="set-sec" id="setAbout">
           <div class="set-h"><span class="set-title" data-tip="Two copies that report the same version and build are the same program.">About</span></div>
           <dl class="set-facts">
@@ -906,6 +925,25 @@ Never reported: CAN frames, IDs, payloads, signal values, DBCs, log files or the
         <button type="button" class="btn" id="welcomeCancel" hidden>Cancel</button>
         <button type="submit" class="btn btn-primary" id="welcomeOk" disabled>Continue</button></div>
     </form>
+  </dialog>
+
+  <!-- A newer version (user skill app-updates): offered once per run after the name, then the
+       banner chip. Update downloads, verifies, installs beside and restarts; the page follows. -->
+  <dialog id="updateDlg" class="ui-dlg upd-dlg">
+    <div class="ui-dlg-head"><h2 id="updDlgTitle">A new version is available</h2><span class="spacer"></span>
+      <span class="tag warn" id="updDlgRequired" hidden data-tip="This version fixes something serious: this copy must update before it is used again.">Required</span></div>
+    <div class="ui-dlg-body">
+      <div class="upd-facts" id="updDlgFacts"></div>
+      <div class="upd-notes" id="updDlgNotes"></div>
+      <div class="upd-prog" id="updProg" hidden>
+        <div class="upd-prog-line"><span id="updProgT"></span></div>
+        <div class="progress"><div class="progress-bar" id="updProgBar"></div></div>
+      </div>
+      <div id="updDlgWarn" class="ui-notice warn" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="updDlgWarnT"></span></div>
+    </div>
+    <div class="ui-dlg-foot"><span class="spacer"></span>
+      <button type="button" class="btn" id="btnUpdLater">Later</button>
+      <button type="button" class="btn btn-primary btn-ico" id="btnUpdGo"></button></div>
   </dialog>
 
   <script src="/shell.js?v=__VER__"></script>

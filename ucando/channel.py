@@ -20,12 +20,16 @@ CHANNEL = "release" if getattr(sys, "frozen", False) else "dev"
 
 
 def app_home() -> str:
-    """Where writable state lives: beside the exe for a release (the onefile temp dir is wiped),
+    """Where writable state lives: for a release, beside the launcher (``<install>/data``, shared
+    by every version the updater installs) or beside a hand-unzipped exe;
     the repo root from source. ``UCANDO_HOME`` relocates it — tests point it at a temp dir so a
     run never writes into the real database. ``CANFORGE_HOME`` is the pre-v1.4.1 name, still
     honoured. The one rule: server.py and main.py both read it."""
     if getattr(sys, "frozen", False):
-        home = os.path.dirname(sys.executable)
+        # a launcher install (v1.6.0 on) keeps data/ beside the launcher, shared by every version;
+        # an older copy unzipped by hand keeps it beside the program
+        from .install import launcher_root
+        home = launcher_root() or os.path.dirname(sys.executable)
     else:
         home = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.environ.get("UCANDO_HOME") or os.environ.get("CANFORGE_HOME") or home

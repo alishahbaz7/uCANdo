@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import threading
 from collections import Counter
+from collections.abc import Callable
 
 from . import __app_name__, __version__
 from .usage_client import URL, UsageReporter
@@ -61,6 +62,49 @@ def create(data_dir: str, build: str) -> UsageReporter:
                              enabled=enabled, build=build, url=TEST_URL or URL)
     reporter.metrics = _metrics
     return reporter
+
+
+#: Windows console events after which the process is ended without uvicorn's shutdown:
+#: CTRL_CLOSE_EVENT (the console window's X), CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT.
+#: Ctrl+C (0) and Ctrl+Break (1) are left to uvicorn, which shuts down cleanly on them.
+CONSOLE_CLOSE_EVENTS = frozenset({2, 5, 6})
+_console_handler = None  # the registered callback; it must stay referenced or ctypes frees it
+
+
+def on_console_event(kind: int, reporter: UsageReporter | None) -> bool:
+    """The console is closing: end the session and send it (3 s at most) before Windows ends the
+    process. Returns False so the default handling — ending the process — carries on."""
+    if kind in CONSOLE_CLOSE_EVENTS and reporter is not None:
+        try:
+            reporter.stop()
+        except Exception:
+            pass  # silent by design: reporting must never hold up closing
+    return False
+
+
+def end_session_on_console_close(get_reporter: Callable[[], UsageReporter | None]) -> bool:
+    """Closing uCANdo's console window, the documented way to stop it, gives the process about
+    5 s and never reaches uvicorn's shutdown: an open app window's WebSocket alone holds that up.
+    So the lifespan's ``usage.stop()`` never ran, and every session reached the server as *not
+    closed normally*, its last minutes only at the next start (found on the v1.6.0 release build,
+    2026-11-26). This registers a console handler that ends the session directly.
+    ``get_reporter()`` returns the reporter, or None while the server is not loaded.
+    Returns whether a handler was registered (Windows only)."""
+    global _console_handler
+    if os.name != "nt":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    def _handle(kind: int) -> bool:
+        try:
+            reporter = get_reporter()
+        except Exception:
+            reporter = None
+        return on_console_event(kind, reporter)
+
+    _console_handler = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)(_handle)
+    return bool(ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_handler, True))
 
 
 def disabled_reason(reporter: UsageReporter, build: str) -> str | None:

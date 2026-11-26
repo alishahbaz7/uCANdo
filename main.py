@@ -79,10 +79,22 @@ def main() -> None:
     parser.add_argument("--tab", action="store_true",
                         help="open in a browser tab instead of uCANdo's own window")
     parser.add_argument("--reload", action="store_true", help="dev auto-reload")
+    parser.add_argument("--wait-port", type=float, default=0, metavar="SECONDS",
+                        help="wait this long for the port to come free (a restart into a new "
+                             "version: the old one is still shutting down)")
     args = parser.parse_args()
 
     port: int = int(args.port or DEFAULT_PORT[CHANNEL])
     url = f"http://{args.host}:{port}/"
+    # how this server was started, so the updater restarts the next version on the same address
+    from ucando import install
+    install.SERVE_ARGS[:] = ([] if args.port is None else ["--port", str(port)]) + \
+        ([] if args.host == "127.0.0.1" else ["--host", args.host])
+
+    if args.wait_port > 0:
+        deadline = time.monotonic() + args.wait_port
+        while probe(args.host, port) is not None and time.monotonic() < deadline:
+            time.sleep(0.5)
 
     running = probe(args.host, port)
     if running is not None:
@@ -109,6 +121,10 @@ def main() -> None:
     if not args.tab:
         brand_windows()
     print(f"uCANdo ({CHANNEL}) serving at {url}  (close this window to stop)")
+    # Closing this window ends the process before uvicorn shuts down; end the usage session first.
+    from ucando import usage as usage_mod
+    usage_mod.end_session_on_console_close(
+        lambda: getattr(sys.modules.get("ucando.server"), "usage", None))
     import uvicorn
     if getattr(sys, "frozen", False):
         # In a packaged build, import the app object directly (no reload import-string).

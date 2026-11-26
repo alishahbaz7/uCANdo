@@ -1,33 +1,82 @@
 # Packaging uCANdo for release (Windows)
 
-uCANdo ships as a **self-contained folder** — a teammate just unzips and double-clicks
-`uCANdo.exe`. No Python, no `pip`, no internet required (usage reports wait until one is
-there — see below).
+uCANdo ships as a **self-contained folder** — a teammate unzips it and pins `uCANdo.exe`.
+No Python, no `pip`, no internet required (usage reports and the update check wait until one
+is there — see below). **Since v1.6.0 it updates itself** (user skill `app-updates`): pin it
+once, and every later version arrives as an offer inside the app.
 
 ## Build
 
 ```powershell
-.\packaging\build.ps1
+.\packaging\build.ps1              # build what is missing, then package
+.\packaging\build.ps1 --rebuild    # a fresh program and launcher build
 ```
 
-This runs PyInstaller against [`packaging/uCANdo.spec`](../packaging/uCANdo.spec) and produces:
+`build.ps1` runs [`packaging/build_release.py`](../packaging/build_release.py), which builds the
+program with PyInstaller ([`packaging/uCANdo.spec`](../packaging/uCANdo.spec)) and the launcher
+(`packaging/launcher/`: C#, built by the compiler that ships with Windows — nothing to install),
+then writes to `dist\`:
 
-- `dist\uCANdo\uCANdo.exe` — the app (onedir bundle, ~35 MB unpacked)
-- `dist\uCANdo_v<version>.zip` — the shareable artifact (~18 MB), with a `README.txt`
+| File | What it is |
+|---|---|
+| `uCANdo-v<version>.zip` | the shareable install (~19 MB) — unzip, pin `uCANdo.exe` |
+| `latest.json` | the version, the notes and the zip's SHA-256: what running copies read |
+| `notes.md` | this version's `CHANGELOG.md` section: the release text, and the offer's notes |
+| `uCANdo-v<version>\` | the same install, runnable from here (a `data\` made by running it survives rebuilds) |
 
-The version comes from `ucando.__version__`, so bump that first for a new release.
+The version comes from `ucando.__version__`, so bump that first, and write its `CHANGELOG.md`
+section — the build refuses an empty one, because a copy would be offered an update with no notes.
 
 ## What's inside / how paths work
 
-`ucando/server.py` is **frozen-aware**:
+```
+uCANdo\uCANdo.exe                                       the launcher: pinned, never versioned (32 KB)
+uCANdo\README.txt, CHANGELOG.md
+uCANdo\versions\uCANdo-v<version>\uCANdo-v<version>.exe  + _internal\  (the PyInstaller one-folder build)
+uCANdo\data\                                            created at the first start, shared by every version
+```
+
+The launcher starts the newest complete version folder and exits; **Shift** while starting it
+picks an earlier one (the way back). `ucando/channel.py` puts `data\` **beside the launcher**
+(`ucando/install.py` `launcher_root`), so an update never moves or copies it; a pre-1.6 copy
+unzipped by hand keeps `data\` beside its exe. Coming from 1.5 or earlier: unzip 1.6 **over** the
+old folder, so the old `data\` is already in the right place.
 
 | | source run | packaged (`frozen`) |
 |---|---|---|
 | read-only assets (`web/`, `ucando/protocols/`) | project root | `sys._MEIPASS` (bundled) |
-| writable data (`data/` — logs, recordings, `ucando.db`) | project root | **next to `uCANdo.exe`** |
+| writable data (`data/` — logs, recordings, `ucando.db`) | project root | **beside the launcher `uCANdo.exe`** |
 
-So a packaged user's captures/logs/DB persist in `dist\uCANdo\data\` across runs (the
-onefile temp dir would be wiped; onedir keeps them beside the exe).
+## Updates and publishing a release
+
+Copies read `https://github.com/alishahbaz7/uCANdo-releases/releases/latest/download/latest.json`
+— GitHub's redirect, no API, no token, no rate limit (`ucando/update/config.py`). The source repo is
+private and a copy cannot log in, so releases go to that **separate public repo, which holds
+releases only — no source** (the user's choice, 2026-11-26). It must exist once (created on
+github.com, empty).
+
+On start a release copy checks the channel (60 s at most, whatever the network does), offers a
+newer version once per run — after the first-start name — with its notes and what the restart
+will stop (a TX replay, a recording, the connected bus), and *Later* leaves an **Update** chip in
+the banner. *Update* downloads into `versions\.download`, **installs nothing unless the SHA-256
+matches `latest.json`**, unpacks to `uCANdo-v<x>.partial`, renames it into place, and restarts
+through the launcher; the page follows and reloads on the new version. A failure anywhere leaves
+the running version as it was and is said only in Settings → Updates. The next start keeps the
+running version, the newest and the one before, and removes the rest. Each step is reported as a
+usage event (`update_offered`, `update_installed`, `update_failed`, …).
+
+To publish (only on the user's word — a published release reaches every copy):
+
+1. `.\packaging\build.ps1 --rebuild` → `dist\uCANdo-v<version>.zip`, `latest.json`, `notes.md`.
+2. github.com/alishahbaz7/uCANdo-releases → *Draft a new release* → tag `v<version>`, title
+   `uCANdo <version>`, the text from `notes.md`, attach the zip **and** `latest.json`.
+3. Publish it as the **latest** release — never a pre-release, which copies cannot see.
+4. Watch a copy of the previous version offer it, install it and restart into it.
+
+`--minimum X.Y.Z` makes copies below that version update before anything else (critical fixes
+only: it removes *Later*). A local rehearsal needs no publishing: serve a folder holding a newer
+build's zip and a `latest.json` (its `url` may be just the file name) with `python -m http.server`,
+and start the older install with `UCANDO_UPDATE_MANIFEST_URL=http://127.0.0.1:8000/latest.json`.
 
 The spec bundles `web/`, the guided-RE `protocols/*.json`, all of `cantools`, and the
 dynamic imports PyInstaller can't see statically (`ucando.plugins.*`, the virtual CAN

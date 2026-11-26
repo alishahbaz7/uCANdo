@@ -212,7 +212,7 @@ $("setViews").addEventListener("change", (e) => {
 });
 $("btnViewsReset").addEventListener("click", () => { viewPrefs = {}; saveViewPrefs(); renderViewPrefs(); });
 $("btnSettings").addEventListener("click", () => {
-  renderSettings(); loadLogDir(); refreshUsage(); $("settingsDlg").showModal();
+  renderSettings(); loadLogDir(); refreshUsage(); refreshUpdate(); $("settingsDlg").showModal();
 });
 
 // ---- usage reporting (user skill app-control; ucando/usage.py) ---------------
@@ -332,10 +332,181 @@ $("btnUsageSend").addEventListener("click", async () => {
   }
 });
 
-refreshUsage().then(() => {
-  if (usage && usage.needs_name) askName(false);
+refreshUsage().then(async () => {
   countView(state.view);                             // the view uCANdo opened on
+  if (usage && usage.needs_name) await askName(false);
+  startUpdates();                                    // the update offer waits for the name
 });
+
+// ---- self-update (user skill app-updates; ucando/update) ---------------------
+// A launcher install checks the release channel on every start. A newer version
+// is offered once per run, after the name; Later leaves the banner chip. Update
+// downloads, verifies, installs beside this version and restarts into it, and
+// this page follows the restart and reloads on the new version. Silent: a check
+// that fails is said only in Settings → Updates.
+let upd = null;                                      // GET /api/update
+let following = false;                               // this page asked for the install
+const UPD_BUSY = ["downloading", "installing", "restarting"];
+const mbOf = (n) => (n == null ? "" : (n / 1048576).toFixed(1) + " MB");
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function refreshUpdate() {
+  try { upd = await api("/api/update"); } catch (e) { return; }
+  paintUpdateChip();
+  renderUpdates();
+  if ($("updateDlg").open) paintOffer();
+}
+function paintUpdateChip() {
+  const s = upd;
+  const show = !!(s && s.available && s.stage !== "disabled");
+  $("updateChip").hidden = !show;
+  if (!show) return;
+  let text = "Update " + s.latest;
+  if (s.stage === "downloading") text = s.total ? `Updating ${Math.floor((s.received / s.total) * 100)}%` : "Updating";
+  else if (s.stage === "installing") text = "Installing";
+  else if (s.stage === "restarting") text = "Restarting";
+  $("updateChipT").textContent = text;
+  $("updateChip").classList.toggle("is-required", !!s.required);
+  $("updateChip").dataset.tip = s.required ? `uCANdo ${s.latest} is required.`
+    : `uCANdo ${s.latest} is available. Click to see what is new.`;
+}
+$("updateChip").addEventListener("click", () => openOffer());
+
+// once per run (the server remembers across reloads)
+async function maybeOffer() {
+  if (!upd || !upd.available || upd.offered || upd.stage === "disabled") return;
+  try { upd = await POST("/api/update/offered"); } catch (e) { return; }
+  openOffer();
+}
+function openOffer() {
+  if (!upd || !upd.available || $("updateDlg").open) return;
+  paintOffer();
+  $("updateDlg").showModal();
+}
+$("updateDlg").addEventListener("cancel", (e) => {
+  if (upd && (upd.required || UPD_BUSY.includes(upd.stage))) e.preventDefault();
+});
+// Chrome lets a second Esc through a prevented cancel: an install in progress stays in view
+$("updateDlg").addEventListener("close", () => {
+  if (upd && UPD_BUSY.includes(upd.stage) && following) $("updateDlg").showModal();
+});
+
+function paintOffer() {
+  const s = upd;
+  if (!s) return;
+  $("updDlgTitle").textContent = `uCANdo ${s.latest} is available`;
+  $("updDlgRequired").hidden = !s.required;
+  const facts = [`Installed ${s.current}`];
+  if (s.size) facts.push(mbOf(s.size));
+  if (s.published) facts.push("published " + whenSent(s.published).replace("Today ", "today "));
+  $("updDlgFacts").textContent = facts.join(" · ");
+  // the CHANGELOG section as text: markdown's #, **, * and ` markers dropped
+  $("updDlgNotes").textContent = (s.notes || "").replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*([^*\n]+)\*/g, "$1").replace(/`([^`]+)`/g, "$1");
+  const busy = UPD_BUSY.includes(s.stage);
+  $("updProg").hidden = !busy;
+  if (busy) {
+    const pct = s.total ? Math.floor((s.received / s.total) * 100) : null;
+    $("updProgT").textContent = s.stage === "downloading"
+      ? (pct == null ? "Downloading" : `Downloading ${pct}% · ${mbOf(s.received)} of ${mbOf(s.total)}`)
+      : s.stage === "installing" ? "Installing beside this version" : `Restarting into ${s.latest}`;
+    $("updProgBar").style.width = (s.stage === "downloading" ? (pct || 0) : 100) + "%";
+  }
+  // why the last try failed, or what the restart stops — said before anyone clicks Update
+  let warn = "";
+  if (!busy && s.stage === "failed" && s.error && following) warn = "Not installed: " + s.error;
+  else if (!busy && s.interrupts && s.interrupts.length) warn = "The restart: " + s.interrupts.join(". ") + ".";
+  $("updDlgWarn").hidden = !warn;
+  $("updDlgWarnT").textContent = warn;
+  $("btnUpdLater").hidden = busy || !!s.required;
+  $("btnUpdGo").hidden = busy;
+  UI.setLabel($("btnUpdGo"), s.can_install_here ? "download" : "arrow-right",
+    s.can_install_here ? (s.stage === "failed" && following ? "Try again" : "Update") : "Open the release");
+}
+$("btnUpdLater").addEventListener("click", () => {
+  POST("/api/update/later").catch(() => {});
+  $("updateDlg").close();
+});
+$("btnUpdGo").addEventListener("click", async () => {
+  following = true;
+  let s;
+  try { s = await POST("/api/update/install"); } catch (e) { return; }
+  if (s.open) {                                      // not a launcher install: the release page
+    window.open(s.open, "_blank", "noopener");
+    $("updateDlg").close();
+    return;
+  }
+  upd = s;
+  paintUpdateChip();
+  paintOffer();
+  followInstall();
+});
+
+// Follow the install, then the restart: once uCANdo answers with the new version, reload.
+async function followInstall() {
+  while (upd && ["downloading", "installing"].includes(upd.stage)) {
+    await pause(600);
+    await refreshUpdate();
+  }
+  if (!upd || upd.stage !== "restarting") return;
+  const target = upd.latest;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 120000) {
+    await pause(1500);
+    try {
+      const info = await api("/api/info");
+      if (info.version === target) { location.reload(); return; }
+    } catch (e) { /* between versions */ }
+  }
+  $("updProg").hidden = true;
+  $("updDlgWarnT").textContent = `uCANdo ${target} has not answered yet. Start it from uCANdo.exe.`;
+  $("updDlgWarn").hidden = false;
+}
+
+// Settings → Updates
+function renderUpdates() {
+  const s = upd;
+  $("setUpdates").hidden = !s;
+  if (!s) return;
+  const off = s.stage === "disabled";
+  $("updOff").hidden = !off;
+  $("updOffT").textContent = off ? (s.disabled_reason || "Updates are off on this copy.") : "";
+  $("updFacts").hidden = off;
+  $("btnUpdCheck").hidden = off;
+  $("updCta").hidden = off || !s.available;
+  $("updErr").hidden = off || !(s.stage === "failed" && s.error);
+  if (off) return;
+  $("updCurrent").textContent = s.current;
+  $("updLatest").textContent = s.available ? `${s.latest} available`
+    : s.stage === "up_to_date" ? "Up to date" : (s.latest || "—");
+  $("updChecked").textContent = s.stage === "checking" ? "Checking" : whenSent(s.last_checked);
+  let channel = "—";
+  try { const u = new URL(s.channel); channel = u.host + u.pathname.split("/").slice(0, 3).join("/"); } catch (e) { /* — */ }
+  $("updChannel").textContent = channel;
+  UI.setLabel($("btnUpdCheck"), "refresh", s.stage === "checking" ? "Checking" : "Check now");
+  $("btnUpdCheck").classList.add("btn-ico");
+  $("btnUpdCheck").disabled = s.stage === "checking" || UPD_BUSY.includes(s.stage);
+  if (s.available) UI.setLabel($("btnUpdOpen"), "download", `Update to ${s.latest}`);
+  // amber: a check that did not reach the channel is retried next start — not a fault
+  $("updErrT").textContent = s.stage === "failed" && s.error ? "Not checked: " + s.error : "";
+}
+$("btnUpdCheck").addEventListener("click", async () => {
+  $("btnUpdCheck").disabled = true;
+  try { upd = await POST("/api/update/check"); } catch (e) { /* said on the next read */ }
+  renderUpdates();
+  for (let i = 0; i < 70 && upd && upd.stage === "checking"; i++) { await pause(1000); await refreshUpdate(); }
+  if (upd && upd.available) openOffer();
+});
+$("btnUpdOpen").addEventListener("click", () => { $("settingsDlg").close(); openOffer(); });
+
+async function startUpdates() {
+  await refreshUpdate();
+  // the first check runs at start-up: follow it briefly so a fresh start can offer at once
+  for (let i = 0; i < 40 && upd && upd.stage === "checking"; i++) { await pause(1500); await refreshUpdate(); }
+  await maybeOffer();
+  if (upd && UPD_BUSY.includes(upd.stage)) { following = true; openOffer(); followInstall(); }
+  setInterval(refreshUpdate, 60000);
+}
 
 // ---- feature readiness ----------------------------------------------------
 // One entry per view that is NOT "click it and it works right now". A view
