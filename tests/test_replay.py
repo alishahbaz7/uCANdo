@@ -316,12 +316,14 @@ def test_speed_scales_the_timeline(fast_log):
 
 
 # ----- failure handling ---------------------------------------------------
-def test_repeated_send_failure_stops_with_an_error(fast_log):
-    """No ACK / bus-off / unplugged adapter: stop and say so, don't hammer."""
+def test_a_bus_that_stops_taking_frames_is_waited_for_not_given_up_on(fast_log):
+    """No ACK / bus-off / an adapter pulled: say so and wait — never stop and leave the bench
+    silent until someone disconnects and reconnects (the user, 25-11-2026: "PCAN will not
+    retransmit until you disconnect and reconnect"). Only Stop ends the wait."""
     eng = TxEngine()
     eng.load(fast_log)
-
-    calls = []
+    calls, recovers = [], []
+    eng.set_recover(lambda reopen: recovers.append(reopen) or False)
 
     def boom(msg):
         calls.append(msg)
@@ -332,10 +334,63 @@ def test_repeated_send_failure_stops_with_an_error(fast_log):
     while eng.status()["state"] == "playing" and time.time() < deadline:
         time.sleep(0.01)
     st = eng.status()
-    assert st["state"] == "error"
-    assert "no ack" in st["error"]
+    assert st["state"] == "recovering"
+    assert "no ack" in st["error"] and st["recovering"] is not None
     assert st["sent"] == 0 and st["health"]["errors"] >= 32
-    assert len(calls) < 1000                                 # gave up early
+    time.sleep(0.9)                                        # a few tries, growing pauses
+    assert len(calls) < 60                                 # not hammering a dead bus
+    assert recovers and recovers[0] is False               # the adapter's reset first
+    eng.stop()
+    st = eng.status()
+    assert st["state"] == "ready" and st["health"]["outage_s"] > 0
+
+
+def test_playback_resumes_by_itself_when_the_bus_comes_back(fast_log):
+    """The frame that met the outage is retried, not dropped, and the rest follow on a fresh
+    clock: nothing skipped after it, no burst of the backlog, the outage counted — not drift."""
+    eng = TxEngine()
+    eng.load(fast_log)
+    down = {"left": 34}                                    # 32 in the burst + 2 retries, then it takes them
+    out, recovers = [], []
+    eng.set_recover(lambda reopen: recovers.append(reopen) or True)
+
+    def flaky(msg):
+        if down["left"] > 0:
+            down["left"] -= 1
+            raise can.CanOperationError("bus-off")
+        out.append(msg)
+
+    eng.play(flaky, speed=50.0)
+    deadline = time.time() + 10
+    seen_recovering = False
+    while eng.status()["state"] in ("playing", "recovering") and time.time() < deadline:
+        seen_recovering = seen_recovering or eng.status()["state"] == "recovering"
+        time.sleep(0.005)
+    st = eng.status()
+    assert seen_recovering
+    assert st["state"] == "done" and st["error"] == ""
+    h = st["health"]
+    assert h["recoveries"] == 1 and h["outage_s"] > 0
+    # 31 frames dropped before the outage was called (each failed once); the 32nd was retried
+    assert len(out) == 1000 - 31 and st["sent"] == len(out)
+    # exactly the log from the retried frame (#32) on: in order, nothing skipped, nothing twice
+    assert [m.arbitration_id for m in out] == [0x100 + (i % 8) for i in range(31, 1000)]
+    assert abs(h["drift_ms"]) < 250                        # the wait is not counted as drift
+
+
+def test_the_bus_manager_reopens_only_a_bus_the_person_still_wants():
+    from ucando.bus_manager import BusManager
+    bus = BusManager()
+    bus.connect("virtual", "recover-test", simulate=False)
+    try:
+        assert bus.recover(reopen=False) is False          # the virtual bus has no reset
+        first = bus.iface
+        assert bus.recover(reopen=True) is True            # what Disconnect + Connect did by hand
+        assert bus.connected and bus.iface is not first
+        assert bus.health() is None                        # only PCAN reports a controller state
+    finally:
+        bus.disconnect()
+    assert bus.recover(reopen=True) is False and not bus.connected   # never behind the person's back
 
 
 def test_play_without_a_log_raises(tmp_path):
@@ -618,3 +673,63 @@ def test_api_logs_finds_files_in_subfolders(tmp_path, monkeypatch):
     names = {l["name"] for l in logs}
     assert "top.asc" in names
     assert "MG Commute 01Aug26/Moving Data/drive.csv" in names
+
+
+def test_unload_forgets_the_log_so_play_has_nothing_to_send(two_network_log):
+    """TX replay -> Source -> Clear. Clearing only the page left the plan loaded, and Play then
+    transmitted a log the screen no longer showed: unload must empty the engine itself."""
+    eng = TxEngine()
+    eng.load(two_network_log)
+    assert eng.status()["state"] == "ready" and eng.plan() is not None
+    eng.unload()
+    st = eng.status()
+    assert st["state"] == "empty" and eng.plan() is None and eng.meta() == {}
+    eng.unload()                                  # twice, or on an empty engine: harmless
+    with pytest.raises(Exception):
+        eng.play(lambda msg: None)                # nothing loaded: nothing to send
+
+
+# ----- notes that are news, not noise -------------------------------------------------------
+def _chunk(tmp_path, name, t0, n=5, step=0.1):
+    return _write_vspy(tmp_path / name, [_row(i + 1, t0 + i * step, "HS CAN", "120", "00")
+                                         for i in range(n)])
+
+
+def test_separate_captures_play_back_to_back_without_a_line_per_file(tmp_path):
+    """The TML S0-S8 scenarios share one start clock, so each "overlaps" the one before. With
+    real gaps kept that used to raise a warning per file for a perfectly good playlist — the
+    user asked twice what was wrong. None follows on from another: they are separate
+    captures, back-to-back is the only sensible play, and nothing needs saying."""
+    files = [_chunk(tmp_path, f"S{i}.csv", 10.0) for i in range(4)]
+    plan = txproject.build([{"path": f, "gap_before_ms": "auto"} for f in files], use_cache=False)
+    assert all(s.gap_s == 0.0 for s in plan.segments)
+    assert not [w for w in plan.warnings if "overlap" in w]
+
+
+def test_an_overlap_inside_one_session_is_still_flagged(tmp_path):
+    """Chunks of one recording that follow on from each other, and one that does not — a
+    duplicated or misordered file. That one is news."""
+    a = _chunk(tmp_path, "a.csv", 10.0)            # 10.0 – 10.4
+    b = _chunk(tmp_path, "b.csv", 10.6)            # follows a after 0.2 s
+    c = _chunk(tmp_path, "c.csv", 10.2)            # starts inside b
+    plan = txproject.build([{"path": p, "gap_before_ms": "auto"} for p in (a, b, c)], use_cache=False)
+    assert plan.segments[1].gap_s == pytest.approx(0.2, abs=1e-6)
+    overlaps = [w for w in plan.warnings if "overlap" in w]
+    assert len(overlaps) == 1 and overlaps[0].startswith("c.csv")
+
+
+def test_an_assumed_bitrate_is_only_mentioned_when_it_can_matter():
+    """A .trc records no bitrate, so 500 k is assumed. Connected at exactly that, the note had
+    nothing to act on; before connecting, or connected at another bitrate, it does."""
+    from ucando import server
+    meta = {"baud": 500_000, "baud_source": "assumed", "networks": []}
+    said = lambda: [w for w in server._replay_warnings(meta) if "assum" in w]
+    server.bus.disconnect()
+    assert said() and "declare it" in said()[0]                     # not connected: what to connect at
+    server.bus.connect("virtual", "baud-note", bitrate=500_000, simulate=False)
+    try:
+        assert said() == []                                         # connected at the assumed rate
+        server.bus.connect("virtual", "baud-note", bitrate=250_000, simulate=False)
+        assert said() and "250,000" in said()[0]                    # a mismatch is always said
+    finally:
+        server.bus.disconnect()

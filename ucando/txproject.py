@@ -310,6 +310,13 @@ def _resolve_gaps(segments: list[Segment], warnings: list[str]) -> None:
     one ends). Anything else — different sessions, reordered files — has no
     comparable timebase, so auto means 0.
     """
+    # An overlap is only news inside a set that is otherwise one continuous session: there it
+    # points at a duplicated or misordered chunk. When NO file follows on from the one before,
+    # the files are separate captures (the TML S0-S8 scenarios share one start clock): there is
+    # no real gap to keep, back-to-back is the only sensible play, and a line per file just
+    # reads like a fault (the user asked "why am I getting this" twice, 24-25-11-2026).
+    overlaps: list[str] = []
+    follows_on = 0
     for i, seg in enumerate(segments):
         gap = seg.item.gap_before_ms
         if gap != AUTO:
@@ -326,13 +333,15 @@ def _resolve_gaps(segments: list[Segment], warnings: list[str]) -> None:
             seg.real_gap_s = delta          # measured, whether or not it is reproduced
         if same_session and 0.0 <= delta <= _AUTO_GAP_MAX_S:
             seg.gap_s = delta
+            follows_on += 1
         else:
             seg.gap_s = 0.0
             if same_session and delta < 0:
-                warnings.append(
+                overlaps.append(
                     f"{os.path.basename(seg.item.path)} overlaps the previous file by "
                     f"{-delta:.1f}s — playing back-to-back instead")
             elif same_session and delta > _AUTO_GAP_MAX_S:
+                follows_on += 1             # a later chunk of the session, after a long pause
                 # Not clamped to the cap: a bench run should not sit idle for
                 # half an hour. But the operator has to be told, or "auto" looks
                 # like it decided the files were contiguous.
@@ -340,6 +349,8 @@ def _resolve_gaps(segments: list[Segment], warnings: list[str]) -> None:
                     f"{os.path.basename(seg.item.path)}: real pause before this file was "
                     f"{_hms(delta)} — playing back-to-back instead; set an explicit "
                     f"gap if the pause matters")
+    if follows_on:
+        warnings.extend(overlaps)
 
 
 def _check_consistency(segments: list[Segment], warnings: list[str]) -> None:

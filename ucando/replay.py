@@ -56,9 +56,15 @@ _LATE_S = 0.005
 #: a large speed multiplier can demand more than the machine can deliver.
 _BEHIND_S = 0.25
 
-#: Consecutive send failures that mean the bus is gone (no ACK / bus-off /
-#: unplugged adapter) rather than one unlucky frame — stop instead of hammering.
+#: Consecutive send failures that mean the bus has stopped taking frames (no ACK, bus-off, a
+#: full transmit queue, an adapter pulled out) rather than one unlucky frame. Playback then
+#: waits the outage out instead of stopping — the user, 25-11-2026: "if there is an error on
+#: the CAN TX, PCAN will not retransmit until you disconnect and reconnect". It resets the
+#: adapter, retries the same frame with a growing pause, reopens the adapter every few tries,
+#: and resumes from that frame on a fresh clock when the bus takes it. Only Stop ends it.
 _MAX_CONSEC_ERRORS = 32
+_RECOVER_DELAYS = (0.2, 0.5, 1.0, 2.0, 3.0)      # seconds between tries; the last one repeats
+_REOPEN_EVERY = 4                                # every 4th try closes and reopens the adapter
 
 _DEFAULT_TICK = 0.001
 
@@ -90,7 +96,7 @@ def _timer_resolution(ms: int = 1):
 
 def _blank_health() -> dict:
     return {"sent": 0, "errors": 0, "late": 0, "late_sum": 0.0, "max_late": 0.0,
-            "bursts": 0, "burst_max": 0}
+            "bursts": 0, "burst_max": 0, "recoveries": 0, "outage_s": 0.0}
 
 
 class TxEngine:
@@ -101,7 +107,7 @@ class TxEngine:
         self._plan: Optional[TxPlan] = None
         self._meta: dict = {}
         self._thread: Optional[threading.Thread] = None
-        self._state = "empty"              # empty | ready | playing | paused | done | error
+        self._state = "empty"              # empty | ready | playing | paused | recovering | done | error
         self._error = ""
         self._item = 0                     # index into self._plan.segments
         self._item_pass = 0                # completed passes of the current item
@@ -134,6 +140,11 @@ class TxEngine:
         self._patcher = None
         #: Verification tap — see ucando.txverify.TxRecorder.
         self._tx_tap = None
+        #: recover(reopen: bool) -> bool, called while the bus is not taking frames
+        #: (BusManager.recover: the adapter's reset, or close-and-reopen). Optional.
+        self._recover: Optional[Callable[[bool], bool]] = None
+        self._outage_since: Optional[float] = None
+        self._outage_tries = 0
 
     # ----- loading ---------------------------------------------------------
     def load(self, path: str, network: Optional[str] = None,
@@ -152,7 +163,7 @@ class TxEngine:
         """Install a playlist (list of :class:`~ucando.txproject.TxItem`/dicts)."""
         plan = txproject.build(items, name=name)
         with self._lock:
-            if self._state == "playing":
+            if self._state in ("playing", "recovering"):
                 raise RuntimeError("Stop playback before changing the playlist")
             self._install_locked(plan)
         return self.meta()
@@ -167,7 +178,7 @@ class TxEngine:
         with self._lock:
             if self._plan is None:
                 raise RuntimeError("No log loaded")
-            if self._state == "playing":
+            if self._state in ("playing", "recovering"):
                 raise RuntimeError("Stop playback before changing the selection")
             items = []
             for seg in self._plan.segments:
@@ -199,6 +210,23 @@ class TxEngine:
         self._error = ""
         self._meta = plan.meta()
         self._state = "ready" if plan.frames else "empty"
+
+    def unload(self) -> None:
+        """Forget the loaded log or playlist — back to "empty", as at start-up.
+
+        Stops playback first. Clearing only the page would leave the plan here, and
+        Play would then transmit a log the screen no longer shows.
+        """
+        self.stop()
+        with self._lock:
+            self._plan = None
+            self._meta = {}
+            self._item = self._item_pass = self._cursor = 0
+            self._sent = 0
+            self._pass_no = 0
+            self._health = _blank_health()
+            self._error = ""
+            self._state = "empty"
 
     def meta(self) -> dict:
         with self._lock:
@@ -237,7 +265,7 @@ class TxEngine:
         with self._lock:
             if self._plan is None or not self._plan.frames:
                 raise RuntimeError("No log loaded")
-            if self._state == "playing":
+            if self._state in ("playing", "recovering"):
                 return
         if filter_ids is not None:
             self.select(filter_ids=filter_ids)     # rebuilds the plan; parse cache keeps it cheap
@@ -419,6 +447,10 @@ class TxEngine:
         """Observe every frame as it is handed to the adapter (or ``None``)."""
         self._tx_tap = tap
 
+    def set_recover(self, recover: Optional[Callable[[bool], bool]]) -> None:
+        """How to get the bus going again while it is not taking frames (see _ride_out)."""
+        self._recover = recover
+
     def _run(self, send: Callable[[can.Message], None]) -> None:
         # The store comes from the current segment each iteration — a playlist
         # walks several of them.
@@ -452,21 +484,21 @@ class TxEngine:
                 horizon = base + (now - epoch + tick) * speed
                 sent = errors = late = 0
                 late_sum = max_late = 0.0
+                outage = None                      # (the frame that failed, why) once the bus stops taking frames
                 while i < len(sel) and sent < _MAX_BURST and not self._stop_evt.is_set():
                     idx = sel[i]
                     if store.t[idx] > horizon:
                         break
                     due = epoch + (store.t[idx] - base) / speed
+                    msg = self._message(store, idx)
                     try:
-                        send(self._message(store, idx))
+                        send(msg)
                     except Exception as exc:
                         errors += 1
                         self._consec_errors += 1
                         if self._consec_errors >= _MAX_CONSEC_ERRORS:
-                            self._fail(f"bus send failed {self._consec_errors}× "
-                                       f"(no ACK / bus-off?): {exc}", sent, errors,
-                                       late, late_sum, max_late, i)
-                            return
+                            outage = (msg, exc)    # this frame is retried, not dropped: i stays on it
+                            break
                     else:
                         self._consec_errors = 0
                         sent += 1
@@ -490,6 +522,11 @@ class TxEngine:
                     if sent:
                         h["bursts"] += 1
                         h["burst_max"] = max(h["burst_max"], sent)
+
+                if outage is not None:
+                    if not self._ride_out(send, *outage):
+                        return                     # Stop while waiting for the bus
+                    continue
 
                 if i >= len(sel):
                     continue                       # let _advance decide
@@ -563,6 +600,64 @@ class TxEngine:
         if self._patcher is not None:
             self._patcher.on_rewind()
 
+    def _ride_out(self, send: Callable[[can.Message], None], msg: can.Message, exc: Exception) -> bool:
+        """The bus has stopped taking frames: wait for it instead of stopping.
+
+        Retries the very frame that failed (built once, so a patched counter does not step and
+        the TX tap does not log it again), with a growing pause; before each try the adapter is
+        reset, and every few tries closed and reopened. When the frame goes out, playback carries
+        on from the next one on a fresh clock — no burst of the backlog, nothing skipped — and the
+        outage is counted (recoveries, seconds without a bus), never folded into drift.
+        Returns False when Stop was pressed while waiting.
+        """
+        started = time.perf_counter()
+        with self._lock:
+            self._state = "recovering"
+            self._error = f"The bus is not taking frames ({exc})"
+            self._outage_since = started
+            self._outage_tries = 0
+        tries = 0
+        while True:
+            pause = _RECOVER_DELAYS[min(tries, len(_RECOVER_DELAYS) - 1)]
+            if self._stop_evt.wait(pause):
+                with self._lock:
+                    self._health["outage_s"] += time.perf_counter() - started
+                    self._outage_since = None
+                return False
+            tries += 1
+            recover = self._recover
+            if recover is not None:
+                try:
+                    recover(tries % _REOPEN_EVERY == 0)
+                except Exception:
+                    pass
+            try:
+                send(msg)
+            except Exception as again:
+                with self._lock:
+                    self._outage_tries = tries
+                    self._health["errors"] += 1
+                    self._error = f"The bus is not taking frames ({again})"
+                continue
+            now = time.perf_counter()
+            with self._lock:
+                out = now - started
+                h = self._health
+                h["recoveries"] += 1
+                h["outage_s"] += out
+                h["sent"] += 1
+                self._sent += 1
+                self._paused_total += out          # the timeline waited for the bus: not drift
+                self._consec_errors = 0
+                self._cursor += 1                  # the retried frame is out
+                self._error = ""
+                self._outage_since = None
+                self._outage_tries = 0
+                if self._state == "recovering":
+                    self._state = "playing"
+                self._rebase_locked(now)           # the next frame is due now
+            return True
+
     def _fail(self, message: str, sent: int, errors: int, late: int,
               late_sum: float, max_late: float, cursor: int) -> None:
         with self._lock:
@@ -608,7 +703,7 @@ class TxEngine:
                 "speed": self._speed,
                 "loop": self._passes == 0,
                 "passes": self._passes,
-                "pass_no": self._pass_no + (1 if self._state in ("playing", "paused") else 0),
+                "pass_no": self._pass_no + (1 if self._state in ("playing", "paused", "recovering") else 0),
                 "network": seg.network if seg else None,
                 # Playlist position. `progress` spans the whole plan (time-based,
                 # so a 40 s item doesn't advance the bar as fast as a 4 s one);
@@ -621,7 +716,7 @@ class TxEngine:
                 # 1-based while running; a finished item reads "n/n", not "0/n".
                 "item_pass": (seg.passes if (self._state == "done" and seg)
                               else self._item_pass +
-                              (1 if self._state in ("playing", "paused") else 0)),
+                              (1 if self._state in ("playing", "paused", "recovering") else 0)),
                 "item_repeat": seg.item.repeat if seg else 1,
                 "item_progress": round(self._cursor / total, 4) if total else 0.0,
                 "plan_frames": plan.frames if plan else 0,
@@ -645,7 +740,16 @@ class TxEngine:
                     # thread and one bus can deliver. Better said plainly than
                     # left for the operator to infer from late_pct.
                     "keeping_up": not (elapsed > 0.5 and (elapsed - expected) > _BEHIND_S),
+                    # Outages ridden out (see _ride_out): how many, and the seconds without a bus
+                    # — the current one included while it lasts.
+                    "recoveries": h["recoveries"],
+                    "outage_s": round(h["outage_s"] + (time.perf_counter() - self._outage_since
+                                                       if self._outage_since else 0.0), 1),
                 },
+                # While the bus is not taking frames: since when, and how many tries so far.
+                "recovering": ({"since_s": round(time.perf_counter() - self._outage_since, 1),
+                                "tries": self._outage_tries}
+                               if self._state == "recovering" and self._outage_since else None),
             }
 
 

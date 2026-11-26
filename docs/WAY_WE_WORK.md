@@ -45,11 +45,23 @@ directly. The capture → decode → RE → transmit loop is the spine. Read `CL
   the `Co-Authored-By:` trailer.
 
 ## UI/UX bar
-- **No emoji** in the UI — use the consistent inline-SVG icon set.
-- Terminology: **Upload / Download** (never Import/Export). Each view gets a short fixed
-  **title + one-line description** header.
+- **The house standard** (user skill `utility-ui`, since v1.6.0): Supabase's palette and
+  Inter, Auto/Light/Dark, the fixed banner (app · "Hello, Name" · page), the rail with its
+  Sidebar control, one green primary per area. Repo specifics: `.claude/skills/ui-hygiene`.
+- **No emoji, no glyphs as icons** — one inline-SVG icon map (`web/shell.js`), always with a
+  word beside it.
+- **Sentence case everywhere**; nothing forced to capitals.
+- **No help text on the page** — the view's description is the page name's hold-tip; other
+  explanations are hold-tips (`data-tip`, shown after a 5 s hold) or an empty state with the
+  action that fixes it. Facts and actions only.
+- Terminology: **Upload / Download** (never Import/Export).
+- **House dialogs only** (`UI.confirm` / `UI.prompt` / `UI.notice`), never the browser's;
+  destructive actions red and confirmed.
+- **Text on screen can be selected and copied.**
 - "Beauty *and* brain": polished, engaging (tasteful animation is welcome), but every
   flourish should also be useful. Honor `prefers-reduced-motion`; keep it offline/self-contained.
+- **Done means driven and looked at**: `tests/test_ui.py` green, `tools/ui_smoke.py` clean,
+  and the screenshots read in both themes — then left uncommitted until I say commit.
 
 ## Reverse-engineering method I expect
 - **Decode by finding the pattern, then prove it byte-exact against ground truth**

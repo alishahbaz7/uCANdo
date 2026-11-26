@@ -76,6 +76,7 @@ def cmd_tx(args) -> int:
 
     bus = _connect(args)
     rep = LogReplayer()
+    rep.set_recover(bus.recover)          # wait out a bus that stops taking frames
     meta = rep.set_plan(items)
     print(f"playlist: {meta['item_count']} item(s) · {meta['frames']:,} frames/pass · "
           f"{meta['duration_s']:.1f}s · {meta.get('network') or 'bus'}"
@@ -89,7 +90,7 @@ def cmd_tx(args) -> int:
 
     rep.play(bus.send, speed=args.speed, repeat=args.repeat)
     last = -1
-    while rep.status()["state"] in ("playing", "paused"):
+    while rep.status()["state"] in ("playing", "paused", "recovering"):
         st = rep.status()
         if st["item"] != last:
             last = st["item"]
@@ -109,6 +110,7 @@ def cmd_tx(args) -> int:
 def cmd_replay(args) -> int:
     bus = _connect(args)
     rep = LogReplayer()
+    rep.set_recover(bus.recover)          # wait out a bus that stops taking frames
     meta = rep.load(args.file, args.network)
     baud = f", captured at {meta['baud']:,} bit/s" if meta.get("baud") else ""
     print(f"replaying {meta['frames']} frames ({meta['duration_s']}s) on "
@@ -118,7 +120,7 @@ def cmd_replay(args) -> int:
             print(f"  note: skipping {net['frames']:,} frames on {net['name']} "
                   f"(separate bus — use --network to play it instead)")
     rep.play(bus.send, speed=args.speed, repeat=args.repeat)
-    while rep.status()["state"] in ("playing", "paused"):
+    while rep.status()["state"] in ("playing", "paused", "recovering"):
         time.sleep(0.2)
     st = rep.status()
     bus.disconnect()

@@ -17,6 +17,10 @@ import uuid
 # (pytest loads conftest first), so a test run never touches data/ucando.db.
 _TEST_HOME = tempfile.mkdtemp(prefix="ucando-tests-")
 os.environ.setdefault("UCANDO_HOME", _TEST_HOME)
+# No test may ever reach the shared usage server (user skill app-control): a
+# frozen-build test, or a stray UCANDO_USAGE=on in the shell, would otherwise add
+# rows to the real user list. Forced, not setdefault, for exactly that reason.
+os.environ["UCANDO_USAGE"] = "off"
 
 import can
 import pytest

@@ -29,6 +29,7 @@ import io
 import json
 import re
 import threading
+import time
 from collections import deque
 from typing import Iterable, Optional
 
@@ -53,7 +54,10 @@ class TxRecorder:
     playlist, patched, single-stepped — through one place.
     """
 
-    def __init__(self, ring: int = RING):
+    def __init__(self, ring: int = RING, clock=time.perf_counter):
+        # ``clock`` must be the clock the TX tap stamps frames with (TxEngine passes
+        # time.perf_counter()), so an ID's age is "now minus when it last went out".
+        self._clock = clock
         self._lock = threading.Lock()
         self._ring: deque = deque(maxlen=ring)
         self._ids: dict[tuple[int, bool], dict] = {}
@@ -117,11 +121,22 @@ class TxRecorder:
                     "recorded": len(self._store) if self._store is not None else 0}
 
     def ids(self) -> list[dict]:
-        """Latest payload per ID — the decimated view the UI can actually render."""
+        """Latest payload per ID — the decimated view the UI can actually render.
+
+        ``age_s`` is how long ago the ID last went out and ``period_ms`` its mean
+        interval, so a view can say "stopped" by the ID's *own* rhythm (a 1 s
+        message is not late after 300 ms) — and goes stale honestly when playback
+        pauses or a scenario silences the bus, which is what the device sees too.
+        """
+        now = self._clock()
         with self._lock:
+            t0 = self._t0 or 0.0
             rows = [{"id": e["id"], "id_hex": f"{e['id']:X}", "extended": e["extended"],
                      "count": e["count"], "dlc": e["dlc"],
-                     "data": e["data"].hex().upper(), "last_s": round(e["last_s"], 3)}
+                     "data": e["data"].hex().upper(), "last_s": round(e["last_s"], 3),
+                     "age_s": round(max(0.0, now - (t0 + e["last_s"])), 3),
+                     "period_ms": (round((e["last_s"] - e["first_s"]) / (e["count"] - 1) * 1000, 1)
+                                   if e["count"] > 1 else None)}
                     for e in self._ids.values()]
         rows.sort(key=lambda r: r["id"])
         return rows

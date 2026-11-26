@@ -26,6 +26,10 @@ class BusManager:
         # Persistent frame taps re-applied to each new logger on connect, so
         # subsystems (Signal Viewer, Protocol Decoder) survive reconnects.
         self._taps: list = []
+        # The settings of the bus the person asked for — kept so recover() can reopen it after
+        # an adapter stops taking frames, and cleared by Disconnect so a bus the person closed
+        # is never reopened behind their back.
+        self._wanted: Optional[dict] = None
 
     def add_tap(self, fn) -> None:
         if fn not in self._taps:
@@ -80,12 +84,48 @@ class BusManager:
                 "fd": fd, "simulated": bool(self.sim and self.sim.running),
                 "echo_tx": bool(echo_tx),
             }
+            self._wanted = {"hw": hw, "channel": channel, "bitrate": bitrate, "fd": fd,
+                            "simulate": simulate, "echo_tx": echo_tx}
             return dict(self.conn)
 
     def disconnect(self) -> dict:
         with self._lock:
+            self._wanted = None
             self._teardown()
             return {"connected": False}
+
+    def recover(self, reopen: bool = False) -> bool:
+        """Get a bus that stopped taking frames going again — called by TX replay while it waits.
+
+        First the adapter's own reset (PCAN: CAN_Reset, which also empties a stuck transmit
+        queue); with *reopen*, close the channel and open it again with the same settings —
+        exactly what Disconnect + Connect did by hand, and the only cure once an adapter has been
+        unplugged and plugged back. Never reopens a bus the person disconnected."""
+        if not reopen:
+            iface = self.iface
+            try:
+                return bool(iface and iface.recover())
+            except Exception:
+                return False
+        wanted = self._wanted
+        if wanted is None:
+            return False
+        try:
+            self.connect(**wanted)
+            return True
+        except Exception:
+            # The adapter is still gone. Keep wanting it: the next try opens it again.
+            with self._lock:
+                self._wanted = wanted
+            return False
+
+    def health(self) -> Optional[dict]:
+        """The controller's error state (PCAN), or None — see ``CANInterface.health``."""
+        iface = self.iface
+        try:
+            return iface.health() if iface else None
+        except Exception:
+            return None
 
     def _teardown(self) -> None:
         if self.logger:

@@ -44,6 +44,8 @@ a = Analysis(
     excludes=["tkinter", "PyInstaller", "matplotlib", "pytest"], noarchive=False,
 )
 pyz = PYZ(a.pure)
+# uCANdo's logo on the exe — also what a button pinned from uCANdo's window shows (desktop.py)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="uCANdo",
+          icon=os.path.join(SPECPATH, "ucando.ico"),
           console=True, disable_windowed_traceback=False)
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="uCANdo")

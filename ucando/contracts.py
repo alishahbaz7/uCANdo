@@ -77,6 +77,8 @@ class TxHealth(TypedDict):
     burst_max: int
     tick_ms: float
     keeping_up: bool     # False once the timeline is measurably behind the clock
+    recoveries: int      # bus outages ridden out (no ACK / bus-off / adapter reopened)
+    outage_s: float      # seconds without a bus, the current outage included
 
 
 class ReplayStatus(TypedDict):
@@ -103,12 +105,14 @@ class ReplayStatus(TypedDict):
     item_repeat: int
     item_progress: float
     plan_frames: int
+    recovering: Optional[dict]   # {since_s, tries} while state == "recovering", else None
 
 
 class LiveWsPayload(LoggerSnapshot, total=False):
     """What ``/ws/live`` sends each tick: a snapshot plus these extra keys."""
     connected: bool
     replay: ReplayStatus
+    bus_health: Optional[dict]   # the controller's error state (PCAN): {state, code} — or None
 
 
 # The keys the UI depends on existing in every /ws/live payload (even when not

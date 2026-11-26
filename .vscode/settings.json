@@ -1,0 +1,18 @@
+{
+  // The editor's ▷ "Run Python File" button runs
+  //   & '...\python.exe' '"d:/.../CAN utlity/main.py"'
+  // — the path wrapped in quotes twice because it has a space in it. PowerShell
+  // 7.3+ passes the inner quotes to Python literally ("can't open file ...
+  // [Errno 22]"); in Legacy mode it strips them, as Windows PowerShell 5.1 did.
+  // So this workspace's terminals open PowerShell with Legacy argument passing.
+  // Once the folder is renamed to uCANdo (no space) this is harmless and can go.
+  "terminal.integrated.profiles.windows": {
+    "PowerShell (uCANdo)": {
+      "source": "PowerShell",
+      "args": ["-NoExit", "-Command", "$PSNativeCommandArgumentPassing = 'Legacy'"]
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell (uCANdo)",
+  // the project's venv: the only Python here with python-ics (neoVI)
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe"
+}

@@ -1,7 +1,8 @@
 # Packaging uCANdo for release (Windows)
 
 uCANdo ships as a **self-contained folder** — a teammate just unzips and double-clicks
-`uCANdo.exe`. No Python, no `pip`, no internet required.
+`uCANdo.exe`. No Python, no `pip`, no internet required (usage reports wait until one is
+there — see below).
 
 ## Build
 
@@ -35,9 +36,28 @@ backend, uvicorn's loop/protocol submodules).
 ## Sharing & network note
 
 uCANdo binds to **`127.0.0.1:8765`** (localhost only). It is **not** a network service —
-it does not open external ports, call home, or touch the internet, so it cannot affect a
-machine's existing internet/network functionality. Hardware CAN access (Neo VI / PCAN /
-SLCAN) needs the vendor driver installed separately; the **virtual bus** works out of the box.
+it opens no external ports, so it cannot affect a machine's existing network setup. Hardware
+CAN access (Neo VI / PCAN / SLCAN) needs the vendor driver installed separately; the
+**virtual bus** works out of the box.
+
+**Usage reporting (release builds only, since v1.6.0).** The packaged exe sends a small usage
+report to the shared usage server every one of these utilities reports to (user skill
+`app-control`; `ucando/usage.py`) — one HTTPS call to `zjudpkovgkavarcjxmmp.supabase.co` about
+every 5 minutes, in the background:
+
+| Sent | Never sent |
+|---|---|
+| the name the person typed once at the first start | CAN frames, IDs, payloads, signal values |
+| this computer: Windows login, computer name, Windows version, time zone | DBCs, signature JSON, OEM profiles |
+| the uCANdo version and build (`release`) | log files or their names, paths |
+| how long it ran, the views opened, errors (type and message) | VINs, adapter serials |
+| counts: bus connects by adapter type, recordings, replays started, identifies, decoder loads, conversions, DTC scans | anything a capture contains |
+
+It works offline: reports wait in `data\usage.json` and go when the server can be reached; a
+send that fails gives up after 30 s and backs off, so uCANdo never waits for it. The person sees
+it all in **Settings → Usage reporting** (name, install ID, last sent, *Send now*).
+`UCANDO_USAGE=off` in the environment switches it off on a machine. A run from source does not
+report.
 
 ## Run options (same as source)
 

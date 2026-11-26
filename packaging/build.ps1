@@ -32,11 +32,17 @@ foreach ($rel in @("_internal\web\index.html", "_internal\web\app.js",
 uCANdo v$ver - Unified CAN Workbench
 
 Double-click uCANdo.exe. It serves the UI at http://127.0.0.1:8765 and opens
-your browser. To stop it, close the console window.
+it in its own window. To stop it, close the console window.
 
-Runs fully offline on localhost only. It does not use or affect your network.
-Captures, logs, the parse cache and the database are written to the 'data'
-folder next to the exe, so keep this folder somewhere writable.
+Runs on localhost only and opens no network ports. Captures, logs, the parse
+cache and the database are written to the 'data' folder next to the exe, so
+keep this folder somewhere writable.
+
+Usage reporting: uCANdo asks your name once, to greet you, and sends a small
+usage report (your name, this computer, the version, how long it ran, the
+views opened, errors and counts such as recordings) to its usage server. It
+never sends CAN data, logs, DBCs or VINs. Settings -> Usage reporting shows
+it all; set UCANDO_USAGE=off to switch it off. Offline is fine - reports wait.
 
 Hardware
   Virtual bus       works out of the box (no adapter needed - good for a tour)
@@ -46,18 +52,19 @@ Hardware
 The Dashboard shows a hardware-readiness panel if a driver is missing.
 
 What is new in this build
-  TX Replay    replay a recorded log onto the bus in real time, with the
-               bitrate read from the log itself. Repeat once / N times /
-               endlessly. Build a playlist of several logs, in order, each
-               with its own repeat count and lead-in gap, and save it as a
-               named scenario.
-  Signal patch force a signal to a value while the log plays (for example
-               SOC = 8%) and keep the odometer climbing across a loop
-               instead of snapping backwards.
-  TX Monitor   preview the exact bytes being transmitted, decode them
-               against a DBC or a cloud Signature JSON to see what should
-               appear on the cloud, and diff them byte-for-byte against a
-               raw-frame export from the device's cloud logs.
+  New look     Auto / Light / Dark theme, a resizable side rail, and its own
+               window with its own taskbar button (pin it to start uCANdo).
+               Settings -> Views hides any view you do not use.
+  TX Replay    upload several logs at once as a playlist, see which file is
+               being sent, and replay PCAN-View .trc files as well as Vehicle
+               Spy and .asc logs.
+  Transmit     every transmitted signal as a tile, as the device's cloud
+  signal       panel would show it (pin the ones your cloud shows), or every
+               transmitted ID byte by byte with changed bytes lit.
+  Lost bus     unplug the device under test, or let the bus go bus-off, and
+               playback waits for the bus, resets the adapter and carries on
+               by itself. Only Stop ends the wait.
+  Usage        your name once at the first start, then "Hello, <name>".
 "@ | Set-Content "dist\uCANdo\README.txt" -Encoding UTF8
 
 $zip = "dist\uCANdo_v$ver.zip"

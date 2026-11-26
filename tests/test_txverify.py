@@ -303,6 +303,94 @@ def test_signature_json_id_base_is_a_real_footgun():
     assert 0x244 in lettered and 0x1AB in lettered
 
 
+# ----- the Tiles view: every ID at once, with its rhythm -----------------
+def test_recorder_reports_each_ids_age_and_period():
+    """A tile goes grey by its ID's *own* rhythm — 3 s of silence is nothing for a 10 s
+    message and an outage for a 10 ms one — so the recorder reports both numbers."""
+    now = [100.0]
+    rec = TxRecorder(clock=lambda: now[0])
+    for t in (100.0, 100.1, 100.2):
+        rec.consume(t, 0x100, False, b"\x01")
+    rec.consume(100.2, 0x200, False, b"\x02")         # sent once: no period yet
+    now[0] = 103.2
+    rows = {r["id"]: r for r in rec.ids()}
+    assert rows[0x100]["period_ms"] == pytest.approx(100.0)
+    assert rows[0x100]["age_s"] == pytest.approx(3.0)
+    assert rows[0x200]["period_ms"] is None and rows[0x200]["age_s"] == pytest.approx(3.0)
+
+
+def test_values_only_decode_matches_the_full_decode():
+    """cells=False drops the bit layout and nothing else — the tiles and the byte view must
+    never show two different values for one signal."""
+    import cantools
+    from ucando import framedecode
+    db = cantools.database.load_string(_TILE_DBC, database_format="dbc")
+    full = framedecode.decode_frame(db, 946, "0178000000000000")
+    lean = framedecode.decode_frame(db, 946, "0178000000000000", cells=False)
+    strip = lambda d: [{k: s[k] for k in ("name", "raw", "physical", "choice", "unit", "out_of_range")}
+                       for s in d["signals"]]
+    assert strip(lean) == strip(full)
+    assert all(s["cells"] == [] and s["msb_cell"] is None for s in lean["signals"])
+    assert all(s["cells"] for s in full["signals"])
+
+
+_TILE_DBC = '''VERSION ""
+
+BO_ 946 BCM_IC_RC4: 8 Vector__XXX
+ SG_ DoorStateDrvr : 0|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Temp : 15|8@0+ (1,-40) [-40|60] "degC" Vector__XXX
+
+BO_ 580 BMS: 8 Vector__XXX
+ SG_ SoC : 7|8@0+ (1,0) [0|100] "%" Vector__XXX
+
+VAL_ 946 DoorStateDrvr 0 "Closed" 1 "Open" ;
+'''
+
+
+def test_api_live_signals_decodes_every_described_id(tmp_path):
+    from fastapi.testclient import TestClient
+    from ucando import server
+    client = TestClient(server.app)
+
+    server.tx_recorder.reset()
+    t = time.perf_counter()
+    server.tx_recorder.consume(t, 946, False, bytes.fromhex("0178000000000000"))
+    server.tx_recorder.consume(t, 580, False, bytes.fromhex("5000000000000000"))
+    server.tx_recorder.consume(t, 0x111, False, bytes.fromhex("2000800000000000"))  # not in the DBC
+
+    none = client.get("/api/tx/live/signals").json()
+    if none["definition"] is None:                    # nothing loaded yet: says so, decodes nothing
+        assert none["messages"] == [] and none["transmitted"] == 3
+
+    dbc = tmp_path / "tiles.dbc"
+    dbc.write_text(_TILE_DBC, encoding="utf-8")
+    with open(dbc, "rb") as fh:
+        assert client.post("/api/tx/live/definition",
+                           files={"file": ("tiles.dbc", fh, "text/plain")}).json()["ok"]
+    # Patch forcing SoC: what left the machine is not what the log said — the tile must know.
+    assert client.post("/api/tx/patch/dbc", json={"path": dbc.as_posix()}).json()["ok"]
+    assert client.post("/api/tx/patch/override",
+                       json={"message": "BMS", "signal": "SoC", "value": 15}).json()["ok"]
+    try:
+        r = client.get("/api/tx/live/signals").json()
+        assert r["ok"] and r["transmitted"] == 3
+        assert [m["id"] for m in r["messages"]] == [580, 946]          # 0x111 is not described
+        sig = {(m["name"], s["name"]): s for m in r["messages"] for s in m["signals"]}
+        door = sig[("BCM_IC_RC4", "DoorStateDrvr")]
+        assert door["choice"] == "Open" and door["raw"] == 1           # the cloud's wording
+        temp = sig[("BCM_IC_RC4", "Temp")]
+        assert temp["physical"] == "80" and temp["unit"] == "degC"
+        assert temp["out_of_range"] is True                            # 80 > the DBC's own max 60
+        soc = sig[("BMS", "SoC")]
+        assert soc["physical"] == "80" and soc["patch"] == "set"
+        assert door["patch"] is None
+        assert all("cells" not in s for s in sig.values())            # values only
+        assert all(m["age_s"] >= 0 and "period_ms" in m for m in r["messages"])
+    finally:
+        server.tx_patcher = None
+        server.replayer.set_patcher(None)
+
+
 # ----- REST surface -------------------------------------------------------
 def test_api_live_decode_and_verify(tmp_path):
     from fastapi.testclient import TestClient
