@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from contextlib import asynccontextmanager
 import io
 import logging
+import mimetypes
 import os
 import threading
 from collections import deque
@@ -23,6 +25,8 @@ from pydantic import BaseModel
 
 from . import __app_name__, __version__
 from . import applog
+from . import install
+from .update.service import UpdateService
 from .bus_manager import BusManager
 import can
 
@@ -52,6 +56,12 @@ from .reverse import analyze_log
 from .scheduler import TxScheduler
 from .signals import SignalViewer
 from .storage import Storage, adopt_legacy_db
+from . import txproject
+from . import txpatch
+from . import txverify
+from . import framedecode, jsondecode
+from . import usage as usage_mod
+from . import channel
 
 import sys
 
@@ -61,14 +71,12 @@ import sys
 #               so user data persists across runs (the onefile temp dir is wiped).
 if getattr(sys, "frozen", False):
     BUNDLE = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-    APP_HOME = os.path.dirname(sys.executable)
 else:
-    BUNDLE = APP_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Writable state (DB, logs, uploads) can be relocated — tests point this at a
-# temp dir so a test run never writes into the developer's real database.
-# CANFORGE_HOME is the pre-v1.4.1 name, still honoured so existing shortcuts,
-# service definitions and CI configs keep working after the rename.
-APP_HOME = os.environ.get("UCANDO_HOME") or os.environ.get("CANFORGE_HOME") or APP_HOME
+    BUNDLE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Writable state (DB, logs, uploads): channel.app_home() — beside the exe, or the
+# repo root, relocatable with UCANDO_HOME (tests) and its pre-v1.4.1 name
+# CANFORGE_HOME. main.py reads the same rule to place the app window's profile.
+APP_HOME = channel.app_home()
 ROOT = BUNDLE
 WEB_DIR = os.path.join(BUNDLE, "web")
 DATA_DIR = os.path.join(APP_HOME, "data")
@@ -83,13 +91,78 @@ applog.setup_logging(os.path.join(DATA_DIR, "ucando.log"))
 log = logging.getLogger("ucando.server")
 log.info("uCANdo %s starting up", __version__)
 
-app = FastAPI(title=f"{__app_name__} API", version=__version__)
+#: "release" for the packaged exe, "dev" for a run from source. The banner marks
+#: a dev copy so a source run is never mistaken for the build someone was handed,
+#: and only a release copy reports usage (ucando/usage.py).
+BUILD = channel.CHANNEL
+
+# Usage reporting (user skill app-control): one reporter, started with the app.
+usage = usage_mod.create(DATA_DIR, BUILD)
+
+# Self-update (user skill app-updates; ucando/update): a launcher install checks the public release
+# channel on start, offers a newer version once and installs it beside this one. Release builds
+# only (a source run checks only when UCANDO_UPDATE_MANIFEST_URL points it at a test channel).
+updates: UpdateService | None = None
+
+
+def _update_interrupts() -> list[str]:
+    """What restarting into a new version stops, in words — the offer says so before Update."""
+    out: list[str] = []
+    try:
+        st = replayer.status().get("state")
+        if st in ("playing", "recovering"):
+            out.append("TX replay is playing: it stops")
+        elif st == "paused":
+            out.append("TX replay is paused: it is unloaded")
+    except Exception:
+        pass
+    try:
+        if bus.logger is not None and bus.logger.snapshot(0).get("recording"):
+            out.append("A recording is running: it is saved and stops")
+    except Exception:
+        pass
+    try:
+        if restbus.status().get("running"):
+            out.append("The restbus simulation stops")
+    except Exception:
+        pass
+    if bus.connected:
+        out.append("The bus disconnects: connect again after the restart")
+    return out
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    global updates
+    # Silent by design: a reporter or an updater that cannot start must never stop uCANdo.
+    try:
+        usage.start()
+    except Exception:
+        log.exception("usage reporting did not start")
+    try:
+        updates = UpdateService(data_dir=DATA_DIR, root=install.launcher_root() if install.FROZEN else None,
+                                on_event=usage.record, busy_with=_update_interrupts)
+        updates.start()
+    except Exception:
+        log.exception("updates did not start")
+    yield
+    try:
+        usage.stop()
+    except Exception:
+        log.exception("usage reporting did not stop cleanly")
+
+
+app = FastAPI(title=f"{__app_name__} API", version=__version__, lifespan=_lifespan)
 
 
 @app.exception_handler(Exception)
 async def _log_unhandled(request, exc):
     """Last-resort handler: log the full traceback, return a graceful 500."""
     log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    try:
+        usage.record_error(exc)        # counted in the report: the type and message, never request data
+    except Exception:
+        pass
     return JSONResponse(status_code=500,
                         content={"ok": False, "error": "internal error (logged to data/ucando.log)"})
 
@@ -116,6 +189,9 @@ loaded_plugins = load_plugins()   # auto-imports ucando/plugins/* (self-register
 # ----- subsystems ----------------------------------------------------------
 bus = BusManager()
 replayer = LogReplayer()
+# TX replay waits out a bus that stops taking frames (no ACK / bus-off) instead of stopping:
+# this is how it resets or reopens the adapter while it waits.
+replayer.set_recover(bus.recover)
 scheduler = TxScheduler()
 dbc = DbcModel()
 viewer = SignalViewer()
@@ -193,6 +269,9 @@ class ConnectReq(BaseModel):
     bitrate: int = 500_000
     fd: bool = False
     simulate: bool = True
+    #: Loop our own TX back into the receive path, so the logger witnesses what
+    #: actually reached the wire (TX-vs-cloud verification).
+    echo_tx: bool = False
 
 
 class RecordReq(BaseModel):
@@ -208,6 +287,52 @@ class PlayReq(BaseModel):
     speed: float = 1.0
     loop: bool = False
     filter_ids: list[int] | None = None
+    #: passes to transmit — 1 = once, n = limited count, 0 = endless
+    repeat: int | None = None
+
+
+class ReplayLoadReq(BaseModel):
+    path: str
+    network: str | None = None
+    #: Bitrate the log was captured at, when the operator knows it and the file
+    #: does not (.trc records none). Overrides the reader's assumption.
+    baud: int | None = None
+
+
+class ReplaySelectReq(BaseModel):
+    network: str | None = None
+    filter_ids: list[int] | None = None
+    skip_tx: bool | None = None
+
+
+class TxPlanReq(BaseModel):
+    """A playlist: ordered items, each a log file with its own repeat/gap."""
+    items: list[dict] = []
+    name: str = ""
+
+
+class TxScenarioReq(BaseModel):
+    name: str
+
+
+class TxPatchDbcReq(BaseModel):
+    path: str | None = None            # an uploaded/absolute .dbc path
+    use_viewer: bool = False           # reuse the DBC already in the Signal Viewer
+    oem_profile_id: int | None = None  # or an OEM Database profile
+
+
+class TxOverrideReq(BaseModel):
+    message: str
+    signal: str
+    value: float | None = None         # None (or remove) clears the override
+    remove: bool = False
+
+
+class TxSeamReq(BaseModel):
+    """Signals whose continuity must survive a loop seam."""
+    monotonic: list[list[str]] = []    # [[message, signal], ...]
+    counters: list[list[str]] = []
+    checksums: list[dict] = []         # [{message, signal, algorithm}]
 
 
 class DbcModelReq(BaseModel):
@@ -239,19 +364,154 @@ def _err(msg: str, code: int = 400):
 
 
 def _save_upload(file: UploadFile) -> str:
-    dest = os.path.join(UPLOAD_DIR, os.path.basename(file.filename))
+    """Save an upload under data/uploads/, never over a different file.
+
+    Logs arrive in batches now (TX replay takes many at once), and capture tools
+    reuse names across sessions — Vehicle Spy's buffer files, PCAN-View's
+    "Trace.trc". Overwriting by name would silently swap the log a saved
+    playlist points at. The same file again (byte-identical) reuses its copy; a
+    different file with a taken name becomes "name (2).ext".
+    """
+    name = os.path.basename(file.filename or "upload") or "upload"
+    data = file.file.read()
+    stem, ext = os.path.splitext(name)
+    dest, n = os.path.join(UPLOAD_DIR, name), 2
+    while os.path.exists(dest):
+        try:
+            if os.path.getsize(dest) == len(data):
+                with open(dest, "rb") as fh:
+                    if fh.read() == data:
+                        return dest
+        except OSError:
+            pass
+        dest = os.path.join(UPLOAD_DIR, f"{stem} ({n}){ext}")
+        n += 1
     with open(dest, "wb") as fh:
-        fh.write(file.file.read())
+        fh.write(data)
     return dest
 
 
 # ===========================================================================
 # Core / hardware
 # ===========================================================================
+class UsageNameReq(BaseModel):
+    name: str
+
+
+class UsageViewReq(BaseModel):
+    view: str
+
+
+@app.get("/api/usage")
+def usage_status():
+    """Settings → Usage reporting, the first-start name prompt and the banner greeting."""
+    return usage_mod.status(usage, BUILD)
+
+
+@app.post("/api/usage/name")
+def usage_set_name(req: UsageNameReq):
+    """The name the person gave: saved at once, sent in the background — never awaited."""
+    name = req.name.strip()
+    if not name or len(name) > 80:
+        return _err("Enter a name of 1 to 80 characters")
+    usage.set_name(name)
+    return usage_mod.status(usage, BUILD)
+
+
+@app.post("/api/usage/send")
+def usage_send():
+    """Settings → Send now. Answers at once; the send runs on its own thread."""
+    if usage.enabled and not usage.sending:
+        threading.Thread(target=usage.flush, daemon=True, name="usage-send").start()
+    return {**usage_mod.status(usage, BUILD), "sending": usage.enabled}
+
+
+def _upd():
+    """The updater, or an error while uCANdo is still starting."""
+    return updates if updates is not None else _err("Updates are starting", 503)
+
+
+@app.get("/api/update")
+def update_status():
+    """The update state the page shows: the offer, the banner chip, Settings → Updates."""
+    u = _upd()
+    return u.status() if isinstance(u, UpdateService) else u
+
+
+@app.post("/api/update/check")
+def update_check():
+    """Settings → Check now. Answers at once; the check runs on its own thread (60 s at most)."""
+    u = _upd()
+    if not isinstance(u, UpdateService):
+        return u
+    u.check_async()
+    return {**u.status(), "stage": "checking" if u.stage != "disabled" else "disabled"}
+
+
+@app.post("/api/update/offered")
+def update_offered():
+    """The offer was shown — once per run, whichever view the person is on."""
+    u = _upd()
+    if not isinstance(u, UpdateService):
+        return u
+    u.mark_offered()
+    return u.status()
+
+
+@app.post("/api/update/later")
+def update_later():
+    u = _upd()
+    if not isinstance(u, UpdateService):
+        return u
+    u.postpone()
+    return u.status()
+
+
+@app.post("/api/update/install")
+def update_install():
+    """Download, verify, install beside this version, restart through the launcher. A copy that
+    is not a launcher install gets the release page to open instead ("open")."""
+    u = _upd()
+    return u.install_async() if isinstance(u, UpdateService) else u
+
+
+@app.post("/api/usage/view")
+def usage_view(req: UsageViewReq):
+    """A view was opened. The single page swaps views client-side, so the server
+    never sees a page load — the page says so here. Only known view ids count."""
+    if req.view in usage_mod.VIEWS:
+        usage.page(req.view)
+    return {"ok": True}
+
+
+_CODE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _code_stamp() -> float:
+    """The newest mtime of uCANdo's own Python files."""
+    newest = 0.0
+    for root, _dirs, files in os.walk(_CODE_DIR):
+        for f in files:
+            if f.endswith(".py"):
+                try:
+                    newest = max(newest, os.path.getmtime(os.path.join(root, f)))
+                except OSError:
+                    pass
+    return newest
+
+
+_CODE_AT_START = _code_stamp()
+
+
 @app.get("/api/info")
 def info():
-    return {"app": __app_name__, "version": __version__,
-            "plugins_loaded": len(loaded_plugins)}
+    # code_stale (source runs only): the Python on disk is newer than what this
+    # process runs. The page is static and always fresh, so a stale server shows
+    # new buttons whose routes do not exist yet ("Could not remove the logs") —
+    # the banner says "Restart to load new code" instead (user skill utility-ui §12).
+    stale = BUILD == "dev" and _code_stamp() > _CODE_AT_START + 1.0
+    return {"app": __app_name__, "version": __version__, "build": BUILD,
+            "data_dir": DATA_DIR, "plugins_loaded": len(loaded_plugins), "code_stale": stale}
 
 
 @app.get("/api/plugins")
@@ -316,10 +576,13 @@ def drivers_launch(hw: str):
 
 @app.post("/api/connect")
 def connect(req: ConnectReq):
+    usage_mod.count("busConnects")
+    usage_mod.count("connects" + "".join(w.capitalize() for w in str(req.hw).split("_")))  # adapter type only
     try:
-        conn = bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate)
-        log.info("connected: hw=%s channel=%s bitrate=%s sim=%s",
-                 req.hw, req.channel, req.bitrate, req.simulate)
+        conn = bus.connect(req.hw, req.channel, req.bitrate, req.fd, req.simulate,
+                           req.echo_tx)
+        log.info("connected: hw=%s channel=%s bitrate=%s sim=%s echo_tx=%s",
+                 req.hw, req.channel, req.bitrate, req.simulate, req.echo_tx)
         return {"ok": True, "connection": conn}
     except Exception as exc:
         log.error("connect failed (hw=%s channel=%s): %s", req.hw, req.channel, exc)
@@ -334,7 +597,7 @@ def disconnect():
 
 @app.get("/api/status")
 def status():
-    return bus.status()
+    return {**bus.status(), "health": bus.health()}
 
 
 # ===========================================================================
@@ -359,6 +622,7 @@ def _active_log_dir() -> str:
 def record_start(req: RecordReq):
     if not bus.logger:
         return _err("Not connected")
+    usage_mod.count("recordings")
     path = os.path.join(_active_log_dir(), req.name or "capture")
     try:
         return {"ok": True, **bus.logger.start_recording(req.format, path)}
@@ -397,44 +661,508 @@ def set_log_dir(req: LogDirReq):
     return {"ok": True, "dir": _active_log_dir()}
 
 
+#: Depth of sub-folders scanned under the log/upload dirs. Real captures arrive
+#: as a folder per session ("MG Commute 01Aug26/Moving Data/*.csv"), so a flat
+#: listdir hides most of them; the cap keeps a deep tree from stalling the UI.
+_LOG_SCAN_DEPTH = 4
+_LOG_SCAN_MAX = 2000
+
+
+# TX replay → Source → Remove takes logs off the list WITHOUT deleting them: an
+# upload folder can hold the only copy of a capture session (the Dzire set lives
+# in data/uploads), so the list hides, and "Show all" brings them back.
+_HIDDEN_LOGS_KEY = "tx_hidden_logs"
+
+
+def _norm(p: str) -> str:
+    return os.path.normcase(os.path.abspath(p))
+
+
+def _hidden_logs() -> set[str]:
+    return {_norm(p) for p in (config.get(_HIDDEN_LOGS_KEY) or []) if isinstance(p, str)}
+
+
+class LogsHideReq(BaseModel):
+    paths: list[str]
+
+
+@app.post("/api/logs/hide")
+def logs_hide(req: LogsHideReq):
+    hidden = _hidden_logs() | {_norm(p) for p in req.paths}
+    config.set(_HIDDEN_LOGS_KEY, sorted(hidden))
+    return {"ok": True, "hidden": len(hidden)}
+
+
+@app.post("/api/logs/unhide")
+def logs_unhide():
+    config.set(_HIDDEN_LOGS_KEY, [])
+    return {"ok": True, "hidden": 0}
+
+
 @app.get("/api/logs")
 def list_logs():
     out = []
+    hidden = _hidden_logs()
+    n_hidden = 0
     dirs = [UPLOAD_DIR, _active_log_dir()]
     seen = set()
     for base in dirs:
         if base in seen or not os.path.isdir(base):
             continue
         seen.add(base)
-        for name in sorted(os.listdir(base)):
-            p = os.path.join(base, name)
-            if os.path.isfile(p) and name.lower().endswith((".asc", ".blf", ".csv", ".log")):
-                out.append({"name": name, "path": p, "size": os.path.getsize(p)})
-    return {"logs": out}
+        for root, subdirs, files in os.walk(base):
+            depth = root[len(base):].count(os.sep)
+            if depth >= _LOG_SCAN_DEPTH:
+                subdirs[:] = []
+            subdirs.sort()
+            for name in sorted(files):
+                if not name.lower().endswith((".asc", ".blf", ".csv", ".log", ".trc")):
+                    continue
+                p = os.path.join(root, name)
+                if _norm(p) in hidden:
+                    n_hidden += 1
+                    continue
+                rel = os.path.relpath(p, base).replace(os.sep, "/")
+                out.append({"name": rel, "path": p, "size": os.path.getsize(p)})
+                if len(out) >= _LOG_SCAN_MAX:
+                    return {"logs": out, "truncated": True, "hidden": n_hidden}
+    return {"logs": out, "hidden": n_hidden}
 
 
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)):
-    return {"ok": True, "path": _save_upload(file)}
+    path = _save_upload(file)
+    hidden = _hidden_logs()
+    if _norm(path) in hidden:          # uploading a removed log again means "I want it back"
+        config.set(_HIDDEN_LOGS_KEY, sorted(hidden - {_norm(path)}))
+    return {"ok": True, "path": path}
 
 
 # ===========================================================================
 # TX Replay
 # ===========================================================================
+def _replay_warnings(meta: dict) -> list[str]:
+    """Pre-flight notes shown under the file picker — bench-safety, not errors."""
+    # Plan-level notes first (mixed bitrates, overlapping files, dead filters),
+    # then the live-bus checks that only the server can make.
+    out: list[str] = list(replayer.warnings())
+    carrying = [n for n in meta.get("networks", []) if n["frames"]]
+    if len(carrying) > 1:
+        others = ", ".join(f"{n['name']} ({n['frames']:,} frames)"
+                           for n in carrying if n["name"] != meta.get("network"))
+        out.append(f"log holds {len(carrying)} networks — transmitting "
+                   f"{meta.get('network')} only, not {others}")
+    # Bitrate, with its provenance. A format that records no bitrate (.trc, at
+    # every version) gets an assumed one so bus load can be estimated at all —
+    # but an assumption must never be reported in the words used for a fact,
+    # because the operator's next action depends on which it is.
+    baud = meta.get("baud")
+    src = meta.get("baud_source") or ("log" if baud else "none")
+    floor = meta.get("min_baud")
+    conn = bus.conn or {}
+    connected = int(conn["bitrate"]) if conn.get("bitrate") else None
+    if baud and connected and connected != int(baud):
+        if src == "assumed":
+            out.append(f"assuming {baud:,} bit/s (this log format records no bitrate) but "
+                       f"the bus is connected at {connected:,} — declare the capture "
+                       f"bitrate, or reconnect")
+        else:
+            out.append(f"log was captured at {baud:,} bit/s but the bus is connected at "
+                       f"{connected:,} — reconnect before transmitting")
+    elif baud and src == "assumed" and not connected:
+        # Connected at the very bitrate assumed, there is nothing to act on — the meta line
+        # still says "assumed". Before connecting, it is what to connect at.
+        out.append(f"{baud:,} bit/s assumed — this log format records no bitrate; declare "
+                   f"it if this vehicle's bus runs at something else")
+    if not baud:
+        out.append("log does not record its bitrate — set it yourself on connect")
+    # The one bitrate statement that needs nobody's word for it: these frames
+    # exist and they took this long, so a slower bus could not have carried them.
+    if floor and connected and connected < floor:
+        out.append(f"the bus is connected at {connected:,} bit/s but this capture carries "
+                   f"{floor:,} bit/s of traffic — it cannot go out in real time that slowly")
+    if meta.get("load_pct") and meta["load_pct"] > 70:
+        out.append(f"~{meta['load_pct']}% estimated bus load at 1× "
+                   f"(excludes bit stuffing) — a busy bus may drop frames")
+    if meta.get("tx_frames_skipped"):
+        out.append(f"skipping {meta['tx_frames_skipped']:,} frames the capture tool "
+                   f"transmitted itself (not vehicle traffic)")
+    return out
+
+
 @app.post("/api/replay/load")
-def replay_load(req: PathReq):
+def replay_load(req: ReplayLoadReq):
     try:
-        return {"ok": True, "meta": replayer.load(req.path)}
+        meta = replayer.load(req.path, req.network, req.baud)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
     except Exception as exc:
         return _err(str(exc))
+
+
+@app.post("/api/replay/select")
+def replay_select(req: ReplaySelectReq):
+    """Re-target playback (network / ID filter) without re-parsing the log."""
+    try:
+        meta = replayer.select(req.network, req.filter_ids, req.skip_tx)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/plan")
+def tx_plan(req: TxPlanReq):
+    """Install a playlist: several logs, in order, each with its own repeat/gap."""
+    try:
+        meta = replayer.set_plan(req.items, req.name)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/tx/scenarios")
+def tx_scenarios():
+    return {"scenarios": txproject.list_saved(storage), "current": replayer.meta().get("name", "")}
+
+
+@app.post("/api/tx/save")
+def tx_save(req: TxScenarioReq):
+    """Persist the current playlist under a name (reproducible bench test)."""
+    plan = replayer.plan()
+    if plan is None:
+        return _err("Build a playlist before saving it")
+    if not req.name.strip():
+        return _err("Give the scenario a name")
+    txproject.save(storage, req.name.strip(), [s.item for s in plan.segments])
+    return {"ok": True, "scenarios": txproject.list_saved(storage)}
+
+
+@app.post("/api/tx/load")
+def tx_load(req: TxScenarioReq):
+    try:
+        meta = replayer.set_plan(txproject.load_saved(storage, req.name), req.name)
+        return {"ok": True, "meta": meta, "warnings": _replay_warnings(meta)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/delete")
+def tx_delete(req: TxScenarioReq):
+    txproject.delete_saved(storage, req.name)
+    return {"ok": True, "scenarios": txproject.list_saved(storage)}
+
+
+# ----- TX signal patching (overrides + loop-seam continuity) ---------------
+#: One patcher lives alongside the replayer; it is installed on the engine as
+#: soon as a DBC is loaded and stays installed across plays.
+tx_patcher: txpatch.FramePatcher | None = None
+
+#: Playlist items sampled by /api/tx/patch/analyze. Spread across the playlist so
+#: a long drive is judged end-to-end, while bounding the scan cost.
+_ANALYZE_SEGMENTS = 6
+
+
+def _patch_state(extra: dict | None = None) -> dict:
+    base = {"ok": True, "loaded": tx_patcher is not None}
+    if tx_patcher is not None:
+        base.update(tx_patcher.config())
+    return {**base, **(extra or {})}
+
+
+@app.post("/api/tx/patch/dbc")
+def tx_patch_dbc(req: TxPatchDbcReq):
+    """Load the DBC used to name and locate signals for patching."""
+    global tx_patcher
+    import cantools                       # noqa: E402  (local to this feature)
+    try:
+        if req.use_viewer:
+            db = viewer.db()
+            if db is None:
+                return _err("the Signal Viewer has no DBC loaded")
+            name = viewer.info().get("dbc") or "Signal Viewer DBC"
+        elif req.oem_profile_id is not None:
+            prof = oem.get_profile(req.oem_profile_id)
+            if not prof or not prof.get("dbc"):
+                return _err("that OEM profile has no DBC")
+            db = cantools.database.load_string(prof["dbc"], database_format="dbc")
+            name = prof.get("name") or f"profile {req.oem_profile_id}"
+        elif req.path:
+            db = cantools.database.load_file(req.path)
+            name = os.path.basename(req.path)
+        else:
+            return _err("give a path, an OEM profile, or use the Signal Viewer's DBC")
+        tx_patcher = txpatch.FramePatcher(db, name)
+        replayer.set_patcher(tx_patcher)
+        return _patch_state({"messages": tx_patcher.messages()})
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/tx/patch")
+def tx_patch_get():
+    if tx_patcher is None:
+        return {"ok": True, "loaded": False, "rules": [], "checksums": [], "messages": []}
+    return _patch_state({"messages": tx_patcher.messages()})
+
+
+@app.post("/api/tx/patch/override")
+def tx_patch_override(req: TxOverrideReq):
+    """Force a signal to a value — applies to the very next frame transmitted."""
+    if tx_patcher is None:
+        return _err("load a DBC for patching first")
+    try:
+        if req.remove or req.value is None:
+            tx_patcher.clear(req.message, req.signal)
+        else:
+            tx_patcher.set_override(req.message, req.signal, req.value)
+        return _patch_state()
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/patch/seam")
+def tx_patch_seam(req: TxSeamReq):
+    if tx_patcher is None:
+        return _err("load a DBC for patching first")
+    try:
+        tx_patcher.set_monotonic([(m, s) for m, s in req.monotonic])
+        tx_patcher.set_counters([(m, s) for m, s in req.counters])
+        for c in req.checksums:
+            tx_patcher.set_checksum(c["message"], c["signal"], c.get("algorithm", "none"))
+        return _patch_state()
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/patch/clear")
+def tx_patch_clear():
+    if tx_patcher is not None:
+        tx_patcher.clear_all()
+    return _patch_state()
+
+
+@app.post("/api/tx/patch/analyze")
+def tx_patch_analyze():
+    """Scan the loaded playlist for signals that behave monotonically / as counters."""
+    if tx_patcher is None or tx_patcher.db is None:
+        return _err("load a DBC for patching first")
+    plan = replayer.plan()
+    if plan is None or not plan.segments:
+        return _err("load a log or playlist first")
+    # Sample evenly across the playlist, not just the first file: the MG Windsor
+    # drive's odometer never moves in its opening 41 s chunk, so scanning item 1
+    # alone would report no odometer to keep continuous.
+    segs = plan.segments
+    step = max(1, len(segs) // _ANALYZE_SEGMENTS)
+    sampled = segs[::step][:_ANALYZE_SEGMENTS]
+    found = txpatch.analyze_many([(s.store, s.sel) for s in sampled], tx_patcher.db)
+    return {"ok": True,
+            "scanned": ", ".join(os.path.basename(s.item.path) for s in sampled),
+            "scanned_count": len(sampled), "of_items": len(segs), **found}
+
+
+# ----- TX verification: what we sent vs what the cloud received ------------
+tx_recorder = txverify.TxRecorder()
+replayer.set_tx_tap(tx_recorder.consume)
+#: Signature JSON / DBC used to show what a payload *should* mean on the cloud UI.
+_tx_view_json: dict | None = None
+_tx_view_db = None
+_tx_view_name = ""
+_tx_report: dict | None = None
+
+
+class TxViewReq(BaseModel):
+    frame_id: int | None = None
+    limit: int = 60
+
+
+@app.get("/api/tx/live")
+def tx_live(frame_id: int | None = None, limit: int = 60):
+    """What is on the wire right now: latest payload per ID + a recent window.
+
+    ``def_ids`` is which of those IDs the loaded definition can actually decode.
+    A partially reverse-engineered DBC covers a fraction of a real bus (the MG
+    pack describes 54 of the 116 IDs this capture transmits), so without this the
+    UI cannot tell "no signals" from "this ID isn't in your file".
+    """
+    if _tx_view_json is not None:
+        def_ids = sorted(_tx_view_json)
+    elif _tx_view_db is not None:
+        def_ids = sorted(m.frame_id for m in _tx_view_db.messages)
+    else:
+        def_ids = []
+    return {"ok": True, **tx_recorder.status(),
+            "definition": _tx_view_name,
+            "def_ids": def_ids,
+            "ids": tx_recorder.ids(),
+            "recent": tx_recorder.recent(limit, frame_id)}
+
+
+@app.get("/api/tx/live/decode")
+def tx_live_decode(frame_id: int, data: str | None = None):
+    """Decode a transmitted payload against the loaded definition.
+
+    Same output shape from either source, so the UI renders the byte view, the
+    signal table and the bit grid identically for a DBC or a Signature JSON.
+    """
+    if data is None:
+        row = next((r for r in tx_recorder.ids() if r["id"] == frame_id), None)
+        if row is None:
+            return _err("that ID has not been transmitted yet")
+        data = row["data"]
+    if _tx_view_json is None and _tx_view_db is None:
+        return _err("load a Signature JSON or DBC to decode against")
+    known = _tx_view_json is not None and frame_id in _tx_view_json
+    if _tx_view_db is not None:
+        known = any(m.frame_id == frame_id for m in _tx_view_db.messages)
+    if not known:
+        # cantools raises a bare KeyError(<decimal id>) here, which reads as
+        # nonsense in a UI. A partially reverse-engineered DBC covering only some
+        # of a real bus is the normal case, not an error.
+        total = len(_tx_view_json) if _tx_view_json is not None else len(_tx_view_db.messages)
+        return _err(f"0x{frame_id:X} is not described in {_tx_view_name} "
+                    f"({total} messages) — the raw bytes are still shown")
+    try:
+        if _tx_view_json is not None:
+            return {"ok": True, "source": "json", **jsondecode.decode_frame(
+                _tx_view_json, frame_id, data)}
+        return {"ok": True, "source": "dbc", **framedecode.decode_frame(
+            _tx_view_db, frame_id, data)}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+_TILE_KEYS = ("name", "raw", "physical", "choice", "unit", "min", "max", "out_of_range")
+
+
+@app.get("/api/tx/live/signals")
+def tx_live_signals():
+    """Every transmitted ID the loaded definition describes, decoded at once — TX replay's
+    Tiles view: the same picture the device's cloud panel shows, from the bytes that left.
+
+    Values only (no bit layout — it costs a packer call per bit and tiles don't draw it).
+    Each message carries ``age_s`` / ``period_ms`` so the page can grey a signal whose frame
+    stopped going out, and each signal names the Patch rule rewriting it (``patch``: "set" is
+    a forced value, "counter"/"monotonic" keep a loop continuous) — what left the machine is
+    then not what the log said, and the tile must say so.
+    """
+    rows = tx_recorder.ids()
+    if _tx_view_json is None and _tx_view_db is None:
+        return {"ok": True, "definition": None, "transmitted": len(rows), "messages": []}
+    patched: dict[tuple[str, str], str] = {}
+    if tx_patcher is not None:
+        for r in tx_patcher.config()["rules"]:
+            patched[(r["message"], r["signal"])] = r["kind"]
+    known = (set(_tx_view_json) if _tx_view_json is not None
+             else {m.frame_id for m in _tx_view_db.messages})
+    out = []
+    for row in rows:
+        if row["id"] not in known:
+            continue
+        base = {"id": row["id"], "id_hex": row["id_hex"], "count": row["count"],
+                "age_s": row["age_s"], "period_ms": row["period_ms"]}
+        try:
+            dec = (jsondecode.decode_frame(_tx_view_json, row["id"], row["data"])
+                   if _tx_view_json is not None
+                   else framedecode.decode_frame(_tx_view_db, row["id"], row["data"], cells=False))
+        except Exception as exc:              # one bad frame must not blank every tile
+            out.append({**base, "name": None, "error": str(exc), "signals": []})
+            continue
+        if dec.get("error"):
+            out.append({**base, "name": dec.get("name"), "error": dec["error"], "signals": []})
+            continue
+        out.append({**base, "name": dec.get("name"), "signals": [
+            {**{k: s.get(k) for k in _TILE_KEYS}, "patch": patched.get((dec.get("name"), s["name"]))}
+            for s in dec.get("signals", [])]})
+    return {"ok": True, "definition": _tx_view_name, "transmitted": len(rows), "messages": out}
+
+
+@app.post("/api/tx/live/definition")
+async def tx_live_definition(file: UploadFile = File(...)):
+    """Upload the definition used for 'what should the cloud show' (JSON or DBC)."""
+    global _tx_view_json, _tx_view_db, _tx_view_name
+    import cantools
+    path = _save_upload(file)
+    try:
+        text = open(path, "r", encoding="utf-8", errors="replace").read()
+        if (file.filename or "").lower().endswith(".json") or text.lstrip()[:1] in "[{":
+            _tx_view_json = jsondecode.load_signature(text)
+            _tx_view_db = None
+            _tx_view_name = f"{file.filename} (Signature JSON)"
+            msgs = jsondecode.signature_messages(_tx_view_json)
+        else:
+            _tx_view_db = cantools.database.load_string(text, database_format="dbc")
+            _tx_view_json = None
+            _tx_view_name = f"{file.filename} (DBC)"
+            msgs = [{"id": m.frame_id, "id_hex": f"{m.frame_id:X}", "name": m.name,
+                     "length": m.length, "signals": [s.name for s in m.signals]}
+                    for m in _tx_view_db.messages]
+        return {"ok": True, "definition": _tx_view_name, "messages": msgs}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.post("/api/tx/record/start")
+def tx_record_start():
+    """Record every transmitted frame, so a byte diff has something to run on."""
+    return {"ok": True, **tx_recorder.start_recording()}
+
+
+@app.post("/api/tx/record/stop")
+def tx_record_stop():
+    return {"ok": True, **tx_recorder.stop_recording()}
+
+
+@app.post("/api/tx/record/reset")
+def tx_record_reset():
+    tx_recorder.reset()
+    return {"ok": True, **tx_recorder.status()}
+
+
+def _tx_filters() -> dict:
+    """What the TX side deliberately did NOT send — stated, never implied."""
+    meta = replayer.meta()
+    nets = [n for n in meta.get("networks", []) if n["frames"]]
+    return {
+        "network": meta.get("network"),
+        "networks_not_sent": [{"name": n["name"], "frames": n["frames"]}
+                              for n in nets if n["name"] != meta.get("network")],
+        "tool_tx_frames_skipped": meta.get("tx_frames_skipped", 0),
+        "id_filter": meta.get("filter_ids"),
+    }
+
+
+@app.post("/api/tx/verify")
+async def tx_verify(file: UploadFile = File(...)):
+    """Compare a cloud-side raw-frame export against what we transmitted."""
+    global _tx_report
+    path = _save_upload(file)
+    try:
+        text = open(path, "r", encoding="utf-8", errors="replace").read()
+        parsed = txverify.parse_cloud_log(text)
+        patched = [f"{r['message']}.{r['signal']}"
+                   for r in (tx_patcher.config()["rules"] if tx_patcher else [])]
+        report = txverify.compare(tx_recorder.store(), parsed["frames"],
+                                  patched=patched, filtered=_tx_filters())
+        report["cloud_file"] = file.filename
+        report["cloud_dialect"] = parsed["dialect"]
+        _tx_report = report
+        return {"ok": True, **report}
+    except Exception as exc:
+        return _err(str(exc))
+
+
+@app.get("/api/tx/verify/report")
+def tx_verify_report():
+    return {"ok": True, "report": _tx_report}
 
 
 @app.post("/api/replay/play")
 def replay_play(req: PlayReq):
     if not bus.connected:
         return _err("Connect a bus before replaying")
+    usage_mod.count("replaysStarted")
     try:
-        replayer.play(bus.send, req.speed, req.loop, req.filter_ids)
+        replayer.play(bus.send, req.speed, req.loop, req.filter_ids, req.repeat)
         return {"ok": True}
     except Exception as exc:
         return _err(str(exc))
@@ -453,6 +1181,19 @@ def replay_resume():
 @app.post("/api/replay/stop")
 def replay_stop():
     replayer.stop(); return {"ok": True}
+
+
+@app.post("/api/replay/unload")
+def replay_unload():
+    """TX replay → Source → Clear: forget the log / playlist, so Play has nothing to send."""
+    replayer.unload()
+    return {"ok": True, "status": replayer.status()}
+
+
+@app.post("/api/replay/speed")
+def replay_speed(req: PlayReq):
+    """Change speed mid-playback; the engine re-anchors its deadline clock."""
+    replayer.set_speed(req.speed); return {"ok": True}
 
 
 @app.post("/api/replay/step")
@@ -659,6 +1400,7 @@ def oem_from_builder(req: OemFromBuilderReq):
 @app.get("/api/oem/identify")
 def oem_identify():
     """Auto-identify the currently-connected vehicle from live traffic."""
+    usage_mod.count("vehicleIdentifies")
     if not bus.logger:
         return _err("Connect a bus first")
     snap = bus.logger.snapshot()
@@ -693,6 +1435,7 @@ def _apply_profile(pid: int) -> dict:
 @app.post("/api/oem/apply")
 def oem_apply(pid: int):
     """Load a profile's DBC into the Signal Viewer — decode a known vehicle, no RE."""
+    usage_mod.count("profilesApplied")
     try:
         return _apply_profile(pid)
     except Exception as exc:
@@ -720,6 +1463,7 @@ def oem_identify_vin(vin: str):
 def oem_auto_apply(min_score: float = 0.5):
     """Identify the live vehicle and, if a confident decodable match exists,
     apply its profile to the Signal Viewer in one step (zero-DBC decode)."""
+    usage_mod.count("vehicleIdentifies")
     if not bus.logger:
         return _err("Connect a bus first")
     cap_sig = fingerprint_from_id_stats(bus.logger.snapshot().get("ids", []))
@@ -1253,6 +1997,7 @@ _decode_json = None                    # signature message map (JSON source)
 async def decode_dbc_import(file: UploadFile = File(...)):
     """Load a DBC for the frame decoder; returns its message/signal catalogue."""
     global _decode_db, _decode_json
+    usage_mod.count("decoderDefinitionsLoaded")
     try:
         text = (await file.read()).decode("utf-8", "replace")
         _decode_db = _cantools.database.load_string(text, database_format="dbc")
@@ -1406,6 +2151,7 @@ class ConvertExportReq(BaseModel):
 def convert_export_route(req: ConvertExportReq):
     """Serialize an edited/filtered canonical model to ``to`` with a stamped name."""
     import datetime
+    usage_mod.count("conversions")
     try:
         res = _convert_mod.serialize(req.model, req.to)
     except Exception as exc:
@@ -1449,6 +2195,7 @@ def dtc_clear():
 @app.post("/api/dtc/scan")
 def dtc_scan():
     """Transmit standard DTC requests (OBD-II Mode 03 & 07, J1939 DM1 request)."""
+    usage_mod.count("dtcScans")
     if not bus.connected:
         return _err("Connect a bus first")
     try:
@@ -1493,6 +2240,7 @@ async def ws_live(ws: WebSocket):
             payload = logger.snapshot() if logger else {"running": False}
             payload["connected"] = bus.connected
             payload["replay"] = replayer.status()
+            payload["bus_health"] = bus.health()      # PCAN's error state: what its red LED means
             await ws.send_json(payload)
             await asyncio.sleep(0.2)
     except (WebSocketDisconnect, Exception):
@@ -1503,7 +2251,14 @@ async def ws_live(ws: WebSocket):
 # Serve index.html through a route so the single app __version__ is injected into
 # the asset URLs (?v=) — one version number drives both the UI chip and cache-busting.
 _INDEX_PATH = os.path.join(WEB_DIR, "index.html")
-_ASSETS = ("app.js", "style.css")
+#: Every file index.html loads with ``?v=__VER__``. ``test_ui`` fails when a
+#: web/*.js or web/*.css exists that this tuple does not name.
+_ASSETS = ("shell.js", "app.js", "style.css")
+
+# Windows' MIME table often lacks .woff2; served as text/plain or
+# application/octet-stream the bundled Inter is refused and the page falls back
+# to Segoe without a word.
+mimetypes.add_type("font/woff2", ".woff2")
 
 
 def _asset_token() -> str:

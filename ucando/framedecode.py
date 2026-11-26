@@ -82,8 +82,13 @@ def signal_msb_lsb(message, sig):
     return msb, lsb
 
 
-def decode_frame(db, frame_id: int, data_hex: str) -> dict:
-    """Decode one frame; returns message info, bytes, and per-signal detail+cells."""
+def decode_frame(db, frame_id: int, data_hex: str, cells: bool = True) -> dict:
+    """Decode one frame; returns message info, bytes, and per-signal detail+cells.
+
+    ``cells=False`` skips the bit layout (``cells``/``msb_cell``/``lsb_cell`` come back
+    empty): it costs a packer call per bit of every signal, and a view that shows
+    values only — TX replay's tiles, decoding every transmitted ID twice a second —
+    has no use for it."""
     m = db.get_message_by_frame_id(frame_id)
     b = _normalize(data_hex, m.length)
     # decode_choices=False so phys is always numeric (we handle labels separately)
@@ -118,7 +123,7 @@ def decode_frame(db, frame_id: int, data_hex: str) -> dict:
                 or (s.maximum is not None and phys_f > float(s.maximum))
             )
         )
-        msb_cell, lsb_cell = signal_msb_lsb(m, s)
+        msb_cell, lsb_cell = signal_msb_lsb(m, s) if cells else (None, None)
         signals.append({
             "name": s.name,
             "raw": rv,
@@ -129,7 +134,7 @@ def decode_frame(db, frame_id: int, data_hex: str) -> dict:
             "max": float(s.maximum) if s.maximum is not None else None,
             "out_of_range": out_of_range,
             "start_bit": s.start, "length": s.length, "byte_order": s.byte_order,
-            "cells": signal_cells(m, s),
+            "cells": signal_cells(m, s) if cells else [],
             "msb_cell": msb_cell, "lsb_cell": lsb_cell,
         })
     return {

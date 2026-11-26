@@ -3,84 +3,86 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>uCANdo — Unified CAN Workbench</title>
+  <title>uCANdo</title>
+  <script>
+    /* Theme and sidebar, before the first paint — shell.js owns them once it runs.
+       The same rules as shell.js: theme auto|light|dark (Auto follows the OS),
+       rail expanded|collapsed|hover (always hover under 1000px). */
+    (function () {
+      var d = document.documentElement;
+      var g = function (k) { try { return localStorage.getItem("ucando." + k); } catch (e) { return null; } };
+      var t = g("theme") || "dark";
+      if (t === "auto") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      d.dataset.theme = t === "light" ? "light" : "dark";
+      var r = g("rail");
+      if (!r) { try { r = localStorage.getItem("ucando_nav_mode") === "rail" ? "collapsed" : "expanded"; } catch (e) { r = "expanded"; } }
+      if (matchMedia("(max-width: 1000px)").matches || r === "hover") r = "hover";
+      d.dataset.rail = r === "collapsed" || r === "hover" ? r : "expanded";
+      var w = parseFloat(g("size.rail"));
+      if (w >= 180 && w <= 380) d.style.setProperty("--rail-w", w + "px");
+    })();
+  </script>
   <link rel="stylesheet" href="/style.css?v=__VER__" />
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><polyline points="6 13 9 13 11 9 13 15 15 11 18 11"/></svg>
-        </div>
-        <div>
-          <div class="brand-title">uCANdo</div>
-          <div class="brand-sub">Unified CAN Workbench</div>
-          <div id="verChip" class="brand-ver"></div>
-        </div>
+  <!-- The banner: the app and its version, the person, the page — then the bus,
+       recording and theme at the right. Supabase's org / project / branch line. -->
+  <div id="banner">
+    <button type="button" class="bn-brand" id="bnBrand" aria-label="uCANdo — Dashboard">
+      <span class="bn-logo" data-icon="brand"></span>
+      <span class="bn-id">
+        <span class="bn-name">u<b>CAN</b>do</span>
+        <span class="bn-version"><span id="appVersion"></span><span class="bn-dev" id="appDev" hidden>Dev</span></span>
+      </span>
+    </button>
+    <span class="bn-sep" aria-hidden="true"></span>
+    <span class="bn-crumb bn-hello" id="bannerHello" hidden><span data-icon="user"></span><span id="bannerHelloT"></span></span>
+    <span class="bn-sep" id="bannerHelloSep" aria-hidden="true" hidden></span>
+    <span class="bn-crumb bn-page" id="bannerPage"><span class="ui-ico" id="bannerPageIco"></span><h1 id="viewTitle">Dashboard</h1></span>
+    <span class="bn-spacer"></span>
+    <span class="ui-chip stale-chip" id="staleChip" hidden
+      data-tip="uCANdo's code changed after this copy started, so new buttons may not work yet. Close the uCANdo console and run python main.py again.">
+      <span class="ui-chip-dot"></span>Restart to load new code</span>
+    <!-- a newer version, after Later on its offer (app.js paintUpdateChip) -->
+    <button type="button" class="ui-chip update-chip" id="updateChip" hidden>
+      <span class="ui-chip-dot"></span><span id="updateChipT">Update</span>
+    </button>
+    <button type="button" class="ui-chip rec-chip" id="recChip" hidden data-tip="Recording to disk. Click to stop and save.">
+      <span class="ui-chip-dot"></span><span id="recChipT">Recording</span>
+    </button>
+    <button type="button" id="btnRecord" class="btn btn-rec btn-ico" disabled
+      data-tip="Record every frame on the bus to an .asc, .blf or .csv file under the log folder."></button>
+    <button type="button" class="ui-chip bus-chip" id="busChip" hidden aria-haspopup="menu">
+      <span class="ui-chip-dot"></span><span id="busChipT">Live</span>
+    </button>
+    <button type="button" id="btnConnect" class="btn btn-primary btn-ico"
+      data-tip="Open a CAN adapter — neoVI, PCAN, an SLCAN analyser — or the virtual bus."></button>
+    <button type="button" class="topbar-btn" id="themeBtn" aria-haspopup="menu"></button>
+  </div>
+
+  <div id="app">
+    <aside id="rail" aria-label="Views">
+      <div id="railNav" role="navigation"></div>
+      <div class="rail-foot">
+        <button type="button" class="rail-item rail-settings" id="btnSettings" title="Settings">
+          <span class="rail-ico" data-icon="settings"></span><span class="rail-label">Settings</span>
+        </button>
+        <button type="button" class="rail-fold" id="railCtl" aria-haspopup="menu" title="Sidebar control" aria-label="Sidebar control"></button>
       </div>
-
-      <div class="nav-group-label">Hardware</div>
-      <button id="hwChip" class="hw-chip" data-state="off">
-        <span class="dot"></span><span id="hwChipText">Not connected</span>
-      </button>
-
-      <div class="nav-group-label">Overview</div>
-      <button class="nav active" data-view="dashboard">Dashboard</button>
-
-      <div class="nav-group-label">Capture</div>
-      <button class="nav" data-view="logger">CAN Logger</button>
-      <button class="nav" data-view="replay">TX Replay</button>
-
-      <div class="nav-group-label">Analysis</div>
-      <button class="nav" data-view="re">Reverse Eng.</button>
-      <button class="nav" data-view="autore">Auto-RE</button>
-      <button class="nav" data-view="framedec">Frame Decoder</button>
-      <button class="nav" data-view="convert">Converter</button>
-      <button class="nav" data-view="dbc">DBC Builder</button>
-      <button class="nav" data-view="oem">OEM Database</button>
-
-      <div class="nav-group-label">Visualization</div>
-      <button class="nav" data-view="signals">Signal Viewer</button>
-
-      <div class="nav-group-label">Transmit</div>
-      <button class="nav" data-view="scheduler">TX Scheduler</button>
-      <button class="nav" data-view="automation">Automation</button>
-
-      <div class="nav-group-label">Diagnostics</div>
-      <button class="nav" data-view="dtc">DTC Codes</button>
-      <button class="nav" data-view="decoder">Protocol Dec.</button>
     </aside>
 
-    <main class="main">
-      <header class="topbar">
-        <button id="navToggle" class="icon-btn" title="Collapse / expand sidebar">
-          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-        </button>
-        <div class="topbar-titles">
-          <h1 id="viewTitle">Dashboard</h1>
-          <div id="viewDesc" class="view-desc"></div>
-        </div>
-        <div class="topbar-actions">
-          <button id="btnConnect" class="btn btn-ico">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-            <span>Connect</span></button>
-          <button id="btnRecord" class="btn btn-rec btn-ico" disabled>
-            <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="#e25555"/></svg>
-            <span>Record</span></button>
-        </div>
-      </header>
+    <main id="main">
 
       <!-- ===== Dashboard ===== -->
       <section id="view-dashboard" class="view">
-        <div class="panel hidden" id="driverPanel" style="margin-bottom:14px;border-color:#7a5}">
-          <div class="panel-head"><span class="ph-ico"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Hardware setup</span><button class="btn-mini" id="btnDriverRecheck">Re-check</button></div>
-          <div id="driverList" style="padding:10px 14px"></div>
+        <div class="panel driver-panel hidden" id="driverPanel">
+          <div class="panel-head"><span class="ph-t"><span class="ph-warn" data-icon="alert"></span>Hardware setup</span>
+            <button type="button" class="btn-mini" id="btnDriverRecheck">Check again</button></div>
+          <div id="driverList" class="panel-body"></div>
         </div>
-        <div class="toolbar">
-          <span class="muted-line">Live values decoded from standard protocols (OBD-II, J1939) — no DBC required.</span>
-          <span style="flex:1"></span>
-          <button class="btn ghost" id="btnDashClear">Clear</button>
+        <div class="toolbar" id="dashBar">
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="btnDashClear" data-tip="Forget the values shown here. The bus keeps running.">Clear</button>
         </div>
         <div id="dashGroups"></div>
         <div id="dashEmpty" class="empty-anim"></div>
@@ -88,34 +90,29 @@
 
       <!-- ===== CAN Logger ===== -->
       <section id="view-logger" class="view hidden">
-        <div class="toolbar">
-          <span class="muted-line">Log folder (where recordings are saved)</span>
-          <input id="logDir" placeholder="(default: data/logs)" style="flex:1;min-width:260px" />
-          <button class="btn-mini" id="btnLogDirSave">Save folder</button>
-          <button class="btn-mini" id="btnLogDirReset" title="Reset to default data/logs">Reset</button>
-        </div>
         <div class="cards">
           <div class="card"><div class="card-k">Frames</div><div class="card-v" id="statTotal">0</div></div>
           <div class="card"><div class="card-k">Unique IDs</div><div class="card-v" id="statIds">0</div></div>
-          <div class="card"><div class="card-k">Frames / s</div><div class="card-v" id="statFps">0</div></div>
-          <div class="card"><div class="card-k">Bus load</div><div class="card-v" id="statLoad">0%</div></div>
-          <div class="card"><div class="card-k">Elapsed</div><div class="card-v" id="statElapsed">0.0s</div></div>
+          <div class="card"><div class="card-k">Frames/s</div><div class="card-v" id="statFps">0</div></div>
+          <div class="card" data-tip="Nominal: frame bits over the bitrate, without bit stuffing."><div class="card-k">Bus load</div><div class="card-v" id="statLoad">0%</div></div>
+          <div class="card"><div class="card-k">Elapsed</div><div class="card-v" id="statElapsed">0.0 s</div></div>
         </div>
         <div class="logger-grid">
           <div class="panel">
-            <div class="panel-head"><span>Arbitration IDs</span><button id="btnClear" class="btn-mini">Clear</button></div>
+            <div class="panel-head"><span class="ph-t">Arbitration IDs <span class="ui-count" id="idCount"></span></span>
+              <button type="button" id="btnClear" class="btn-mini" data-tip="Reset the counts and the frame list. The bus keeps running.">Clear</button></div>
             <div class="table-wrap">
               <table class="data-table" id="idTable">
-                <thead><tr><th>ID</th><th>Type</th><th>DLC</th><th>Count</th><th>Period</th><th>Last data</th></tr></thead>
+                <thead><tr><th>ID</th><th>Type</th><th class="num">DLC</th><th class="num">Count</th><th class="num">Period</th><th>Last data</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
           </div>
           <div class="panel">
-            <div class="panel-head"><span>Live frames</span><span id="recBadge" class="rec-badge hidden">REC</span></div>
+            <div class="panel-head"><span class="ph-t">Live frames</span><span id="recBadge" class="rec-badge hidden">Recording</span></div>
             <div class="table-wrap">
               <table class="data-table mono" id="feedTable">
-                <thead><tr><th>Time</th><th>ID</th><th>DLC</th><th>Data</th></tr></thead>
+                <thead><tr><th class="num">Time</th><th>ID</th><th class="num">DLC</th><th>Data</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
@@ -123,79 +120,257 @@
         </div>
       </section>
 
-      <!-- ===== TX Replay ===== -->
+      <!-- ===== TX (one view, five collapsible steps) =====================
+           Source -> Playlist -> Patch -> Send -> Verify. Everything used to be
+           expanded across two views and seven panels; the optional steps now
+           collapse to a one-line summary so the page reads as a workflow. Every
+           element id is unchanged, so the handlers are the same code. -->
       <section id="view-replay" class="view hidden">
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Log file</span>
-            <span><input type="file" id="replayFile" accept=".asc,.blf,.csv,.log" hidden />
-              <button class="btn-mini" id="btnReplayUpload">Load .asc / .blf</button>
-              <button class="btn-mini" id="btnReplayRescan">Logs</button></span>
+
+        <!-- 1. Source ------------------------------------------------------->
+        <div class="tx-step" id="stepSource" data-open="1">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepSource">
+              <span class="tx-caret"></span><b data-tip="The capture to transmit. Pick one file, or Ctrl/Shift-click several to build a playlist.">Source</b>
+              <span class="tx-step-sum" id="sumSource">No log chosen</span>
+            </span>
+            <span class="tx-step-tools">
+              <input type="file" id="replayFile" accept=".asc,.blf,.csv,.log,.trc" multiple hidden />
+              <button type="button" class="btn-mini" id="btnReplayUpload" data-tip="One log, or several at once (Ctrl or Shift in the file dialog). Several become a playlist in file-name order.">Upload logs</button>
+              <button type="button" class="btn-mini" id="btnReplayRescan">Rescan</button>
+              <button type="button" class="btn-mini" id="btnReplayClear" data-tip="Forget the chosen log and its playlist. Nothing is deleted from disk.">Clear</button>
+              <button type="button" class="btn-mini" id="btnReplayRemove" data-tip="Take the selected logs off this list — with none selected, all of them. Nothing is deleted from disk; Show all brings them back.">Remove</button>
+              <button type="button" class="btn-mini hidden" id="btnReplayShowAll">Show all</button>
+            </span>
           </div>
-          <div style="padding:12px 16px">
-            <select id="replaySelect" style="width:100%"></select>
+          <div class="tx-step-body">
+            <select id="replaySelect" class="file-list" size="6" multiple></select>
+            <div class="controls">
+              <label data-tip="One log can hold several physically separate buses — only one can go out of a single-channel adapter.">Network <select id="replayNetwork"></select></label>
+              <label class="check" data-tip="Frames the capture tool transmitted itself are the previous tester's traffic, not the vehicle's.">
+                <input type="checkbox" id="replaySkipTx" checked /> Skip tool TX</label>
+              <label id="replayBaudWrap" class="hidden" data-tip="A PCAN .trc records no bitrate at any format version, so it has to be assumed. Declare the real one and the bus-load estimate and mismatch check use it instead.">Captured at
+                <select id="replayBaud">
+                  <option value="">assumed 500 k</option>
+                  <option value="1000000">1 Mbit/s</option>
+                  <option value="800000">800 kbit/s</option>
+                  <option value="500000">500 kbit/s</option>
+                  <option value="250000">250 kbit/s</option>
+                  <option value="125000">125 kbit/s</option>
+                  <option value="100000">100 kbit/s</option>
+                  <option value="50000">50 kbit/s</option>
+                  <option value="33333">33.3 kbit/s</option>
+                </select></label>
+              <button type="button" class="btn hidden" id="btnReplayBitrate" data-tip="Reconnect the bus at the bitrate recorded in this log.">Use log bitrate</button>
+              <span class="spacer"></span>
+              <span id="replaySelCount" class="ui-count"></span>
+              <button type="button" class="btn" id="btnTxPlaylistAdd" data-tip="Append the selected files to the playlist, in the order you picked them.">Add to playlist</button>
+            </div>
             <div id="replayMeta" class="muted-line"></div>
+            <div id="replayWarn"></div>
           </div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><span>Playback</span><span id="replayState" class="tag">ready</span></div>
-          <div style="padding:16px">
-            <div class="progress"><div id="replayBar" class="progress-bar"></div></div>
-            <div class="muted-line" id="replayCursor">0.000 s</div>
+
+        <!-- 2. Playlist ----------------------------------------------------->
+        <div class="tx-step" id="stepPlaylist">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepPlaylist">
+              <span class="tx-caret"></span><b data-tip="Several captures played in order, each with its own repeat count. Select several logs in Source and press Add to playlist.">Playlist</b>
+              <span class="tx-step-sum" id="sumPlaylist">Single file</span>
+            </span>
+            <span class="tx-step-tools">
+              <select id="txScenario" class="scenario-select"><option value="">Saved scenarios</option></select>
+              <button type="button" class="btn-mini" id="btnTxScenarioLoad">Load</button>
+              <button type="button" class="btn-mini" id="btnTxScenarioSave">Save as</button>
+              <button type="button" class="btn-mini danger" id="btnTxScenarioDelete">Delete</button>
+            </span>
+          </div>
+          <div class="tx-step-body">
+            <table class="tx-list"><tbody id="txItems"></tbody></table>
+            <div id="txEmpty" class="muted-line">No playlist — the selected file plays on its own.</div>
             <div class="controls">
-              <button class="btn" id="btnPlay">Play</button>
-              <button class="btn" id="btnPause">Pause</button>
-              <button class="btn" id="btnStop">Stop</button>
-              <button class="btn" id="btnStep">Step</button>
-              <label class="check"><input type="checkbox" id="replayLoop" /> Loop</label>
-              <span style="flex:1"></span>
-              <label>Speed <span id="speedLabel">1.0×</span></label>
+              <button type="button" class="btn" id="btnTxClear">Clear</button>
+              <label class="check" data-tip="Vehicle Spy splits one session into chunks that share a clock — reconstruct the real pause between consecutive files instead of splicing them.">
+                <input type="checkbox" id="txAutoGap" /> Preserve real gaps between files</label>
+              <span class="spacer"></span>
+              <span id="txTotals" class="ui-count"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Patch: signal overrides + loop-seam continuity --------------->
+        <div class="tx-step" id="stepPatch">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepPatch">
+              <span class="tx-caret"></span><b data-tip="Rewrite signals on their way out: force one to a value while the log plays (SOC = 8 %), or keep the odometer climbing across loops instead of snapping back. Needs the vehicle's DBC.">Patch</b>
+              <span class="tx-step-sum" id="sumPatch">Off — bytes go out exactly as captured</span>
+            </span>
+            <span class="tx-step-tools">
+              <input type="file" id="txDbcFile" accept=".dbc" hidden />
+              <button type="button" class="btn-mini" id="btnTxDbcUpload">Upload .dbc</button>
+              <button type="button" class="btn-mini" id="btnTxDbcViewer" data-tip="Reuse the DBC already loaded in the Signal viewer.">Use Signal viewer DBC</button>
+            </span>
+          </div>
+          <div class="tx-step-body">
+            <div id="txPatchNone" class="muted-line">No DBC loaded.</div>
+            <div id="txPatchBody" class="hidden">
+              <div class="controls controls-first">
+                <label>Message <select id="txPatchMsg" class="w-200"></select></label>
+                <label>Signal <select id="txPatchSig" class="w-200"></select></label>
+                <label>Value <input type="number" id="txPatchVal" step="any" class="w-100" /></label>
+                <button type="button" class="btn" id="btnTxPatchAdd">Force value</button>
+                <span class="spacer"></span>
+                <span id="txPatchHint" class="ui-count"></span>
+              </div>
+              <table class="tx-list"><tbody id="txPatchRules"></tbody></table>
+              <div class="controls">
+                <button type="button" class="btn" id="btnTxPatchAnalyze" data-tip="Scan the loaded log for signals that only rise (odometer, energy totals) or roll over (counters).">Detect from log</button>
+                <button type="button" class="btn" id="btnTxPatchClear">Clear all</button>
+                <span id="txPatchSeamInfo" class="ui-count"></span>
+              </div>
+              <div id="txSeamBox" class="hidden">
+                <div class="sub-h" data-tip="Pick what must not step backwards when the log restarts. Nothing is pre-ticked: a value that rose during this capture is not necessarily one that must climb forever.">Keep continuous across loops</div>
+                <div id="txSeamLists" class="tx-seam"></div>
+                <div class="controls">
+                  <button type="button" class="btn" id="btnTxSeamApply">Apply continuity</button>
+                  <label data-tip="Recompute an 8-bit checksum byte after patching. Only if you have confirmed the vehicle's algorithm — a guessed one is worse than the captured byte.">Checksum <select id="txCsumSig" class="w-190"><option value="">None</option></select></label>
+                  <select id="txCsumAlgo"><option value="sum8">sum8</option><option value="xor8">xor8</option></select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Send: controls, health, and the live payload preview --------->
+        <div class="tx-step" id="stepSend" data-open="1">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepSend">
+              <span class="tx-caret"></span><b>Send</b>
+              <span class="tx-step-sum" id="sumSend"></span>
+            </span>
+            <span class="tx-step-tools"><span id="replayState" class="tag">Ready</span></span>
+          </div>
+          <div class="tx-step-body">
+            <div class="controls controls-first">
+              <button type="button" class="btn btn-primary" id="btnPlay">Play</button>
+              <button type="button" class="btn" id="btnStop">Stop</button>
+              <button type="button" class="btn" id="btnStep" data-tip="Send the next frame only.">Step</button>
+              <label>Repeat
+                <select id="replayRepeat">
+                  <option value="1">Once</option>
+                  <option value="n">Count</option>
+                  <option value="0">Endless</option>
+                </select></label>
+              <input type="number" id="replayCount" min="2" max="100000" step="1" value="10"
+                     class="w-80 hidden" aria-label="Number of passes" />
+              <span class="spacer"></span>
+              <label>Speed <span id="speedLabel" class="speed-val">1.0×</span></label>
               <input type="range" id="speedRange" min="0.1" max="10" step="0.1" value="1" />
             </div>
+            <div class="progress progress-gap"><div id="replayBar" class="progress-bar"></div></div>
+            <div class="muted-line" id="replayCursor">0.000 s</div>
+            <div class="muted-line" id="replayNow"></div>
+            <div class="muted-line" id="replayHealth"></div>
+
+            <div class="tv-bar">
+              <span class="tv-title" data-tip="Exactly the bytes handed to the adapter, after any patch — what the device under test receives, decoded as tiles or shown as bytes.">Transmit signal</span>
+              <span id="tvStatus" class="ui-count"></span>
+              <span class="spacer"></span>
+              <span class="segbar segbar-sm" id="tvMode" role="radiogroup" aria-label="Transmit signal view"
+                    data-tip="Tiles: every signal of the loaded definition, as the device's cloud panel shows it. Bytes: the raw payload of every transmitted ID, with the bit layout of one."></span>
+              <input type="file" id="tvDefFile" accept=".json,.dbc" hidden />
+              <button type="button" class="btn-mini" id="btnTvDef" data-tip="The cloud's Signature JSON, or a DBC — decides what each payload should mean.">Upload JSON / DBC</button>
+              <button type="button" class="btn-mini" id="btnTvRecord">Start recording</button>
+              <button type="button" class="btn-mini" id="btnTvReset">Reset</button>
+            </div>
+            <div id="tvTilesPane" class="hidden">
+              <div class="tv-tools">
+                <input type="search" id="tvSearch" class="w-200" placeholder="Search signals" aria-label="Search signals" spellcheck="false" />
+                <span class="segbar segbar-sm" id="tvShow" role="radiogroup" aria-label="Signals shown"></span>
+                <span class="spacer"></span>
+                <span id="tvTileCount" class="ui-count"></span>
+              </div>
+              <div id="tvTiles"></div>
+            </div>
+            <div class="tv-layout" id="tvBytesPane">
+              <div class="tv-left">
+                <div class="tv-sub">Transmitted IDs <span id="tvIdCount" class="ui-count">0</span>
+                  <span class="spacer"></span>
+                  <span class="segbar segbar-sm hidden" id="tvIdFilter" role="radiogroup" aria-label="IDs shown"></span></div>
+                <div class="table-wrap">
+                  <table class="data-table mono" id="tvIdTable">
+                    <thead><tr><th>ID</th><th class="num">DLC</th><th class="num">Count</th><th>Last payload</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="tv-right">
+                <div class="tv-sub">Payload preview <span id="tvSelId" class="ui-count"></span></div>
+                <div id="tvDefName" class="muted-line" data-tip="The raw bytes always show. Upload the cloud's own Signature JSON to see what the device should display.">No definition loaded.</div>
+                <div id="tvDecode"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Verify against the cloud ------------------------------------->
+        <div class="tx-step" id="stepVerify">
+          <div class="tx-step-head">
+            <span class="tx-step-toggle" role="button" tabindex="0" data-step="stepVerify">
+              <span class="tx-caret"></span><b data-tip="Diff the device's cloud log (raw-frame JSON, CSV or a text dump) byte for byte against what was transmitted. Start recording in Send first, then replay, then upload the cloud log.">Verify</b>
+              <span class="tx-step-sum" id="sumVerify">No comparison yet</span>
+            </span>
+            <span class="tx-step-tools">
+              <input type="file" id="tvCloudFile" hidden />
+              <button type="button" class="btn-mini" id="btnTvCloud">Upload cloud log</button>
+            </span>
+          </div>
+          <div class="tx-step-body">
+            <div id="tvVerdict"><div class="muted-line">No cloud log uploaded.</div></div>
+            <div id="tvReport"></div>
           </div>
         </div>
       </section>
 
       <!-- ===== Reverse Engineering ===== -->
       <section id="view-re" class="view hidden">
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Analyze a log</span><button class="btn-mini" id="btnReRescan">Logs</button></div>
-          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center">
-            <select id="reSelect" style="flex:1"></select>
-            <select id="reEngine" title="RE engine"></select>
-            <button class="btn" id="btnAnalyze">Analyze</button>
-            <button class="btn" id="btnCorrelate" title="Auto-label signals vs OBD ground truth in the same log">Correlate vs OBD</button>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t">Analyse a log</span><button type="button" class="btn-mini" id="btnReRescan">Rescan</button></div>
+          <div class="panel-body row">
+            <select id="reSelect" class="grow-1" aria-label="Log"></select>
+            <select id="reEngine" aria-label="Engine"></select>
+            <button type="button" class="btn btn-primary" id="btnAnalyze">Analyse</button>
+            <button type="button" class="btn" id="btnCorrelate" data-tip="Auto-label candidate signals against the OBD-II answers in the same log, with their scale and offset.">Correlate with OBD</button>
           </div>
-          <div class="table-wrap" id="corrResultWrap" style="max-height:30vh"></div>
-        </div>
-
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Live state-change sniffer</span><span id="sniffStatus" class="muted-line">idle</span></div>
-          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <button class="btn" id="btnSniffArm">1 · Record baseline</button>
-            <button class="btn" id="btnSniffMark">2 · I did the action</button>
-            <button class="btn" id="btnSniffResult">3 · Show changes</button>
-            <button class="btn ghost" id="btnSniffStop">Stop</button>
-            <span class="muted-line">Arm, perform a physical action (press a button, open a door…), then show which bits changed.</span>
-          </div>
-          <div class="table-wrap" id="sniffResultWrap" style="max-height:32vh"></div>
-        </div>
-
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Compare two logs</span></div>
-          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center">
-            <select id="cmpA" style="flex:1" title="baseline"></select>
-            <span class="muted-line">vs</span>
-            <select id="cmpB" style="flex:1" title="after"></select>
-            <button class="btn" id="btnCompare">Compare</button>
-          </div>
-          <div class="table-wrap" id="cmpResultWrap" style="max-height:32vh"></div>
+          <div class="table-wrap h-30" id="corrResultWrap"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><span>Findings</span><span id="reSummary" class="muted-line"></span></div>
-          <div class="table-wrap" style="max-height:50vh">
+          <div class="panel-head"><span class="ph-t" data-tip="Record a baseline, perform one physical action (press a button, open a door), then show which bits changed.">Live state-change sniffer</span><span id="sniffStatus" class="ui-count">Idle</span></div>
+          <div class="panel-body row">
+            <button type="button" class="btn" id="btnSniffArm">1 · Record baseline</button>
+            <button type="button" class="btn" id="btnSniffMark">2 · Action done</button>
+            <button type="button" class="btn btn-primary" id="btnSniffResult">3 · Show changes</button>
+            <button type="button" class="btn" id="btnSniffStop">Stop</button>
+          </div>
+          <div class="table-wrap h-32" id="sniffResultWrap"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t">Compare two logs</span></div>
+          <div class="panel-body row">
+            <label class="grow">Baseline <select id="cmpA"></select></label>
+            <label class="grow">After <select id="cmpB"></select></label>
+            <button type="button" class="btn btn-primary" id="btnCompare">Compare</button>
+          </div>
+          <div class="table-wrap h-32" id="cmpResultWrap"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t">Findings</span><span id="reSummary" class="ui-count"></span></div>
+          <div class="table-wrap h-50">
             <table class="data-table" id="reTable">
-              <thead><tr><th>ID</th><th>Frames</th><th>Period</th><th>Len</th><th>Byte entropy (0–8)</th><th>Candidate signals</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th class="num">Frames</th><th class="num">Period</th><th class="num">Length</th><th data-tip="Shannon entropy per byte, 0 (constant) to 8 (noise).">Byte entropy</th><th>Candidate signals</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -204,40 +379,37 @@
 
       <!-- ===== Frame Decoder (DBC byte/bit mapping) ===== -->
       <section id="view-framedec" class="view hidden">
-        <!-- compact single-row import toolbar -->
-        <div class="fd-import-bar">
+        <div class="toolbar">
           <input type="file" id="fdFile" accept=".dbc,.json,.txt" hidden />
-          <button class="btn btn-ico" id="btnFdUpload">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span>Upload</span></button>
-          <span id="fdDbcStatus" class="muted-line">no definition loaded — upload a .dbc or .json file, then click a row</span>
-          <button class="btn btn-ico" id="btnFdToggleFill" style="margin-left:auto">Paste frames</button>
-          <span id="fdMsgCount" class="muted-line"></span>
+          <button type="button" class="btn btn-primary btn-ico" id="btnFdUpload" data-tip="A DBC, or the cloud's Signature JSON. Then click a message row.">
+            <span data-icon="upload"></span><span>Upload</span></button>
+          <span id="fdDbcStatus" class="muted-line m0">No definition loaded.</span>
+          <span class="spacer"></span>
+          <span id="fdMsgCount" class="ui-count"></span>
+          <button type="button" class="btn btn-ico" id="btnFdToggleFill">Paste frames</button>
         </div>
         <!-- collapsible raw-dump fill (hidden by default) -->
         <div id="fdFillBox" class="hidden">
           <textarea id="fdFill" spellcheck="false"
             placeholder="163  0205000000000200&#10;94   0006320040001C00"></textarea>
-          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
-            <button class="btn" id="btnFdFill">Fill payloads</button>
-            <!-- result shown here, beside the button: the bottom status bar is
-                 usually scrolled out of view, which made a working fill look dead -->
-            <span id="fdFillMsg" class="muted-line"></span>
+          <div class="controls controls-tight">
+            <button type="button" class="btn" id="btnFdFill">Fill payloads</button>
+            <!-- the result beside the button, where the eye already is -->
+            <span id="fdFillMsg" class="muted-line m0"></span>
           </div>
         </div>
         <!-- 2-column split: message catalogue | decode detail -->
         <div class="fd-layout">
           <div class="panel fd-left">
-            <div class="panel-head"><span>Messages</span></div>
+            <div class="panel-head"><span class="ph-t">Messages</span></div>
             <div class="table-wrap" id="fdCatalogue"></div>
           </div>
           <div id="fdDetail" class="fd-right panel">
             <div id="fdDetailHeader"></div>
             <div id="fdDetailBody">
               <div class="fd-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:30px;height:30px"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-                <span>Upload a .dbc or .json, then click any message row</span>
-                <span class="muted-line" style="font-size:12px">Byte view · Signal table · Bit grid will appear here</span>
+                <span class="ph-hero" data-icon="grid"></span>
+                <span>No message selected.</span>
               </div>
             </div>
           </div>
@@ -246,40 +418,36 @@
 
       <!-- ===== Converter (DBC ⇄ JSON ⇄ CSV) — upload · edit · select · export ===== -->
       <section id="view-convert" class="view hidden">
-        <div class="fd-import-bar">
+        <div class="toolbar">
           <input type="file" id="cvFile" accept=".dbc,.json,.csv,.xml" hidden />
-          <button class="btn btn-ico" id="btnCvUpload">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span>Upload file</span></button>
-          <span id="cvFileName" class="muted-line">no file selected</span>
+          <button type="button" class="btn btn-ico" id="btnCvUpload" data-tip="DBC, Signature JSON, CSV or a CanPlus vehicle library — the format is detected from the file.">
+            <span data-icon="upload"></span><span>Upload file</span></button>
+          <span id="cvFileName" class="muted-line m0">No file selected</span>
           <span id="cvSrcChip" class="tag hidden"></span>
-          <span id="cvStatus" class="muted-line"></span>
-          <span style="flex:1"></span>
-          <span id="cvSelCount" class="muted-line"></span>
-          <button class="btn btn-ico btn-clear" id="btnCvClear" title="Clear the workbench">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-            <span>Clear</span></button>
+          <span id="cvStatus" class="muted-line m0"></span>
+          <span class="spacer"></span>
+          <span id="cvSelCount" class="ui-count"></span>
+          <button type="button" class="btn btn-ico btn-clear" id="btnCvClear" data-tip="Close this database. Nothing is saved.">
+            <span data-icon="trash"></span><span>Clear</span></button>
         </div>
 
         <div id="cvWorkbench" class="hidden">
-          <div class="fd-import-bar" style="margin-top:0">
+          <div class="toolbar">
             <div class="cv-search">
-              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input id="cvSearch" placeholder="Filter signals…" />
+              <span data-icon="search"></span>
+              <input id="cvSearch" placeholder="Filter signals" />
             </div>
-            <button class="btn-mini" id="cvSelAll">Select all</button>
-            <button class="btn-mini" id="cvSelNone">None</button>
-            <button class="btn-mini btn-ico" id="cvEditToggle" title="Unlock fields for editing"></button>
-            <span style="flex:1"></span>
-            <span class="muted-line" style="white-space:nowrap">Download as</span>
-            <select id="cvTo"></select>
-            <button class="btn btn-ico btn-download" id="btnCvDownload">
-              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>Download</span></button>
+            <button type="button" class="btn-mini" id="cvSelAll">Select all</button>
+            <button type="button" class="btn-mini" id="cvSelNone">None</button>
+            <button type="button" class="btn-mini btn-ico" id="cvEditToggle" data-tip="Unlock the fields for editing."></button>
+            <span class="spacer"></span>
+            <label>Download as <select id="cvTo"></select></label>
+            <button type="button" class="btn btn-ico btn-primary" id="btnCvDownload">
+              <span data-icon="download"></span><span>Download</span></button>
           </div>
-          <div id="cvLoss" class="muted-line" style="margin-bottom:8px"></div>
+          <div id="cvLoss" class="muted-line cv-loss"></div>
           <div id="cvTable"></div>
-          <div id="cvWarnings" style="margin-top:10px"></div>
+          <div id="cvWarnings" class="cv-warnings"></div>
         </div>
 
         <div id="cvEmpty" class="empty-anim"></div>
@@ -287,41 +455,41 @@
 
       <!-- ===== Auto-RE (confidence-tiered identification) ===== -->
       <section id="view-autore" class="view hidden">
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Analyze a log → identify signals with confidence</span><button class="btn-mini" id="btnAutoReRescan">Logs</button></div>
-          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <select id="autoreSelect" style="flex:1;min-width:220px"></select>
-            <input id="autoreOdo" placeholder="odometer km (optional)" style="width:160px" />
-            <input id="autoreFuel" placeholder="fuel litres (optional)" style="width:150px" />
-            <button class="btn" id="btnAutoReAnalyze">Analyze</button>
-            <span id="autoreStatus" class="muted-line"></span>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t" data-tip="Identify signals in a log with a confidence tier. A known odometer or fuel reading lets known-value matching find them. Guided field mode runs from the command line: python -m ucando.cli guided --fuel petrol --save NAME --oem OEM">Analyse a log</span>
+            <button type="button" class="btn-mini" id="btnAutoReRescan">Rescan</button></div>
+          <div class="panel-body row">
+            <select id="autoreSelect" class="grow-1" aria-label="Log"></select>
+            <label>Odometer <input id="autoreOdo" class="w-100" placeholder="km" /></label>
+            <label>Fuel <input id="autoreFuel" class="w-80" placeholder="L" /></label>
+            <button type="button" class="btn btn-primary" id="btnAutoReAnalyze">Analyse</button>
+            <span id="autoreStatus" class="ui-count"></span>
           </div>
-          <div style="padding:0 16px 12px;display:flex;gap:8px;align-items:center">
-            <span class="muted-line">Guided mode (field):</span>
-            <span id="autoreProtocols" class="muted-line"></span>
-            <span class="muted-line">— run <code>python -m ucando.cli guided --fuel petrol --save "Name" --oem Hyundai</code></span>
+          <div class="panel-body row panel-body-foot">
+            <span class="ui-count">Guided protocols</span><span id="autoreProtocols" class="ui-count"></span>
           </div>
-        </div>
-
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span><span class="tdot" style="background:var(--green)"></span>A · Confirmed</span><span id="autoreACount" class="muted-line"></span></div>
-          <div class="table-wrap" id="autoreA" style="max-height:30vh"></div>
-        </div>
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span><span class="tdot" style="background:#e0a82e"></span>B · Suspected — confirm or reject</span><span id="autoreBCount" class="muted-line"></span></div>
-          <div class="table-wrap" id="autoreB" style="max-height:30vh"></div>
-        </div>
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span><span class="tdot" style="background:var(--muted)"></span>C · Unknown fields</span><span id="autoreCCount" class="muted-line"></span></div>
-          <div class="table-wrap" id="autoreC" style="max-height:24vh"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><span>Save confirmed signals as an OEM profile</span></div>
-          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <input id="autoreOem" placeholder="OEM (e.g. Hyundai)" style="width:160px" />
-            <input id="autoreName" placeholder="profile name (e.g. Aura 2023)" style="flex:1" />
-            <button class="btn" id="btnAutoReSave">Save profile (tier A)</button>
+          <div class="panel-head"><span class="ph-t"><span class="tdot tier-a"></span>A · Confirmed <span id="autoreACount" class="ui-count"></span></span></div>
+          <div class="table-wrap h-30" id="autoreA"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t" data-tip="Likely identifications. Confirm or reject each one.">
+            <span class="tdot tier-b"></span>B · Suspected <span id="autoreBCount" class="ui-count"></span></span></div>
+          <div class="table-wrap h-30" id="autoreB"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t"><span class="tdot tier-c"></span>C · Unknown fields <span id="autoreCCount" class="ui-count"></span></span></div>
+          <div class="table-wrap h-24" id="autoreC"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t" data-tip="Only tier A (confirmed) signals are saved.">Save as an OEM profile</span></div>
+          <div class="panel-body row">
+            <label>OEM <input id="autoreOem" class="w-160" placeholder="Hyundai" /></label>
+            <label class="grow">Profile <input id="autoreName" placeholder="Aura 2023" /></label>
+            <button type="button" class="btn btn-primary" id="btnAutoReSave">Save profile</button>
           </div>
         </div>
       </section>
@@ -329,45 +497,43 @@
       <!-- ===== DBC Builder ===== -->
       <section id="view-dbc" class="view hidden">
         <div class="toolbar">
-          <button class="btn" id="btnDbcAddMsg">+ Message</button>
+          <button type="button" class="btn btn-ico" id="btnDbcAddMsg"><span data-icon="plus"></span><span>Message</span></button>
           <input type="file" id="dbcFile" accept=".dbc" hidden />
-          <button class="btn ghost" id="btnDbcImport">Upload .dbc</button>
-          <button class="btn ghost" id="btnDbcExport">Download .dbc</button>
-          <span style="flex:1"></span>
-          <button class="btn" id="btnDbcToViewer">Signal Viewer</button>
+          <button type="button" class="btn" id="btnDbcImport">Upload .dbc</button>
+          <button type="button" class="btn" id="btnDbcExport">Download .dbc</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-primary" id="btnDbcToViewer" data-tip="Decode the live bus with this model in the Signal viewer.">Signal viewer</button>
         </div>
         <div id="dbcMessages"></div>
       </section>
 
       <!-- ===== OEM Database ===== -->
       <section id="view-oem" class="view hidden">
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Auto-identify vehicle</span><span id="oemIdentStatus" class="muted-line"></span></div>
-          <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <button class="btn" id="btnOemIdentify">Identify from live bus</button>
-            <button class="btn" id="btnOemAutoApply">Identify &amp; apply</button>
-            <span class="muted-line">Fingerprints the connected vehicle's IDs against the database; "Identify &amp; apply" decodes a confident match instantly (zero DBC).</span>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t" data-tip="Fingerprints the connected vehicle's arbitration IDs against every profile. Identify and apply decodes a confident match straight away, with no DBC to find.">Identify the vehicle</span><span id="oemIdentStatus" class="ui-count"></span></div>
+          <div class="panel-body row">
+            <button type="button" class="btn" id="btnOemIdentify">Identify from live bus</button>
+            <button type="button" class="btn btn-primary" id="btnOemAutoApply">Identify and apply</button>
           </div>
-          <div class="table-wrap" id="oemIdentWrap" style="max-height:28vh"></div>
+          <div class="table-wrap h-28" id="oemIdentWrap"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><span>Profiles</span>
-            <span style="display:flex;gap:8px;align-items:center">
-              <span class="muted-line">Click a model to see its signals</span>
-              <button class="btn-mini" id="btnOemPrune" title="Delete profiles with no decodable content">Clean up</button>
-              <button class="btn-mini" id="btnOemRefresh"></button>
+          <div class="panel-head"><span class="ph-t" data-tip="Click a model to see its messages and signals.">Profiles <span id="oemCount" class="ui-count"></span></span>
+            <span class="ph-tools">
+              <button type="button" class="btn-mini" id="btnOemPrune" data-tip="Delete the profiles that have nothing to decode.">Clean up</button>
+              <button type="button" class="btn-mini" id="btnOemRefresh"></button>
             </span>
           </div>
-          <div class="table-wrap" style="max-height:62vh">
+          <div class="table-wrap h-62">
             <table class="data-table" id="oemTable">
               <thead><tr>
                 <th>Make</th>
                 <th>Model</th>
-                <th title="Arbitration IDs in this profile's fingerprint — what the vehicle's bus carries">IDs</th>
-                <th title="Messages the DBC can decode, and the signals inside them">Messages</th>
+                <th class="num" data-tip="Arbitration IDs in this profile's fingerprint — what the vehicle's bus carries.">IDs</th>
+                <th class="num" data-tip="Messages the DBC can decode, and the signals inside them.">Messages</th>
                 <th>Year</th>
-                <th title="shipped = validated vehicle pack · draft = reverse-engineered, not yet confirmed">Status</th>
+                <th data-tip="Shipped: a validated vehicle pack. Draft: reverse-engineered, not yet confirmed.">Status</th>
                 <th></th>
               </tr></thead>
               <tbody></tbody>
@@ -379,137 +545,135 @@
       <!-- ===== Signal Viewer ===== -->
       <section id="view-signals" class="view hidden">
         <div class="toolbar">
-          <button class="btn" id="btnSigUseBuilder">Use DBC Builder model</button>
+          <button type="button" class="btn" id="btnSigUseBuilder">Use DBC builder model</button>
           <input type="file" id="sigDbcFile" accept=".dbc" hidden />
-          <button class="btn ghost" id="btnSigImport">Upload .dbc</button>
-          <button class="btn ghost" id="btnSigClear">Clear charts</button>
-          <span style="width:1px;height:22px;background:var(--line);margin:0 2px"></span>
+          <button type="button" class="btn" id="btnSigImport">Upload .dbc</button>
+          <button type="button" class="btn" id="btnSigClear">Clear charts</button>
+          <span class="tb-sep"></span>
           <input type="file" id="sigLogFile" accept=".csv,.asc,.blf,.trc,.log" hidden />
-          <button class="btn ghost" id="btnSigLogUpload" title="Decode a log file against the DBC above and chart it, instead of live traffic">Upload log for playback</button>
-          <button class="btn ghost hidden" id="btnSigLogBack">Back to live</button>
-          <span style="width:1px;height:22px;background:var(--line);margin:0 2px"></span>
-          <button class="btn ghost" id="btnSigFold" title="Hide the signal list to give the data more width">&#9664; Hide signals</button>
-          <span class="segbar" id="sigViewToggle" title="Table = exact values at the playhead · Tiles = current value per signal · Chart = trend around the playhead">
+          <button type="button" class="btn" id="btnSigLogUpload" data-tip="Decode a log file against the loaded DBC and play it back, instead of live traffic.">Upload log for playback</button>
+          <button type="button" class="btn hidden" id="btnSigLogBack">Back to live</button>
+          <span class="tb-sep"></span>
+          <button type="button" class="btn btn-ico" id="btnSigFold" data-tip="Hide the signal list to give the data more width.">Hide signals</button>
+          <span class="segbar" id="sigViewToggle" data-tip="Table: exact values at the playhead. Tiles: the current value per signal. Chart: the trend around the playhead.">
             <button class="seg active" data-mode="table">Table</button>
             <button class="seg" data-mode="tiles">Tiles</button>
             <button class="seg" data-mode="chart">Chart</button>
           </span>
           <span class="hidden" id="sigExportWrap">
-            <button class="btn-mini" id="btnSigExportCsv" title="Download the signal table + summary as CSV">Export CSV</button>
-            <button class="btn-mini" id="btnSigExportXlsx" title="Download as .xlsx with the fresh / held / changed colours preserved">Export Excel</button>
-            <select id="sigExportScope" title="How much of the log to export" style="padding:4px 6px">
+            <button type="button" class="btn-mini" id="btnSigExportCsv" data-tip="The signal table and summary as CSV.">Download CSV</button>
+            <button type="button" class="btn-mini" id="btnSigExportXlsx" data-tip="An .xlsx with the fresh, held and changed colours kept.">Download Excel</button>
+            <select id="sigExportScope" class="select-sm" aria-label="How much of the log">
               <option value="window">Visible window</option>
               <option value="all">Whole log</option>
             </select>
           </span>
-          <span style="flex:1"></span>
+          <span class="spacer"></span>
           <span id="sigAlarmBanner"></span>
-          <span id="sigStatus" class="muted-line"></span>
+          <span id="sigStatus" class="ui-count"></span>
         </div>
-        <div class="panel" id="sigCoveragePanel" style="margin-bottom:12px" hidden>
-          <div class="panel-head"><span>Log coverage</span>
-            <button class="btn-mini" id="btnSigCoverageToggle">Show breakdown</button></div>
-          <div id="sigCoverageBody" class="muted-line hidden" style="padding:10px 14px;font-size:12px"></div>
+        <div class="panel mb-12" id="sigCoveragePanel" hidden>
+          <div class="panel-head"><span class="ph-t">Log coverage</span>
+            <button type="button" class="btn-mini" id="btnSigCoverageToggle">Show breakdown</button></div>
+          <div id="sigCoverageBody" class="panel-body muted-line m0 hidden"></div>
         </div>
-        <div class="panel" id="sigPlaybackBar" style="margin-bottom:12px" hidden>
+        <div class="panel mb-12" id="sigPlaybackBar" hidden>
           <div class="panel-head">
-            <span>Playback
-              <span class="muted-line" style="margin-left:10px" title="Space = play/pause · ←/→ = step one row (Shift for ten) · Home/End = start/end · + / − = zoom · click any table row to seek to it">Space · &#8592;/&#8594; · Home/End · +/&minus;</span>
-            </span>
-            <span id="sigPlaybackTime" class="muted-line"></span></div>
-          <div style="padding:10px 14px">
+            <span class="ph-t" data-tip="Space: play or pause. Left and right arrows: one row (Shift for ten). Home and End: start and end. Plus and minus: zoom. Click any table row to seek to it.">Playback</span>
+            <span id="sigPlaybackTime" class="ui-count"></span></div>
+          <div class="panel-body">
             <!-- Full-log overview: where the (zoomed) scrubber below sits, so
                  zooming in never loses your place in a long capture. -->
-            <div class="pb-overview" id="sigPbOverview" title="Whole log — click to jump">
+            <div class="pb-overview" id="sigPbOverview" title="The whole log — click to jump">
               <div class="pb-ov-range" id="sigPbOvRange"></div>
               <div class="pb-ov-head" id="sigPbOvHead"></div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
-              <button class="icon-btn" id="btnPbStart" title="Jump to start"></button>
-              <button class="icon-btn" id="btnPbSlower" title="Slower"></button>
-              <button class="icon-btn" id="btnPbPlay" title="Play / pause"></button>
-              <button class="icon-btn" id="btnPbFaster" title="Faster"></button>
-              <button class="icon-btn" id="btnPbEnd" title="Jump to end"></button>
-              <span id="sigPbSpeed" class="muted-line" style="width:34px;text-align:center">1x</span>
+            <div class="pb-row">
+              <button type="button" class="icon-btn" id="btnPbStart" title="Jump to start" aria-label="Jump to start"></button>
+              <button type="button" class="icon-btn" id="btnPbSlower" title="Slower" aria-label="Slower"></button>
+              <button type="button" class="icon-btn" id="btnPbPlay" title="Play or pause" aria-label="Play or pause"></button>
+              <button type="button" class="icon-btn" id="btnPbFaster" title="Faster" aria-label="Faster"></button>
+              <button type="button" class="icon-btn" id="btnPbEnd" title="Jump to end" aria-label="Jump to end"></button>
+              <span id="sigPbSpeed" class="pb-fig">1x</span>
               <!-- Scrubber spans a sub-range of the log when zoomed in; the band
                    behind it marks the slice the chart/table is showing. -->
               <span class="pb-scrub-wrap">
                 <span class="pb-window-band" id="sigPbBand"></span>
                 <input type="range" id="sigPbScrub" min="0" max="1000" value="0" />
               </span>
-              <span style="width:1px;height:22px;background:var(--line)"></span>
-              <button class="btn-mini" id="btnPbZoomOut" title="Zoom out — more time on screen, coarser rows">−</button>
-              <span id="sigPbZoom" class="muted-line" style="min-width:52px;text-align:center">1x</span>
-              <button class="btn-mini" id="btnPbZoomIn" title="Zoom in — less time on screen, finer rows">+</button>
-              <span id="sigPbWindow" class="muted-line" style="white-space:nowrap"></span>
+              <span class="tb-sep"></span>
+              <button type="button" class="btn-mini icon-only" id="btnPbZoomOut" title="Zoom out: more time on screen, coarser rows" aria-label="Zoom out">&minus;</button>
+              <span id="sigPbZoom" class="pb-fig pb-fig-w">1x</span>
+              <button type="button" class="btn-mini icon-only" id="btnPbZoomIn" title="Zoom in: less time on screen, finer rows" aria-label="Zoom in">+</button>
+              <span id="sigPbWindow" class="ui-count nowrap"></span>
             </div>
           </div>
         </div>
-        <div class="panel" id="sigSummaryPanel" style="margin-bottom:12px" hidden>
-          <div class="panel-head"><span>Signal summary</span>
-            <span style="display:flex;gap:8px;align-items:center">
-              <span id="sigSummaryFlags" class="muted-line"></span>
-              <button class="btn-mini" id="btnSigSummaryToggle">Hide</button>
+        <div class="panel mb-12" id="sigSummaryPanel" hidden>
+          <div class="panel-head"><span class="ph-t">Signal summary</span>
+            <span class="ph-tools">
+              <span id="sigSummaryFlags" class="ui-count"></span>
+              <button type="button" class="btn-mini" id="btnSigSummaryToggle">Hide</button>
             </span>
           </div>
-          <div class="table-wrap" id="sigSummaryBody" style="max-height:260px"></div>
+          <div class="table-wrap h-260" id="sigSummaryBody"></div>
         </div>
-        <div class="panel" id="sigCompAlarmPanel" style="margin-bottom:12px" hidden>
-          <div class="panel-head"><span>Computed signals &amp; alarms</span></div>
-          <div style="padding:10px 14px;display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
-            <div style="flex:1;min-width:280px">
-              <div class="muted-line" style="margin-bottom:6px">Math channel — use <code>sig('MSG.SIGNAL')</code></div>
-              <div style="display:flex;gap:6px">
-                <input id="compName" placeholder="name e.g. Power" style="width:120px" />
-                <input id="compExpr" placeholder="expr e.g. sig('BATT.V')*sig('BATT.I')" style="flex:1" />
-                <button class="btn-mini" id="btnCompAdd">Add</button>
+        <div class="panel mb-12" id="sigCompAlarmPanel" hidden>
+          <div class="panel-head"><span class="ph-t">Computed signals and alarms</span></div>
+          <div class="panel-body comp-grid">
+            <div>
+              <div class="sec-h" data-tip="A math channel over decoded signals: sig('MSG.SIGNAL') plus ordinary arithmetic and math functions.">Computed signal</div>
+              <div class="comp-row">
+                <input id="compName" class="w-120" placeholder="Power" aria-label="Name" />
+                <input id="compExpr" class="grow-1 mono" placeholder="sig('BATT.V') * sig('BATT.I')" aria-label="Expression" spellcheck="false" />
+                <button type="button" class="btn-mini" id="btnCompAdd">Add</button>
               </div>
-              <div id="compList" class="muted-line" style="margin-top:6px"></div>
+              <div id="compList" class="chip-list"></div>
             </div>
-            <div style="flex:1;min-width:280px">
-              <div class="muted-line" style="margin-bottom:6px">Alarm — trips outside [min, max]</div>
-              <div style="display:flex;gap:6px">
-                <input id="almKey" placeholder="signal key e.g. ENGINE.EngineRPM" style="flex:1" />
-                <input id="almMin" placeholder="min" style="width:64px" />
-                <input id="almMax" placeholder="max" style="width:64px" />
-                <button class="btn-mini" id="btnAlmAdd">Add</button>
+            <div>
+              <div class="sec-h" data-tip="Trips when the signal leaves [min, max], and clears when it comes back.">Alarm</div>
+              <div class="comp-row">
+                <input id="almKey" class="grow-1 mono" placeholder="ENGINE.EngineRPM" aria-label="Signal" spellcheck="false" />
+                <input id="almMin" class="w-64" placeholder="min" aria-label="Minimum" />
+                <input id="almMax" class="w-64" placeholder="max" aria-label="Maximum" />
+                <button type="button" class="btn-mini" id="btnAlmAdd">Add</button>
               </div>
-              <div id="almList" class="muted-line" style="margin-top:6px"></div>
+              <div id="almList" class="chip-list"></div>
             </div>
           </div>
         </div>
         <div class="signals-grid" id="sigGrid">
           <div class="panel" id="sigListPanel">
-            <div class="panel-head"><span>Signals</span>
-              <span>
-                <button class="btn-mini" id="btnSigSelAll">Select all</button>
-                <button class="btn-mini" id="btnSigSelNone">None</button>
-                <button class="btn-mini" id="btnSigFoldHead" title="Hide the signal list">&#9664;</button>
+            <div class="panel-head"><span class="ph-t">Signals</span>
+              <span class="ph-tools">
+                <button type="button" class="btn-mini" id="btnSigSelAll">Select all</button>
+                <button type="button" class="btn-mini" id="btnSigSelNone">None</button>
+                <button type="button" class="btn-mini icon-only" id="btnSigFoldHead" title="Hide the signal list" aria-label="Hide the signal list"><span data-icon="chevron-left"></span></button>
               </span>
             </div>
-            <input id="sigFilter" placeholder="Filter signals…" style="margin:8px 8px 0;width:calc(100% - 16px)" />
-            <div class="table-wrap" id="sigList" style="padding:8px"></div>
+            <input id="sigFilter" class="sig-filter" placeholder="Filter signals" />
+            <div class="table-wrap sig-list" id="sigList"></div>
           </div>
           <div class="sig-right">
             <div class="panel" id="sigChartPanel" hidden>
-              <div class="panel-head"><span>Strip charts</span>
-                <span id="sigChartHint" class="muted-line"></span></div>
-              <div id="charts" style="padding:12px;overflow:auto"></div>
+              <div class="panel-head"><span class="ph-t">Strip charts</span>
+                <span id="sigChartHint" class="ui-count"></span></div>
+              <div id="charts" class="pane-pad"></div>
             </div>
             <div class="panel" id="sigTablePanel">
-              <div class="panel-head"><span>Signal table</span>
-                <span style="display:flex;gap:10px;align-items:center">
+              <div class="panel-head"><span class="ph-t">Signal table</span>
+                <span class="ph-tools">
                   <label class="check"><input type="checkbox" id="sigChangesOnly" /> Changes only</label>
-                  <span id="sigTableHint" class="muted-line"></span>
+                  <span id="sigTableHint" class="ui-count"></span>
                 </span>
               </div>
               <div class="table-wrap" id="sigTableWrap"></div>
             </div>
             <div class="panel" id="sigTilePanel" hidden>
-              <div class="panel-head"><span>Tiles</span>
-                <span id="sigTileHint" class="muted-line"></span>
+              <div class="panel-head"><span class="ph-t">Tiles</span>
+                <span id="sigTileHint" class="ui-count"></span>
               </div>
-              <div id="sigTiles" style="padding:14px;overflow:auto"></div>
+              <div id="sigTiles" class="pane-pad"></div>
             </div>
           </div>
         </div>
@@ -518,21 +682,21 @@
       <!-- ===== TX Scheduler ===== -->
       <section id="view-scheduler" class="view hidden">
         <div class="toolbar">
-          <input id="txId" placeholder="ID (hex) e.g. 100" style="width:130px" />
-          <input id="txData" placeholder="Data e.g. 11 22 AA" style="width:200px" />
-          <input id="txCycle" type="number" value="100" title="cycle ms" style="width:90px" /> <span class="muted-line">ms</span>
-          <select id="txMode"><option value="cyclic">cyclic</option><option value="once">once</option></select>
-          <button class="btn" id="btnTxAdd">+ Add</button>
-          <button class="btn ghost" id="btnTxObdPreset" title="Add standard OBD-II Mode-01 request rows (RPM/speed/coolant/throttle/load)">+ OBD PIDs</button>
-          <span style="flex:1"></span>
-          <button class="btn" id="btnTxStart">Start all</button>
-          <button class="btn" id="btnTxStop">Stop</button>
+          <label>ID <input id="txId" class="w-100 mono" placeholder="100" spellcheck="false" data-tip="Arbitration ID in hex." /></label>
+          <label>Data <input id="txData" class="w-200 mono" placeholder="11 22 AA" spellcheck="false" data-tip="Payload bytes in hex, spaces optional." /></label>
+          <label>Cycle <input id="txCycle" type="number" value="100" class="w-80" /> <span class="unit">ms</span></label>
+          <label>Mode <select id="txMode"><option value="cyclic">Cyclic</option><option value="once">Once</option></select></label>
+          <button type="button" class="btn" id="btnTxAdd">Add</button>
+          <button type="button" class="btn" id="btnTxObdPreset" data-tip="Add the standard OBD-II Mode 01 request rows: RPM, speed, coolant, throttle and load.">OBD PIDs</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-primary" id="btnTxStart">Start all</button>
+          <button type="button" class="btn" id="btnTxStop">Stop</button>
         </div>
         <div class="panel">
-          <div class="panel-head"><span>TX table</span><span id="txState" class="tag">stopped</span></div>
+          <div class="panel-head"><span class="ph-t">Frames <span class="ui-count" id="txCount"></span></span><span id="txState" class="tag">Stopped</span></div>
           <div class="table-wrap">
             <table class="data-table" id="txTable">
-              <thead><tr><th>On</th><th>Name</th><th>ID</th><th>Data</th><th>Cycle</th><th>Mode</th><th>Sent</th><th></th></tr></thead>
+              <thead><tr><th>On</th><th>Name</th><th>ID</th><th>Data</th><th class="num">Cycle</th><th>Mode</th><th class="num">Sent</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -541,48 +705,48 @@
 
       <!-- ===== Automation ===== -->
       <section id="view-automation" class="view hidden">
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Rules — when a condition holds, do an action</span></div>
-          <div style="padding:10px 14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <input id="ruleName" placeholder="name" style="width:120px" />
-            <input id="ruleWhen" placeholder="when e.g. sig('ENGINE.EngineRPM') > 5000" style="flex:1;min-width:240px" />
-            <select id="ruleActType"><option value="log">log</option><option value="transmit">transmit</option></select>
-            <input id="ruleActArg" placeholder="message, or id=100 data=11 22" style="width:200px" />
-            <button class="btn-mini" id="btnRuleAdd">Add rule</button>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t" data-tip="When a condition over decoded signals becomes true, log a line or transmit a frame. Edge-triggered: it fires once per rising edge, with a cooldown.">Rules <span class="ui-count" id="ruleCount"></span></span></div>
+          <div class="panel-body row">
+            <label>Name <input id="ruleName" class="w-120" spellcheck="false" /></label>
+            <label class="grow">When <input id="ruleWhen" class="mono" placeholder="sig('ENGINE.EngineRPM') > 5000" spellcheck="false" /></label>
+            <label>Then <select id="ruleActType"><option value="log">Log</option><option value="transmit">Transmit</option></select></label>
+            <input id="ruleActArg" class="w-200 mono" placeholder="id=100 data=11 22" spellcheck="false" aria-label="Action"
+              data-tip="Log: the message to write. Transmit: id=&lt;hex&gt; data=&lt;bytes&gt;." />
+            <button type="button" class="btn" id="btnRuleAdd">Add rule</button>
           </div>
-          <div class="table-wrap" id="rulesWrap" style="max-height:24vh"></div>
-          <div class="panel-head"><span>Recent rule events</span></div>
-          <div class="table-wrap" id="ruleEventsWrap" style="max-height:18vh"></div>
+          <div class="table-wrap h-24" id="rulesWrap"></div>
+          <div class="panel-head panel-head-sub"><span class="ph-t">Recent events</span></div>
+          <div class="table-wrap h-18" id="ruleEventsWrap"></div>
         </div>
 
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Scheduled jobs</span></div>
-          <div style="padding:10px 14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <input id="jobName" placeholder="name" style="width:120px" />
-            <select id="jobKind"><option value="scan">scan (DTCs)</option><option value="record">record</option></select>
-            <input id="jobEvery" placeholder="every seconds (blank = manual)" style="width:170px" />
-            <button class="btn-mini" id="btnJobAdd">Add job</button>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t">Scheduled jobs <span class="ui-count" id="jobCount"></span></span></div>
+          <div class="panel-body row">
+            <label>Name <input id="jobName" class="w-120" spellcheck="false" /></label>
+            <label>Kind <select id="jobKind"><option value="scan">Scan DTCs</option><option value="record">Record</option></select></label>
+            <label data-tip="Blank: the job runs only when you press Run.">Every <input id="jobEvery" class="w-80" placeholder="60" /> <span class="unit">s</span></label>
+            <button type="button" class="btn" id="btnJobAdd">Add job</button>
           </div>
-          <div class="table-wrap" id="jobsWrap" style="max-height:24vh"></div>
+          <div class="table-wrap h-24" id="jobsWrap"></div>
         </div>
 
-        <div class="panel" style="margin-bottom:16px">
-          <div class="panel-head"><span>Restbus simulation</span><span id="restbusStatus" class="muted-line"></span></div>
-          <div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <button class="btn" id="btnRestbusBuilder">Load DBC Builder</button>
-            <button class="btn" id="btnRestbusStart">Start</button>
-            <button class="btn ghost" id="btnRestbusStop">Stop</button>
-            <span class="muted-line">Transmits every message in the database cyclically so an ECU under test sees a full vehicle.</span>
+        <div class="panel">
+          <div class="panel-head"><span class="ph-t" data-tip="Transmits every message of the database cyclically, so an ECU under test sees a full vehicle around it.">Restbus simulation</span><span id="restbusStatus" class="ui-count"></span></div>
+          <div class="panel-body row">
+            <button type="button" class="btn" id="btnRestbusBuilder">Load DBC builder model</button>
+            <button type="button" class="btn btn-primary" id="btnRestbusStart">Start</button>
+            <button type="button" class="btn" id="btnRestbusStop">Stop</button>
           </div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><span>Script — ctx.send(id,data) · ctx.latest(key) · ctx.log(...)</span></div>
-          <div style="padding:10px 14px">
-            <textarea id="scriptCode" spellcheck="false" style="width:100%;height:120px;font-family:var(--mono);font-size:12px"
+          <div class="panel-head"><span class="ph-t" data-tip="Python with ctx.send(id, data), ctx.latest('MSG.SIGNAL') and ctx.log(...). Runs on its own thread with a time limit.">Script</span></div>
+          <div class="panel-body">
+            <textarea id="scriptCode" class="code-box" spellcheck="false"
               placeholder="for i in range(3):&#10;    ctx.send(0x100, '11 22 33')&#10;    ctx.log('rpm', ctx.latest('ENGINE.EngineRPM'))"></textarea>
-            <div style="margin-top:6px"><button class="btn" id="btnScriptRun">Run script</button></div>
-            <pre id="scriptOut" class="muted-line" style="white-space:pre-wrap;margin-top:8px"></pre>
+            <div class="controls"><button type="button" class="btn btn-primary" id="btnScriptRun">Run script</button></div>
+            <pre id="scriptOut" class="script-out"></pre>
           </div>
         </div>
       </section>
@@ -590,11 +754,12 @@
       <!-- ===== DTC Codes ===== -->
       <section id="view-dtc" class="view hidden">
         <div class="toolbar">
-          <button class="btn" id="btnDtcScan">⟳ Scan (request DTCs)</button>
-          <span id="dtcCount" class="tag">0 codes</span>
-          <span style="flex:1"></span>
-          <button class="btn ghost" id="btnDtcClearList">Clear list</button>
-          <button class="btn btn-rec" id="btnDtcClearEcu">Clear vehicle DTCs (Mode 04)</button>
+          <button type="button" class="btn btn-primary" id="btnDtcScan"
+            data-tip="Request stored and pending codes: OBD-II Mode 03 and 07, and a J1939 DM1 request. J1939 DM1 codes also arrive on their own.">Scan</button>
+          <span id="dtcCount" class="ui-count">0 codes</span>
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="btnDtcClearList" data-tip="Forget the codes listed here. Nothing is sent to the vehicle.">Clear list</button>
+          <button type="button" class="btn btn-danger" id="btnDtcClearEcu">Clear vehicle codes</button>
         </div>
         <div id="dtcGroups"></div>
         <div id="dtcEmpty" class="empty-anim"></div>
@@ -603,20 +768,19 @@
       <!-- ===== Protocol Decoder ===== -->
       <section id="view-decoder" class="view hidden">
         <div class="toolbar">
-          <span class="muted-line">Manual decode:</span>
-          <input id="decId" placeholder="ID hex" style="width:100px" />
-          <input id="decData" placeholder="Data hex" style="width:220px" />
+          <label>ID <input id="decId" class="w-100 mono" placeholder="7E8" spellcheck="false" /></label>
+          <label>Data <input id="decData" class="w-200 mono" placeholder="04 41 0C 1A F8" spellcheck="false" /></label>
           <label class="check"><input type="checkbox" id="decExt" /> 29-bit</label>
-          <button class="btn" id="btnDecode">Decode</button>
-          <span id="decResult" class="muted-line"></span>
-          <span style="flex:1"></span>
-          <select id="protoFilter"><option value="">All protocols</option>
-            <option>OBD-II</option><option>UDS</option><option>J1939</option><option>ISO-TP</option><option>raw</option></select>
-          <button class="btn ghost" id="btnDecClear">Clear</button>
+          <button type="button" class="btn btn-primary" id="btnDecode">Decode</button>
+          <span id="decResult" class="muted-line m0"></span>
+          <span class="spacer"></span>
+          <select id="protoFilter" aria-label="Protocol"><option value="">All protocols</option>
+            <option>OBD-II</option><option>UDS</option><option>J1939</option><option>ISO-TP</option><option value="raw">Raw</option></select>
+          <button type="button" class="btn" id="btnDecClear">Clear</button>
         </div>
         <div class="panel">
-          <div class="panel-head"><span>Live decoded frames</span></div>
-          <div class="table-wrap" style="max-height:65vh">
+          <div class="panel-head"><span class="ph-t">Live decoded frames</span></div>
+          <div class="table-wrap h-65">
             <table class="data-table mono" id="decTable">
               <thead><tr><th>Time</th><th>ID</th><th>Protocol</th><th>Interpretation</th></tr></thead>
               <tbody></tbody>
@@ -625,54 +789,164 @@
         </div>
       </section>
 
-      <footer class="statusbar">
-        <span id="statusText">Ready</span>
-        <span id="recInfo"></span>
-      </footer>
     </main>
   </div>
 
-  <!-- Connect dialog -->
-  <div id="connectModal" class="modal-bg hidden">
-    <div class="modal">
-      <h2>Connect to CAN hardware</h2>
-      <label>Device<select id="devSelect"></select></label>
-      <label>Bitrate
-        <select id="bitrateSelect">
-          <option value="125000">125 kbit/s</option><option value="250000">250 kbit/s</option>
-          <option value="500000" selected>500 kbit/s</option><option value="1000000">1 Mbit/s</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" id="simCheck" checked /> Generate synthetic traffic (virtual bus)</label>
-      <div id="connectError" class="err hidden"></div>
-      <div class="modal-actions">
-        <button class="btn ghost" id="btnRefreshDevs">Rescan</button>
-        <div style="flex:1"></div>
-        <button class="btn ghost" id="btnCancelConnect">Cancel</button>
-        <button class="btn" id="btnDoConnect">Connect</button>
+  <!-- Connect -->
+  <dialog id="connectDlg" class="ui-dlg">
+    <form method="dialog" id="connectForm">
+      <div class="ui-dlg-head"><h2>Connect to CAN hardware</h2></div>
+      <div class="ui-dlg-body">
+        <label class="ui-dlg-field">Device
+          <span class="ui-field-row"><select id="devSelect"></select><button type="button" class="btn" id="btnRefreshDevs"></button></span>
+        </label>
+        <label class="ui-dlg-field">Bitrate
+          <select id="bitrateSelect">
+            <option value="125000">125 kbit/s</option><option value="250000">250 kbit/s</option>
+            <option value="500000" selected>500 kbit/s</option><option value="1000000">1 Mbit/s</option>
+          </select>
+        </label>
+        <label class="check" data-tip="On the virtual bus, a built-in generator streams OBD-II, J1939 and test frames so every view has data without hardware.">
+          <input type="checkbox" id="simCheck" checked /> Synthetic traffic on the virtual bus</label>
+        <div id="connectError" class="ui-notice bad" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="connectErrorT"></span></div>
       </div>
-    </div>
-  </div>
-
-  <!-- Record dialog -->
-  <div id="recordModal" class="modal-bg hidden">
-    <div class="modal">
-      <h2>Start recording</h2>
-      <label>Filename<input type="text" id="recName" value="capture" /></label>
-      <label>Format
-        <select id="recFormat">
-          <option value="asc">Vector ASCII (.asc)</option>
-          <option value="blf">Vector binary (.blf)</option>
-          <option value="csv">CSV (.csv)</option>
-        </select>
-      </label>
-      <div class="modal-actions">
-        <button class="btn ghost" id="btnCancelRecord">Cancel</button>
-        <button class="btn" id="btnDoRecord">Start</button>
+      <div class="ui-dlg-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btnCancelConnect">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="btnDoConnect">Connect</button>
       </div>
-    </div>
-  </div>
+    </form>
+  </dialog>
 
+  <!-- Record -->
+  <dialog id="recordDlg" class="ui-dlg">
+    <form method="dialog" id="recordForm">
+      <div class="ui-dlg-head"><h2>Start recording</h2></div>
+      <div class="ui-dlg-body">
+        <label class="ui-dlg-field">File name<input type="text" id="recName" value="capture" spellcheck="false" /></label>
+        <label class="ui-dlg-field">Format
+          <select id="recFormat">
+            <option value="asc">Vector ASCII (.asc)</option>
+            <option value="blf">Vector binary (.blf)</option>
+            <option value="csv">CSV (.csv)</option>
+          </select>
+        </label>
+      </div>
+      <div class="ui-dlg-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btnCancelRecord">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="btnDoRecord">Start</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog id="settingsDlg" class="ui-dlg settings-dlg">
+    <form method="dialog">
+      <div class="ui-dlg-head"><h2>Settings</h2><span class="spacer"></span>
+        <button type="submit" class="ui-icon-btn" aria-label="Close" data-icon="x"></button></div>
+      <div class="ui-dlg-body">
+        <div class="set-sec">
+          <div class="set-h"><span class="set-title">Appearance</span></div>
+          <div class="set-row"><span class="set-label">Theme</span><span class="segbar" id="setTheme" role="radiogroup" aria-label="Theme"></span></div>
+          <div class="set-row"><span class="set-label">Sidebar</span><span class="segbar" id="setRail" role="radiogroup" aria-label="Sidebar"></span></div>
+        </div>
+        <div class="set-sec">
+          <div class="set-h"><span class="set-title" data-tip="The views the sidebar shows — your own choice, kept in this browser. Dashboard always stays. A view marked Soon is held back from this release; switch it on to preview it.">Views</span>
+            <span class="spacer"></span>
+            <button type="button" class="btn-mini" id="btnViewsReset" data-tip="Back to the default: every view except the ones held back.">Reset</button></div>
+          <div id="setViews" class="set-views"></div>
+        </div>
+        <div class="set-sec">
+          <div class="set-h"><span class="set-title" data-tip="Where Record saves its .asc, .blf and .csv files. Blank uses data/logs beside the app.">Recording</span></div>
+          <div class="set-row"><span class="set-label">Log folder</span>
+            <span class="ui-field-row set-grow"><input id="logDir" placeholder="data/logs" spellcheck="false" />
+              <button type="button" class="btn" id="btnLogDirSave">Save</button>
+              <button type="button" class="btn" id="btnLogDirReset" data-tip="Back to data/logs beside the app.">Reset</button></span></div>
+        </div>
+        <!-- shown by app.js once /api/usage answers (refreshUsage) -->
+        <div class="set-sec" id="setUsage" hidden>
+          <div class="set-h"><span class="set-title" data-tip="Reported: the name you gave, this computer (Windows login, computer name, Windows version, time zone), the uCANdo version, how long it ran, the views opened, errors, and counts such as recordings and replays started.
+Never reported: CAN frames, IDs, payloads, signal values, DBCs, log files or their names, VINs.">Usage reporting</span>
+            <span class="spacer"></span>
+            <button type="button" class="btn-mini" id="btnUsageName">Edit name</button>
+            <button type="button" class="btn-mini" id="btnUsageSend">Send now</button></div>
+          <div id="usageOff" class="ui-notice muted" hidden><span data-icon="info"></span><span class="ui-notice-t" id="usageOffT"></span></div>
+          <dl class="set-facts" id="usageFacts">
+            <dt>Name</dt><dd id="usageName">—</dd>
+            <dt>Install ID</dt><dd class="mono" id="usageId">—</dd>
+            <dt>Reporting to</dt><dd class="mono" id="usageTo">—</dd>
+            <dt>Last sent</dt><dd id="usageLast">—</dd>
+            <dt>Waiting</dt><dd id="usageWaiting">—</dd>
+          </dl>
+          <div id="usageErr" class="ui-notice warn" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="usageErrT"></span></div>
+        </div>
+        <!-- shown by app.js once /api/update answers (refreshUpdate) -->
+        <div class="set-sec" id="setUpdates" hidden>
+          <div class="set-h"><span class="set-title" data-tip="uCANdo checks for a newer version each time it starts and offers it once; Later leaves an Update chip in the banner. Update installs it beside this version and restarts into it; your data stays. Hold Shift while starting uCANdo.exe to start an earlier version.">Updates</span>
+            <span class="spacer"></span>
+            <button type="button" class="btn-mini" id="btnUpdCheck">Check now</button></div>
+          <div id="updOff" class="ui-notice muted" hidden><span data-icon="info"></span><span class="ui-notice-t" id="updOffT"></span></div>
+          <dl class="set-facts" id="updFacts">
+            <dt>Version</dt><dd id="updCurrent">—</dd>
+            <dt>Latest</dt><dd id="updLatest">—</dd>
+            <dt>Last checked</dt><dd id="updChecked">—</dd>
+            <dt>Channel</dt><dd class="mono" id="updChannel">—</dd>
+          </dl>
+          <div class="set-cta" id="updCta" hidden><button type="button" class="btn btn-primary btn-ico" id="btnUpdOpen"></button></div>
+          <div id="updErr" class="ui-notice warn" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="updErrT"></span></div>
+        </div>
+        <div class="set-sec" id="setAbout">
+          <div class="set-h"><span class="set-title" data-tip="Two copies that report the same version and build are the same program.">About</span></div>
+          <dl class="set-facts">
+            <dt>Version</dt><dd id="aboutVersion">—</dd>
+            <dt>Build</dt><dd id="aboutBuild">—</dd>
+            <dt>Data folder</dt><dd class="mono" id="aboutData">—</dd>
+            <dt>Plugins</dt><dd id="aboutPlugins">—</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="ui-dlg-foot"><span class="spacer"></span><button type="submit" class="btn btn-primary">Done</button></div>
+    </form>
+  </dialog>
+
+  <!-- First start: a welcome, never a notice of what is reported (user skill
+       app-control — these exact words, in every app). Settings → Edit name
+       reopens it as "Your name", with Cancel and Save. -->
+  <dialog id="welcomeDlg" class="ui-dlg">
+    <form method="dialog" id="welcomeForm">
+      <div class="ui-dlg-head"><h2 id="welcomeTitle">Hi! May I have your name, please?</h2></div>
+      <div class="ui-dlg-body">
+        <p class="ui-dlg-text" id="welcomeText">We'll use it to greet you and to make uCANdo better for you. Settings → Usage reporting shows what is shared.</p>
+        <label class="ui-dlg-field">Name<input id="welcomeName" maxlength="80" autocomplete="name" spellcheck="false" /></label>
+        <div id="welcomeErr" class="ui-notice warn" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="welcomeErrT"></span></div>
+      </div>
+      <div class="ui-dlg-foot"><span class="spacer"></span>
+        <button type="button" class="btn" id="welcomeCancel" hidden>Cancel</button>
+        <button type="submit" class="btn btn-primary" id="welcomeOk" disabled>Continue</button></div>
+    </form>
+  </dialog>
+
+  <!-- A newer version (user skill app-updates): offered once per run after the name, then the
+       banner chip. Update downloads, verifies, installs beside and restarts; the page follows. -->
+  <dialog id="updateDlg" class="ui-dlg upd-dlg">
+    <div class="ui-dlg-head"><h2 id="updDlgTitle">A new version is available</h2><span class="spacer"></span>
+      <span class="tag warn" id="updDlgRequired" hidden data-tip="This version fixes something serious: this copy must update before it is used again.">Required</span></div>
+    <div class="ui-dlg-body">
+      <div class="upd-facts" id="updDlgFacts"></div>
+      <div class="upd-notes" id="updDlgNotes"></div>
+      <div class="upd-prog" id="updProg" hidden>
+        <div class="upd-prog-line"><span id="updProgT"></span></div>
+        <div class="progress"><div class="progress-bar" id="updProgBar"></div></div>
+      </div>
+      <div id="updDlgWarn" class="ui-notice warn" hidden><span data-icon="alert"></span><span class="ui-notice-t" id="updDlgWarnT"></span></div>
+    </div>
+    <div class="ui-dlg-foot"><span class="spacer"></span>
+      <button type="button" class="btn" id="btnUpdLater">Later</button>
+      <button type="button" class="btn btn-primary btn-ico" id="btnUpdGo"></button></div>
+  </dialog>
+
+  <script src="/shell.js?v=__VER__"></script>
   <script src="/app.js?v=__VER__"></script>
 </body>
 </html>

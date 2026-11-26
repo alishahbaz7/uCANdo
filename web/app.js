@@ -12,108 +12,564 @@ const POST = (p, body) => api(p, { method: "POST", body: body ? JSON.stringify(b
 
 const state = { connected: false, recording: false, view: "dashboard" };
 let pollTimer = null;
+let usage = null;            // GET /api/usage — up here so openView can read it from the first call
 
-// ---- shared inline SVG icon set (Feather-style) ----
-const _ico = (b, extra = "") => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${extra}>${b}</svg>`;
+// ---- icons ------------------------------------------------------------------
+// The one icon map lives in shell.js (window.UI). These are the names the views
+// below use, each an inline <svg class="ico">.
 const ICONS = {
-  power: _ico('<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>'),
-  record: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="#e25555"/></svg>',
-  play: '<svg class="ico" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>',
-  pause: _ico('<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>'),
-  stop: _ico('<rect x="6" y="6" width="12" height="12" rx="1.5"/>'),
-  step: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
-  refresh: _ico('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
-  chevronDown: _ico('<polyline points="6 9 12 15 18 9"/>'),
-  chevronUp: _ico('<polyline points="18 15 12 9 6 15"/>'),
-  close: _ico('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
-  check: _ico('<polyline points="20 6 9 17 4 12"/>'),
-  arrowRight: _ico('<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>'),
-  upload: _ico('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
-  download: _ico('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
-  clipboard: _ico('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>'),
-  grid: _ico('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>'),
-  alert: _ico('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
-  // playback transport (log-signal scrubbing)
-  skipBack: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
-  skipFwd: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4" fill="currentColor"/><line x1="19" y1="5" x2="19" y2="19"/></svg>',
-  rewind: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 4 5 12 12 20 12 4" fill="currentColor"/><polygon points="19 4 12 12 19 20 19 4" fill="currentColor"/></svg>',
-  fastFwd: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 4 19 12 12 20 12 4" fill="currentColor"/><polygon points="5 4 12 12 5 20 5 4" fill="currentColor"/></svg>',
+  power: UI.ico("power"), plug: UI.ico("plug"), record: UI.ico("record"), play: UI.ico("play"),
+  pause: UI.ico("pause"), stop: UI.ico("stop"), step: UI.ico("step"), refresh: UI.ico("refresh"),
+  chevronDown: UI.ico("chevron-down"), chevronUp: UI.ico("chevron-up"), close: UI.ico("x"),
+  chevronLeft: UI.ico("chevron-left"), chevronRight: UI.ico("chevron-right"),
+  check: UI.ico("tick"), arrowRight: UI.ico("arrow-right"), upload: UI.ico("upload"),
+  download: UI.ico("download"), clipboard: UI.ico("clipboard"), grid: UI.ico("grid"),
+  alert: UI.ico("alert"), skipBack: UI.ico("skip-back"), skipFwd: UI.ico("skip-fwd"),
+  rewind: UI.ico("rewind"), fastFwd: UI.ico("fast-fwd"), edit: UI.ico("edit"), lock: UI.ico("lock"),
+  swap: UI.ico("swap"),
 };
-// Back-compat aliases used by the topbar renderer
 const ICON_POWER = ICONS.power, ICON_RECORD = ICONS.record, ICON_STOP = ICONS.stop;
-const _bigGrid = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:30px;height:30px;color:var(--accent)"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+const _bigGrid = UI.ico("grid", "ico ico-hero");
 
-// Populate version chip from API
-api("/api/info").then((d) => {
-  const chip = $("verChip");
-  if (chip) chip.textContent = `v${d.version} · ${d.app}`;
-});
+// ---- navigation: ONE definition ---------------------------------------------
+// It builds the rail, names the page in the banner (its `desc` is the page
+// name's hold-tip), titles the browser tab, and test_ui reads it. Whether a
+// view can be used right now is VIEW_READY's job, below.
+const NAV = [
+  { group: "Overview", items: [
+    { id: "dashboard", label: "Dashboard", icon: "dashboard",
+      desc: "Live values decoded from standard protocols (OBD-II, J1939), with no DBC needed." },
+  ] },
+  { group: "Capture", items: [
+    { id: "logger", label: "CAN logger", icon: "list",
+      desc: "Live capture with per-ID statistics, recorded to .asc, .blf or .csv." },
+    { id: "replay", label: "TX replay", icon: "replay",
+      desc: "Mimic a vehicle: replay recorded logs onto the bus, patch signals live, watch the exact bytes going out and check them against the device's cloud log." },
+  ] },
+  { group: "Analysis", items: [
+    { id: "re", label: "Reverse engineering", icon: "activity",
+      desc: "Find candidate signals in an unknown log: entropy, bit-flip rate, the state sniffer and OBD correlation." },
+    { id: "autore", label: "Auto-RE", icon: "chip",
+      desc: "Confidence-tiered (A/B/C) identification by CANMatch, OBD correlation and known-value matching." },
+    { id: "framedec", label: "Frame decoder", icon: "grid",
+      desc: "Decode raw CAN frames against a DBC or Signature JSON: byte, bit and signal views." },
+    { id: "convert", label: "Converter", icon: "swap",
+      desc: "Convert a signal database between DBC, Signature JSON and CSV, in any direction." },
+    { id: "dbc", label: "DBC builder", icon: "layers",
+      desc: "Edit messages and signals, then round-trip to a .dbc file." },
+    { id: "oem", label: "OEM database", icon: "database",
+      desc: "Store, fingerprint and auto-apply vehicle DBC profiles (CANMatch)." },
+  ] },
+  { group: "Visualization", items: [
+    { id: "signals", label: "Signal viewer", icon: "trending",
+      desc: "Live DBC decode into a table, tiles or strip charts, with computed signals and alarms; or play a log offline." },
+  ] },
+  { group: "Transmit", items: [
+    { id: "scheduler", label: "TX scheduler", icon: "clock",
+      desc: "Transmit cyclic or one-shot frames on the bus." },
+    { id: "automation", label: "Automation", icon: "bolt",
+      desc: "Rules, scheduled jobs, restbus simulation and scripting." },
+  ] },
+  { group: "Diagnostics", items: [
+    { id: "dtc", label: "DTC codes", icon: "triangle",
+      desc: "Read and clear trouble codes over OBD-II, UDS and J1939." },
+    { id: "decoder", label: "Protocol decoder", icon: "code",
+      desc: "Live OBD-II, UDS (ISO-TP) and J1939 frame interpretation." },
+  ] },
+];
+const NAV_ITEMS = Object.fromEntries(NAV.flatMap((g) => g.items.map((it) => [it.id, { ...it, group: g.group }])));
 
-// Each view: a short fixed title + a one-line description.
-const VIEW_META = {
-  dashboard: { t: "Dashboard", d: "Live values decoded from standard protocols (OBD-II, J1939) — no DBC required." },
-  logger: { t: "CAN Logger", d: "Live capture with per-ID stats and recording to .asc / .blf / .csv." },
-  replay: { t: "TX Replay", d: "Play a recorded log back onto the bus with speed, loop, and step control." },
-  re: { t: "Reverse Engineering", d: "Find candidate signals in an unknown log — entropy, bit-flip rate, sniffer, OBD correlation." },
-  autore: { t: "Auto-RE", d: "Confidence-tiered (A/B/C) identification: CANMatch, OBD correlation, and known-value matching." },
-  framedec: { t: "Frame Decoder", d: "Decode raw CAN frames against a DBC or JSON signature — byte, bit, and signal view." },
-  convert: { t: "Converter", d: "Convert a signal database among DBC, Signature JSON, and CSV in any direction." },
-  dbc: { t: "DBC Builder", d: "Edit messages and signals, then round-trip to a .dbc file." },
-  oem: { t: "OEM Database", d: "Store, fingerprint, and auto-apply vehicle DBC profiles (CANMatch)." },
-  signals: { t: "Signal Viewer", d: "Live DBC decode into strip charts, with computed signals and alarms — or upload a log to chart it offline." },
-  scheduler: { t: "TX Scheduler", d: "Transmit cyclic or one-shot frames on the bus." },
-  automation: { t: "Automation", d: "Rules, scheduled jobs, restbus simulation, and scripting." },
-  dtc: { t: "DTC Codes", d: "Read and clear trouble codes — OBD-II, UDS, and J1939." },
-  decoder: { t: "Protocol Decoder", d: "Live OBD-II / UDS (ISO-TP) / J1939 frame interpretation." },
-};
+// The rail lists what a person can use. A "soon" view (VIEW_READY, below) is
+// left out altogether — the user, 2026-11-24: hide what is not developed, so the
+// menu does not confuse — and a group with nothing left in it goes with it.
+// Built once VIEW_READY exists (see the call after it).
+function buildRail() {
+  const shown = (it) => viewShown(it.id);
+  $("railNav").innerHTML = NAV.filter((g) => g.items.some(shown)).map((g) =>
+    `<div class="rail-section"><span class="rail-section-t">${g.group}</span><span class="rail-section-rule"></span></div>` +
+    g.items.filter(shown).map((it) => {
+      const on = it.id === state.view;
+      return `<button type="button" class="rail-item${on ? " active" : ""}" data-view="${it.id}" title="${g.group} · ${it.label}"${on ? ' aria-current="page"' : ""}>` +
+        `<span class="rail-ico">${UI.icons[it.icon] || ""}</span><span class="rail-label">${it.label}</span>` +
+        `<span class="rail-pill" hidden></span></button>`;
+    }).join("")).join("");
+}
+
+// ---- which views the rail shows: Settings → Views ---------------------------
+// The person's own choice, kept in this browser ("ucando.views": only the views
+// that differ from their default). Default: every view, except the ones held
+// back (`soon`). A held-back view switched on is a preview — it opens, marked
+// "Preview" in the rail. Dashboard always stays: it is where the app opens.
+let viewPrefs = {};
+try { viewPrefs = JSON.parse(UI.store.get("views", "{}")) || {}; } catch (e) { viewPrefs = {}; }
+const isSoon = (id) => !!(VIEW_READY[id] && VIEW_READY[id].kind === "soon");
+function viewShown(id) {
+  if (id === "dashboard") return true;
+  return Object.prototype.hasOwnProperty.call(viewPrefs, id) ? viewPrefs[id] !== false : !isSoon(id);
+}
+function saveViewPrefs() {
+  UI.store.set("views", Object.keys(viewPrefs).length ? JSON.stringify(viewPrefs) : null);
+  buildRail();
+  applyAvailability();
+  if (!viewShown(state.view)) openView("dashboard");   // never leave the person on a view they hid
+}
+function setViewShown(id, on) {
+  if (id === "dashboard") return;
+  if (on === !isSoon(id)) delete viewPrefs[id]; else viewPrefs[id] = on;
+  saveViewPrefs();
+}
+
 function setViewMeta(view) {
-  const m = VIEW_META[view] || { t: view, d: "" };
-  $("viewTitle").textContent = m.t;
-  const desc = $("viewDesc");
-  desc.textContent = m.d;
-  desc.title = m.d;
+  const it = NAV_ITEMS[view] || { label: view, desc: "", icon: "" };
+  $("viewTitle").textContent = it.label;
+  $("bannerPage").dataset.tip = it.desc;
+  $("bannerPageIco").innerHTML = UI.icons[it.icon] || "";
+  document.title = (state.build === "dev" ? "Dev · " : "") + `${it.label} · uCANdo`;
 }
 
 // ---------------------------------------------------------------- navigation
-document.querySelectorAll(".nav").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".nav").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    const view = btn.dataset.view;
-    state.view = view;
-    document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
-    $("view-" + view).classList.remove("hidden");
-    setViewMeta(view);
-    startPolling(view);
-    if (view === "replay" || view === "re") refreshLogs();
-    if (view === "dbc") renderDbc();
-    if (view === "logger") loadLogDir();
-    if (view === "autore") initAutoRE();
-    if (view === "oem") renderOem();
-    if (view === "automation") renderAutomation();
-    if (view === "scheduler") pollTx();
+function openView(view) {
+  // A "soon" view isn't usable yet — opening it anyway is what makes a
+  // held-back feature look like a bug. Bus-gated views stay reachable.
+  const ready = VIEW_READY[view];
+  if (ready && ready.kind === "soon" && !viewShown(view)) return void setStatus(ready.why);
+  if (!$("view-" + view)) return;
+  document.querySelectorAll("#railNav .rail-item").forEach((b) => {
+    const on = b.dataset.view === view;
+    b.classList.toggle("active", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
+  state.view = view;
+  document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
+  $("view-" + view).classList.remove("hidden");
+  setViewMeta(view);
+  countView(view);
+  startPolling(view);
+  if (view === "replay" || view === "re") refreshLogs();
+  if (view === "replay") { refreshScenarios($("txScenario").value); refreshPatch(); }
+  if (view === "dbc") renderDbc();
+  if (view === "autore") initAutoRE();
+  if (view === "oem") renderOem();
+  if (view === "automation") renderAutomation();
+  if (view === "scheduler") pollTx();
+  // A DBC can arrive from elsewhere (OEM database → Apply, Identify and apply,
+  // the DBC builder): the list must reflect it the moment the view opens.
+  if (view === "signals") refreshSigList();
+}
+$("railNav").addEventListener("click", (e) => {
+  const btn = e.target.closest(".rail-item");
+  if (btn) openView(btn.dataset.view);
+});
+$("bnBrand").addEventListener("click", () => openView("dashboard"));
+
+// ---- version, build, Settings ------------------------------------------------
+api("/api/info").then((d) => {
+  state.build = d.build;
+  $("appVersion").textContent = `Version ${d.version}`;
+  $("appDev").hidden = d.build !== "dev";
+  $("aboutVersion").textContent = d.version;
+  $("aboutBuild").textContent = d.build === "dev" ? "Dev (run from source)" : "Release";
+  $("aboutData").textContent = d.data_dir || "—";
+  $("aboutPlugins").textContent = String(d.plugins_loaded ?? "—");
+  setViewMeta(state.view);
+  $("staleChip").hidden = !d.code_stale;
+  // A source copy keeps checking: code edited after it started means a restart is due.
+  if (d.build === "dev") {
+    setInterval(() => api("/api/info").then((i) => { $("staleChip").hidden = !i.code_stale; }).catch(() => {}), 15000);
+  }
+});
+// uCANdo's own window (main.py → ucando/desktop.py) takes Edge's dark mode for its title bar —
+// an app window ignores the page's colours — and main.py reads this saved choice at the next
+// start. So the theme in use is saved now, and again whenever it changes.
+const saveTheme = (t) => POST("/api/config", { key: "ui_theme", value: t }).catch(() => {});
+saveTheme(UI.resolvedTheme());
+UI.onTheme(saveTheme);
+
+function segButtons(host, opts, cur, pick) {
+  host.innerHTML = opts.map((o) =>
+    `<button type="button" class="seg${o.id === cur ? " active" : ""}" role="radio" aria-checked="${o.id === cur}" data-v="${o.id}">${o.label}</button>`).join("");
+  host.querySelectorAll(".seg").forEach((b) => b.addEventListener("click", () => pick(b.dataset.v)));
+}
+function renderSettings() {
+  segButtons($("setTheme"), UI.THEMES, UI.theme(), (id) => { UI.setTheme(id); renderSettings(); });
+  segButtons($("setRail"), UI.RAIL_MODES, UI.railMode(), (id) => { UI.setRailMode(id); renderSettings(); });
+  renderViewPrefs();
+}
+// Settings → Views: a switch per view, grouped as the rail is.
+function renderViewPrefs() {
+  $("setViews").innerHTML = NAV.map((g) => `<div class="set-views-g">${g.group}</div>` + g.items.map((it) => {
+    const locked = it.id === "dashboard";
+    return `<label class="set-view${locked ? " is-locked" : ""}"${locked ? ' data-tip="Always shown: uCANdo opens on it."' : ""}>` +
+      `<span class="rail-ico">${UI.icons[it.icon] || ""}</span><span class="set-view-l">${it.label}</span>` +
+      (isSoon(it.id) ? `<span class="tag warn" data-tip="Held back from this release. Switch it on to preview it.">Soon</span>` : "") +
+      `<input type="checkbox" class="ui-switch" data-view="${it.id}" aria-label="Show ${it.label}"` +
+      `${viewShown(it.id) ? " checked" : ""}${locked ? " disabled" : ""} /></label>`;
+  }).join("")).join("");
+}
+$("setViews").addEventListener("change", (e) => {
+  const c = e.target.closest("input[data-view]");
+  if (c) setViewShown(c.dataset.view, c.checked);
+});
+$("btnViewsReset").addEventListener("click", () => { viewPrefs = {}; saveViewPrefs(); renderViewPrefs(); });
+$("btnSettings").addEventListener("click", () => {
+  renderSettings(); loadLogDir(); refreshUsage(); refreshUpdate(); $("settingsDlg").showModal();
 });
 
-// ---- feature availability -------------------------------------------------
-// Views that can do nothing without a bus. They stay CLICKABLE — a disabled
-// nav item hides what the tool can do and reads as broken; a dimmed one with a
-// stated reason teaches instead.
-const LIVE_ONLY_VIEWS = {
-  dashboard: "Decoding live OBD-II / J1939 values needs a connected bus.",
-  logger: "Capturing frames needs a connected bus.",
-  replay: "Transmitting a log onto the bus needs a connected bus.",
-  scheduler: "Transmitting frames needs a connected bus.",
-  automation: "Rules, jobs, restbus and scripting all act on a live bus.",
-  dtc: "Reading or clearing trouble codes needs a connected bus.",
-  decoder: "Live protocol interpretation needs a connected bus.",
+// ---- usage reporting (user skill app-control; ucando/usage.py) ---------------
+// A release copy reports who uses it and how — counts, never CAN data. The first
+// start asks the name as a welcome (never a notice of what is reported), the
+// banner greets on every view, and Settings → Usage reporting shows the facts.
+// Silent: nothing waits for the server, and a failed send is said only in Settings.
+const WELCOME_TITLE = "Hi! May I have your name, please?";
+const pad2 = (n) => String(n).padStart(2, "0");
+function whenSent(iso) {                             // 24-hour; today's times without the date
+  const d = iso ? new Date(iso) : null;
+  if (!d || isNaN(d)) return "—";
+  const t = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return d.toDateString() === new Date().toDateString()
+    ? `Today ${t}` : `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${t}`;
+}
+function greet() {
+  const name = usage && usage.enabled && usage.name;
+  $("bannerHelloT").textContent = name ? "Hello, " + name : "";
+  $("bannerHello").hidden = !name;
+  $("bannerHelloSep").hidden = !name;
+}
+function renderUsage() {
+  const s = usage;
+  $("setUsage").hidden = !s;
+  if (!s) return;
+  const on = !!s.enabled;
+  // switched off: the card is the reason alone — no row of dashes, no buttons
+  $("usageOff").hidden = on;
+  $("usageOffT").textContent = on ? "" : (s.disabled_reason || "Usage reporting is off on this copy.");
+  $("usageFacts").hidden = !on;
+  $("btnUsageName").hidden = !on;
+  $("btnUsageSend").hidden = !on;
+  $("usageErr").hidden = !(on && s.error);
+  if (!on) return;
+  $("usageName").textContent = s.name || "—";
+  $("usageId").textContent = s.install_id || "—";
+  $("usageTo").textContent = s.reporting_to || "—";
+  $("usageLast").textContent = s.sending ? "Sending" : whenSent(s.last_sent);
+  $("usageWaiting").textContent = String(s.waiting || 0);
+  UI.setLabel($("btnUsageSend"), "send", s.sending ? "Sending" : "Send now");
+  $("btnUsageSend").classList.add("btn-ico");
+  $("btnUsageSend").disabled = !!s.sending;
+  // amber, not red: a report that did not go is kept and retried — not a fault
+  $("usageErrT").textContent = s.error ? "Not sent: " + s.error : "";
+}
+async function refreshUsage() {
+  try { usage = await api("/api/usage"); } catch (e) { usage = null; }
+  greet();
+  renderUsage();
+}
+// A view switch never reaches the server in a single page, so it is said here.
+// Only NAV ids are counted (the server checks), never anything typed.
+function countView(view) {
+  if (usage && usage.enabled) POST("/api/usage/view", { view }).catch(() => {});
+}
+
+// The name: once, at the first start, before anything else — and from Settings →
+// Edit name as "Your name" with Cancel. The first start cannot be dismissed: Esc is
+// refused, and a browser that closes it anyway (Chrome lets a second Esc through)
+// gets it straight back. Saved at once; the server sends it in the background.
+let nameDlg = null;                                  // { edit, saved, resolve } while open
+function askName(edit) {
+  return new Promise((resolve) => {
+    nameDlg = { edit, saved: false, resolve };
+    $("welcomeTitle").textContent = edit ? "Your name" : WELCOME_TITLE;
+    $("welcomeName").value = edit && usage ? usage.name || "" : "";
+    $("welcomeCancel").hidden = !edit;
+    $("welcomeOk").textContent = edit ? "Save" : "Continue";
+    $("welcomeErr").hidden = true;
+    syncNameOk();
+    $("welcomeDlg").showModal();
+    $("welcomeName").focus();
+  });
+}
+function syncNameOk() { $("welcomeOk").disabled = !$("welcomeName").value.trim(); }
+$("welcomeName").addEventListener("input", syncNameOk);
+$("welcomeCancel").addEventListener("click", () => $("welcomeDlg").close());
+$("welcomeDlg").addEventListener("cancel", (e) => { if (nameDlg && !nameDlg.edit) e.preventDefault(); });
+$("welcomeForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("welcomeName").value.trim();
+  if (!name) return;
+  $("welcomeOk").disabled = true;
+  try {
+    const r = await fetch("/api/usage/name", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || body.detail || "HTTP " + r.status);
+    usage = body;
+    if (nameDlg) nameDlg.saved = true;
+    $("welcomeDlg").close();
+  } catch (ex) {
+    $("welcomeErrT").textContent = "Not saved: " + ex.message;
+    $("welcomeErr").hidden = false;
+    syncNameOk();
+  }
+});
+$("welcomeDlg").addEventListener("close", () => {
+  const d = nameDlg;
+  if (d && !d.edit && !d.saved) { $("welcomeDlg").showModal(); $("welcomeName").focus(); return; }
+  nameDlg = null;
+  greet();
+  renderUsage();
+  if (d) d.resolve();
+});
+$("btnUsageName").addEventListener("click", () => askName(true));
+$("btnUsageSend").addEventListener("click", async () => {
+  $("btnUsageSend").disabled = true;
+  try { usage = await POST("/api/usage/send"); } catch (e) { /* said on the next read */ }
+  renderUsage();
+  // follow the send while it runs (the client gives up after 30 s)
+  for (let i = 0; i < 25 && usage && usage.sending; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    await refreshUsage();
+  }
+});
+
+refreshUsage().then(async () => {
+  countView(state.view);                             // the view uCANdo opened on
+  if (usage && usage.needs_name) await askName(false);
+  startUpdates();                                    // the update offer waits for the name
+});
+
+// ---- self-update (user skill app-updates; ucando/update) ---------------------
+// A launcher install checks the release channel on every start. A newer version
+// is offered once per run, after the name; Later leaves the banner chip. Update
+// downloads, verifies, installs beside this version and restarts into it, and
+// this page follows the restart and reloads on the new version. Silent: a check
+// that fails is said only in Settings → Updates.
+let upd = null;                                      // GET /api/update
+let following = false;                               // this page asked for the install
+const UPD_BUSY = ["downloading", "installing", "restarting"];
+const mbOf = (n) => (n == null ? "" : (n / 1048576).toFixed(1) + " MB");
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function refreshUpdate() {
+  try { upd = await api("/api/update"); } catch (e) { return; }
+  paintUpdateChip();
+  renderUpdates();
+  if ($("updateDlg").open) paintOffer();
+}
+function paintUpdateChip() {
+  const s = upd;
+  const show = !!(s && s.available && s.stage !== "disabled");
+  $("updateChip").hidden = !show;
+  if (!show) return;
+  let text = "Update " + s.latest;
+  if (s.stage === "downloading") text = s.total ? `Updating ${Math.floor((s.received / s.total) * 100)}%` : "Updating";
+  else if (s.stage === "installing") text = "Installing";
+  else if (s.stage === "restarting") text = "Restarting";
+  $("updateChipT").textContent = text;
+  $("updateChip").classList.toggle("is-required", !!s.required);
+  $("updateChip").dataset.tip = s.required ? `uCANdo ${s.latest} is required.`
+    : `uCANdo ${s.latest} is available. Click to see what is new.`;
+}
+$("updateChip").addEventListener("click", () => openOffer());
+
+// once per run (the server remembers across reloads)
+async function maybeOffer() {
+  if (!upd || !upd.available || upd.offered || upd.stage === "disabled") return;
+  try { upd = await POST("/api/update/offered"); } catch (e) { return; }
+  openOffer();
+}
+function openOffer() {
+  if (!upd || !upd.available || $("updateDlg").open) return;
+  paintOffer();
+  $("updateDlg").showModal();
+}
+$("updateDlg").addEventListener("cancel", (e) => {
+  if (upd && (upd.required || UPD_BUSY.includes(upd.stage))) e.preventDefault();
+});
+// Chrome lets a second Esc through a prevented cancel: an install in progress stays in view
+$("updateDlg").addEventListener("close", () => {
+  if (upd && UPD_BUSY.includes(upd.stage) && following) $("updateDlg").showModal();
+});
+
+function paintOffer() {
+  const s = upd;
+  if (!s) return;
+  $("updDlgTitle").textContent = `uCANdo ${s.latest} is available`;
+  $("updDlgRequired").hidden = !s.required;
+  const facts = [`Installed ${s.current}`];
+  if (s.size) facts.push(mbOf(s.size));
+  if (s.published) facts.push("published " + whenSent(s.published).replace("Today ", "today "));
+  $("updDlgFacts").textContent = facts.join(" · ");
+  // the CHANGELOG section as text: markdown's #, **, * and ` markers dropped
+  $("updDlgNotes").textContent = (s.notes || "").replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*([^*\n]+)\*/g, "$1").replace(/`([^`]+)`/g, "$1");
+  const busy = UPD_BUSY.includes(s.stage);
+  $("updProg").hidden = !busy;
+  if (busy) {
+    const pct = s.total ? Math.floor((s.received / s.total) * 100) : null;
+    $("updProgT").textContent = s.stage === "downloading"
+      ? (pct == null ? "Downloading" : `Downloading ${pct}% · ${mbOf(s.received)} of ${mbOf(s.total)}`)
+      : s.stage === "installing" ? "Installing beside this version" : `Restarting into ${s.latest}`;
+    $("updProgBar").style.width = (s.stage === "downloading" ? (pct || 0) : 100) + "%";
+  }
+  // why the last try failed, or what the restart stops — said before anyone clicks Update
+  let warn = "";
+  if (!busy && s.stage === "failed" && s.error && following) warn = "Not installed: " + s.error;
+  else if (!busy && s.interrupts && s.interrupts.length) warn = "The restart: " + s.interrupts.join(". ") + ".";
+  $("updDlgWarn").hidden = !warn;
+  $("updDlgWarnT").textContent = warn;
+  $("btnUpdLater").hidden = busy || !!s.required;
+  $("btnUpdGo").hidden = busy;
+  UI.setLabel($("btnUpdGo"), s.can_install_here ? "download" : "arrow-right",
+    s.can_install_here ? (s.stage === "failed" && following ? "Try again" : "Update") : "Open the release");
+}
+$("btnUpdLater").addEventListener("click", () => {
+  POST("/api/update/later").catch(() => {});
+  $("updateDlg").close();
+});
+$("btnUpdGo").addEventListener("click", async () => {
+  following = true;
+  let s;
+  try { s = await POST("/api/update/install"); } catch (e) { return; }
+  if (s.open) {                                      // not a launcher install: the release page
+    window.open(s.open, "_blank", "noopener");
+    $("updateDlg").close();
+    return;
+  }
+  upd = s;
+  paintUpdateChip();
+  paintOffer();
+  followInstall();
+});
+
+// Follow the install, then the restart: once uCANdo answers with the new version, reload.
+async function followInstall() {
+  while (upd && ["downloading", "installing"].includes(upd.stage)) {
+    await pause(600);
+    await refreshUpdate();
+  }
+  if (!upd || upd.stage !== "restarting") return;
+  const target = upd.latest;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 120000) {
+    await pause(1500);
+    try {
+      const info = await api("/api/info");
+      if (info.version === target) { location.reload(); return; }
+    } catch (e) { /* between versions */ }
+  }
+  $("updProg").hidden = true;
+  $("updDlgWarnT").textContent = `uCANdo ${target} has not answered yet. Start it from uCANdo.exe.`;
+  $("updDlgWarn").hidden = false;
+}
+
+// Settings → Updates
+function renderUpdates() {
+  const s = upd;
+  $("setUpdates").hidden = !s;
+  if (!s) return;
+  const off = s.stage === "disabled";
+  $("updOff").hidden = !off;
+  $("updOffT").textContent = off ? (s.disabled_reason || "Updates are off on this copy.") : "";
+  $("updFacts").hidden = off;
+  $("btnUpdCheck").hidden = off;
+  $("updCta").hidden = off || !s.available;
+  $("updErr").hidden = off || !(s.stage === "failed" && s.error);
+  if (off) return;
+  $("updCurrent").textContent = s.current;
+  $("updLatest").textContent = s.available ? `${s.latest} available`
+    : s.stage === "up_to_date" ? "Up to date" : (s.latest || "—");
+  $("updChecked").textContent = s.stage === "checking" ? "Checking" : whenSent(s.last_checked);
+  let channel = "—";
+  try { const u = new URL(s.channel); channel = u.host + u.pathname.split("/").slice(0, 3).join("/"); } catch (e) { /* — */ }
+  $("updChannel").textContent = channel;
+  UI.setLabel($("btnUpdCheck"), "refresh", s.stage === "checking" ? "Checking" : "Check now");
+  $("btnUpdCheck").classList.add("btn-ico");
+  $("btnUpdCheck").disabled = s.stage === "checking" || UPD_BUSY.includes(s.stage);
+  if (s.available) UI.setLabel($("btnUpdOpen"), "download", `Update to ${s.latest}`);
+  // amber: a check that did not reach the channel is retried next start — not a fault
+  $("updErrT").textContent = s.stage === "failed" && s.error ? "Not checked: " + s.error : "";
+}
+$("btnUpdCheck").addEventListener("click", async () => {
+  $("btnUpdCheck").disabled = true;
+  try { upd = await POST("/api/update/check"); } catch (e) { /* said on the next read */ }
+  renderUpdates();
+  for (let i = 0; i < 70 && upd && upd.stage === "checking"; i++) { await pause(1000); await refreshUpdate(); }
+  if (upd && upd.available) openOffer();
+});
+$("btnUpdOpen").addEventListener("click", () => { $("settingsDlg").close(); openOffer(); });
+
+async function startUpdates() {
+  await refreshUpdate();
+  // the first check runs at start-up: follow it briefly so a fresh start can offer at once
+  for (let i = 0; i < 40 && upd && upd.stage === "checking"; i++) { await pause(1500); await refreshUpdate(); }
+  await maybeOffer();
+  if (upd && UPD_BUSY.includes(upd.stage)) { following = true; openOffer(); followInstall(); }
+  setInterval(refreshUpdate, 60000);
+}
+
+// ---- feature readiness ----------------------------------------------------
+// One entry per view that is NOT "click it and it works right now". A view
+// absent from this table is ready as-is — that absence is the promise the rail
+// makes, so keep the table honest. Three kinds, three distinct treatments:
+//
+//   soon  — not available to the user yet: left out of the rail altogether
+//           (2026-11-24, at the user's request — a greyed "Soon" row still read
+//           as clutter), and openView() refuses it. Covers both "not built" and
+//           "built but held back".
+//   bus   — built, but can do nothing without a connected adapter. Dimmed and
+//           labelled "Bus" only while offline, and still CLICKABLE: a disabled
+//           nav item hides what the tool can do, a dimmed one with a stated
+//           reason teaches. Clears the moment a bus connects.
+//   input — built and works offline, but needs a file first (log / DBC /
+//           signature). Full brightness — it isn't unavailable, it's waiting —
+//           with a muted pill naming what to feed it.
+const VIEW_READY = {
+  // Held back from this release (tagged "Soon" on request, 2026-08-04). These
+  // four are implemented and covered by tests — hidden, not missing. To bring
+  // one back, restore the `kind` noted at the end of its line; nothing else
+  // needs touching (the bus gate and pills follow from `kind`).
+  re: { kind: "soon", why: "Reverse engineering is coming soon." },           // was: input · Log
+  autore: { kind: "soon", why: "Auto-RE is coming soon." },                   // was: input · Log
+  dbc: { kind: "soon", why: "The DBC builder is coming soon." },              // was: ready (no tag)
+  decoder: { kind: "soon", why: "The protocol decoder is coming soon." },     // was: bus
+
+  dashboard: { kind: "bus", why: "Decoding live OBD-II / J1939 values needs a connected bus." },
+  logger: { kind: "bus", why: "Capturing frames needs a connected bus." },
+  replay: { kind: "bus", why: "Transmitting a log onto the bus needs a connected bus." },
+  scheduler: { kind: "bus", why: "Transmitting frames needs a connected bus." },
+  automation: { kind: "bus", why: "Rules, jobs, restbus and scripting all act on a live bus." },
+  dtc: { kind: "bus", why: "Reading or clearing trouble codes needs a connected bus." },
+
+  framedec: { kind: "input", pill: "DBC", why: "Decodes against a DBC or Signature JSON — upload one, then paste frames." },
+  convert: { kind: "input", pill: "File", why: "Converts an uploaded DBC, Signature JSON, CSV or CanPlus XML." },
+  signals: { kind: "input", pill: "DBC", why: "Needs a DBC — upload one, or apply an OEM profile." },
+};
+const LIVE_ONLY_VIEWS = Object.fromEntries(          // bus-gated views only
+  Object.entries(VIEW_READY).filter(([, r]) => r.kind === "bus").map(([v, r]) => [v, r.why]));
+buildRail();
+
+// What each rail pill means, said on the pill itself (a hold-tip) — there is no
+// legend: a pill that needs one is a pill that explains itself badly.
+const PILL_TIPS = {
+  Preview: "Held back from this release — shown because it is switched on in Settings → Views.",
+  Bus: "Needs a connected bus — dimmed until one is connected. Opens anyway.",
 };
 function applyAvailability() {
   const off = !state.connected;
-  document.querySelectorAll(".nav").forEach((btn) => {
-    const reason = LIVE_ONLY_VIEWS[btn.dataset.view];
-    btn.classList.toggle("nav-unavail", !!reason && off);
-    btn.title = reason && off ? reason + " Click to open anyway." : "";
+  document.querySelectorAll("#railNav .rail-item").forEach((btn) => {
+    const r = VIEW_READY[btn.dataset.view] || {};
+    // a held-back view is only in the rail when the person switched it on: a preview
+    const dim = r.kind === "bus" && off, preview = r.kind === "soon";
+    btn.classList.toggle("is-unavail", dim);
+    // A pill only earns rail space while it's telling the truth: "Bus"
+    // disappears on connect, "DBC"/"File" state a standing requirement.
+    const pill = btn.querySelector(".rail-pill");
+    const text = preview ? "Preview" : dim ? "Bus" : r.kind === "input" ? r.pill : "";
+    pill.textContent = text;
+    pill.hidden = !text;
+    pill.classList.toggle("warn", preview);
+    pill.dataset.tip = preview ? PILL_TIPS.Preview : dim ? `${r.why} ${PILL_TIPS.Bus}` : r.why || "";
   });
   for (const [view, reason] of Object.entries(LIVE_ONLY_VIEWS)) {
     const section = $("view-" + view);
@@ -121,9 +577,9 @@ function applyAvailability() {
     let gate = section.querySelector(".view-gate");
     if (!gate) {
       gate = document.createElement("div");
-      gate.className = "view-gate";
-      gate.innerHTML = `<span>${ICONS.alert}</span><span class="gate-msg"></span>` +
-        `<button class="btn-mini" onclick="document.getElementById('btnConnect').click()">Connect a bus</button>`;
+      gate.className = "view-gate ui-notice warn";
+      gate.innerHTML = `<span class="ui-ico">${UI.icons.plug}</span><span class="ui-notice-t gate-msg"></span>` +
+        `<button type="button" class="btn btn-primary btn-sm" onclick="openConnect()">Connect a bus</button>`;
       section.insertBefore(gate, section.firstChild);
     }
     gate.querySelector(".gate-msg").textContent = reason;
@@ -138,47 +594,115 @@ function startPolling(view) {
   else if (view === "scheduler") pollTimer = setInterval(pollTx, 700);
   else if (view === "dtc") pollTimer = setInterval(pollDtc, 700);
   else if (view === "decoder") pollTimer = setInterval(pollDecode, 500);
+  // The TX view's playback state rides the WebSocket, but the "on the wire"
+  // preview is its own REST read, so it needs a poll of its own.
+  else if (view === "replay") pollTimer = setInterval(pollTxVerify, 500);
 }
-function setStatus(t) { $("statusText").textContent = t; }
+// A transient message, as a toast (the pre-1.6 footer status bar). Wording that
+// reports a failure gets the red tone, so the 70-odd callers need no change.
+const _BAD_WORDS = /\b(error|failed|could not|cannot|invalid|not connected|no confident)\b/i;
+function setStatus(t, tone) { UI.toast(t, tone || (_BAD_WORDS.test(String(t)) ? "bad" : "")); }
+// An advisory or a failure as one line with its icon — the fact, never a glyph.
+// `t` may carry markup the caller built; the caller escapes anything it did not write.
+const warnLine = (t) => `<div class="warn-line">${ICONS.alert}<span>${t}</span></div>`;
+const badLine = (t) => `<div class="bad-line">${ICONS.alert}<span>${t}</span></div>`;
+// A colour token's current value (canvas and inline fills can't say var(--x)
+// where they need a hex). Series colours are re-read on a theme change.
+const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const seriesColors = () => [1, 2, 3, 4, 5, 6, 7, 8].map((i) => tok(`--series-${i}`));
+let SERIES = seriesColors();
+UI.onTheme(() => { SERIES = seriesColors(); });
+// Sentence case for a state word the server sends lower-case ("playing" → "Playing").
+const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : "");
 
 // ------------------------------------------------------------- connect/record
+const HW_NAME = { virtual: "Virtual", neovi: "neoVI", pcan: "PCAN", microchip: "SLCAN" };
 async function loadDevices() {
   const { devices } = await api("/api/devices");
   $("devSelect").innerHTML = devices
-    .map((d) => `<option value='${JSON.stringify({ hw: d.hw, channel: d.channel })}'>${d.label}</option>`)
+    .map((d) => `<option value='${JSON.stringify({ hw: d.hw, channel: d.channel })}'>${UI.esc(d.label)}</option>`)
     .join("");
 }
-$("btnConnect").addEventListener("click", async () => {
-  if (state.connected) return void POST("/api/disconnect");
-  $("connectError").classList.add("hidden");
+window.openConnect = async () => {
+  $("connectError").hidden = true;
+  $("connectDlg").showModal();
   await loadDevices();
-  $("connectModal").classList.remove("hidden");
-});
+};
+$("btnConnect").addEventListener("click", () => openConnect());
 $("btnRefreshDevs").addEventListener("click", loadDevices);
-$("btnCancelConnect").addEventListener("click", () => $("connectModal").classList.add("hidden"));
-$("btnDoConnect").addEventListener("click", async () => {
+$("btnCancelConnect").addEventListener("click", () => $("connectDlg").close());
+$("connectForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!$("devSelect").value) return;
   const dev = JSON.parse($("devSelect").value);
+  $("btnDoConnect").disabled = true;
   const res = await POST("/api/connect", {
     hw: dev.hw, channel: dev.channel,
     bitrate: parseInt($("bitrateSelect").value, 10), simulate: $("simCheck").checked,
-  });
-  if (res.ok) $("connectModal").classList.add("hidden");
-  else { const e = $("connectError"); e.textContent = res.error || "Connection failed"; e.classList.remove("hidden"); }
+  }).catch((err) => ({ ok: false, error: String(err) }));
+  $("btnDoConnect").disabled = false;
+  if (res.ok) $("connectDlg").close();
+  else { $("connectErrorT").textContent = res.error || "Connection failed"; $("connectError").hidden = false; }
 });
-$("btnRecord").addEventListener("click", async () => {
-  if (state.recording) {
-    const r = await POST("/api/logger/record/stop");
-    if (r.path) setStatus(`Saved ${r.frames} frames → ${r.path}`);
-    return;
-  }
-  $("recordModal").classList.remove("hidden");
+// Connected, the bus chip says which bus — and is the way to disconnect it.
+function busLabel(c) {
+  if (!c) return "Live";
+  return `${HW_NAME[c.hw] || c.hw} · ${(c.bitrate / 1000).toFixed(0)} kbit/s`;
+}
+function refreshConn() {
+  if (!state.connected) { state.conn = null; return; }
+  api("/api/status").then((d) => {
+    state.conn = d.connection || null;
+    const c = state.conn;
+    $("busChip").title = c ? `${HW_NAME[c.hw] || c.hw} ${c.channel}${c.simulated ? " · synthetic traffic" : ""}` : "";
+    paintBusHealth(d.health);
+  }).catch(() => {});
+}
+// The controller's own error state (PCAN), pushed with every live tick. A blinking red LED on
+// the adapter is one of these — the user, 25-11-2026: "red light is blinking on the PCAN but
+// TX is happening" — so the chip says which, and the hold-tip what to check.
+const BUS_HEALTH = {
+  "error-warning": { tone: "is-warn", word: "Bus errors",
+    tip: "The adapter is counting bus errors (its LED blinks red). Frames still go out, but some are not acknowledged. Check: the bus is terminated (about 60 Ω across CAN-H and CAN-L with power off), the bitrate matches the device, the device is powered and wired H to H, L to L." },
+  "error-passive": { tone: "is-warn", word: "Error passive",
+    tip: "Many frames are not acknowledged and the controller has gone error passive (LED red). It still sends, more slowly. Check the device is powered, the wiring and the termination (about 60 Ω across CAN-H and CAN-L)." },
+  "bus-off": { tone: "is-bad", word: "Bus-off",
+    tip: "The controller stopped sending after too many errors. uCANdo resets it, and TX replay carries on by itself once the device acknowledges again." },
+  "tx-full": { tone: "is-warn", word: "Queue full",
+    tip: "Frames are waiting in the adapter: nothing on the bus is taking them. Check the device is powered and connected." },
+};
+function paintBusHealth(h) {
+  const chip = $("busChip");
+  const st = h && BUS_HEALTH[h.state];
+  chip.classList.toggle("is-warn", !!st && st.tone === "is-warn");
+  chip.classList.toggle("is-bad", !!st && st.tone === "is-bad");
+  $("busChipT").textContent = busLabel(state.conn) + (st ? ` · ${st.word}` : "");
+  if (st) chip.dataset.tip = st.tip; else delete chip.dataset.tip;
+}
+$("busChip").addEventListener("click", () => {
+  const c = state.conn;
+  UI.menu($("busChip"), c ? `${HW_NAME[c.hw] || c.hw} ${c.channel} · ${(c.bitrate / 1000).toFixed(0)} kbit/s` : "Bus",
+    [{ label: "Disconnect", run: () => POST("/api/disconnect") }]);
 });
-$("btnCancelRecord").addEventListener("click", () => $("recordModal").classList.add("hidden"));
-$("btnDoRecord").addEventListener("click", async () => {
+async function stopRecording() {
+  const r = await POST("/api/logger/record/stop");
+  if (r.path) setStatus(`Saved ${Number(r.frames || 0).toLocaleString()} frames → ${r.path}`);
+}
+$("btnRecord").addEventListener("click", () => {
+  if (state.recording) return void stopRecording();
+  $("recordDlg").showModal();
+  $("recName").select();
+});
+$("recChip").addEventListener("click", stopRecording);
+$("btnCancelRecord").addEventListener("click", () => $("recordDlg").close());
+$("recordForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
   const r = await POST("/api/logger/record/start", { name: $("recName").value || "capture", format: $("recFormat").value });
-  $("recordModal").classList.add("hidden");
+  $("recordDlg").close();
   setStatus(r.ok ? "Recording → " + r.path : "Record error: " + (r.error || "?"));
 });
+UI.setLabel($("btnConnect"), "plug", "Connect");
+UI.setLabel($("btnRecord"), "record", "Record");
 $("btnClear").addEventListener("click", () => POST("/api/logger/clear"));
 
 // ----------------------------------------------------------------- CAN Logger
@@ -188,33 +712,37 @@ function renderLogger(snap) {
   const wasConnected = state.connected;
   state.connected = !!snap.connected;
   state.recording = !!snap.recording;
-  if (wasConnected !== state.connected) applyAvailability();
-  const chip = $("hwChip");
-  chip.dataset.state = state.connected ? "on" : "off";
-  $("hwChipText").textContent = state.connected ? "Connected" : "Not connected";
-  $("btnConnect").innerHTML = ICON_POWER + `<span>${state.connected ? "Disconnect" : "Connect"}</span>`;
+  if (wasConnected !== state.connected) { applyAvailability(); refreshConn(); }
+  if (state.connected) paintBusHealth(snap.bus_health);
+  // the banner: Connect while there is no bus; the bus chip (the way to
+  // disconnect) once there is. Record while idle; the REC chip (the way to
+  // stop) while recording — one control for each state, never two.
+  $("btnConnect").hidden = state.connected;
+  $("busChip").hidden = !state.connected;
   $("btnRecord").disabled = !state.connected;
-  $("btnRecord").dataset.on = state.recording ? "1" : "0";
-  $("btnRecord").innerHTML = (state.recording ? ICON_STOP : ICON_RECORD) + `<span>${state.recording ? "Stop" : "Record"}</span>`;
+  $("btnRecord").hidden = state.recording;
+  $("recChip").hidden = !state.recording;
   $("recBadge").classList.toggle("hidden", !state.recording);
+  if (state.recording) {
+    $("recChipT").textContent = `Recording · ${(snap.record_frames || 0).toLocaleString()} frames`;
+  }
 
   if (snap.replay) renderReplay(snap.replay);
-  if (!snap.running) { if (state.view === "logger") setStatus(state.connected ? "Connected · idle" : "Ready"); return; }
+  if (!snap.running) return;
 
   $("statTotal").textContent = (snap.total || 0).toLocaleString();
   $("statIds").textContent = snap.unique_ids || 0;
   $("statFps").textContent = snap.fps || 0;
   $("statLoad").textContent = (snap.bus_load_pct || 0) + "%";
-  $("statElapsed").textContent = (snap.elapsed_s || 0).toFixed(1) + "s";
-  $("recInfo").textContent = state.recording ? `REC ${snap.record_frames} frames` : "";
-  if (state.view === "logger") setStatus("Capturing");
+  $("statElapsed").textContent = (snap.elapsed_s || 0).toFixed(1) + " s";
+  $("idCount").textContent = (snap.ids || []).length ? String(snap.ids.length) : "";
 
   $("idTable").querySelector("tbody").innerHTML = (snap.ids || []).map((s) => `
-    <tr><td class="mono">0x${s.id_hex}</td><td><span class="tag">${s.ext ? "EXT" : "STD"}</span></td>
-    <td>${s.dlc}</td><td>${s.count.toLocaleString()}</td><td>${fmtPeriod(s.period_ms)}</td>
+    <tr><td class="mono">0x${s.id_hex}</td><td><span class="tag" title="${s.ext ? "29-bit extended" : "11-bit standard"}">${s.ext ? "EXT" : "STD"}</span></td>
+    <td class="num">${s.dlc}</td><td class="num">${s.count.toLocaleString()}</td><td class="num">${fmtPeriod(s.period_ms)}</td>
     <td class="mono">${s.data || ""}</td></tr>`).join("");
   $("feedTable").querySelector("tbody").innerHTML = (snap.recent || []).map((f) => `
-    <tr><td>${f.ts.toFixed(3)}</td><td>0x${f.id_hex}</td><td>${f.dlc}</td><td>${f.data}</td></tr>`).join("");
+    <tr><td class="num">${f.ts.toFixed(3)}</td><td>0x${f.id_hex}</td><td class="num">${f.dlc}</td><td>${f.data}</td></tr>`).join("");
 }
 
 function connectWS() {
@@ -225,12 +753,40 @@ function connectWS() {
 }
 connectWS();
 
+// ------------------------------------------------------------------------ TX
+// One view, five steps: Source -> Playlist -> Patch -> Send -> Verify. The
+// optional steps collapse to a one-line summary in their header, so the page
+// stays short and each step still says its state without being opened.
+document.querySelectorAll(".tx-step-toggle").forEach((el) => {
+  const flip = () => {
+    const step = $(el.dataset.step);
+    step.dataset.open = step.dataset.open === "1" ? "" : "1";
+  };
+  // The summary is text people copy (a file name, frame counts): a click that
+  // ends a selection inside the header must not fold the step under it.
+  el.addEventListener("click", () => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) return;
+    flip();
+  });
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); }
+  });
+});
+// Open a step programmatically — used when an action only makes sense with it
+// visible (adding to the playlist, loading a DBC to patch against).
+function txOpenStep(id) { if ($(id)) $(id).dataset.open = "1"; }
+const txSum = (id, text) => { if ($(id)) $(id).textContent = text; };
+
 // ------------------------------------------------------------------ TX Replay
 async function refreshLogs() {
-  const { logs } = await api("/api/logs");
+  const { logs, hidden } = await api("/api/logs");
+  // logs taken off the list (Remove) are only hidden: say how many, and offer them back
+  $("btnReplayShowAll").classList.toggle("hidden", !hidden);
+  $("btnReplayShowAll").textContent = hidden ? `Show all (${hidden} removed)` : "Show all";
   const opts = logs.length
     ? logs.map((l) => `<option value="${l.path}">${l.name} (${(l.size / 1024).toFixed(0)} KB)</option>`).join("")
-    : `<option value="">— no logs yet (record one first) —</option>`;
+    : `<option value="">No logs yet</option>`;
   ["replaySelect", "reSelect", "cmpA", "cmpB", "autoreSelect"].forEach((id) => { if ($(id)) $(id).innerHTML = opts; });
   loadReEngines();
 }
@@ -246,33 +802,1027 @@ async function loadReEngines() {
 $("btnReplayRescan").addEventListener("click", refreshLogs);
 $("btnReRescan").addEventListener("click", refreshLogs);
 $("btnReplayUpload").addEventListener("click", () => $("replayFile").click());
+// One log or many at once. Several become a playlist in file-name order —
+// natural order, so "Buffer2" comes before "Buffer10" — because capture tools
+// number the chunks of one session; the file dialog's own order is arbitrary.
 $("replayFile").addEventListener("change", async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  const r = await apiUpload("/api/upload", f);
+  const files = [...e.target.files].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  e.target.value = "";                       // the same files can be chosen again
+  if (!files.length) return;
+  const paths = [];
+  for (let i = 0; i < files.length; i++) {
+    $("replayMeta").textContent = files.length > 1
+      ? `Uploading ${i + 1} of ${files.length} — ${files[i].name}` : `Uploading ${files[i].name}…`;
+    const r = await apiUpload("/api/upload", files[i]).catch((err) => ({ error: String(err) }));
+    if (r && r.path) paths.push(r.path);
+    else setStatus(`Upload failed: ${files[i].name} — ${(r && r.error) || "unknown error"}`);
+  }
   await refreshLogs();
-  if (r.path) { $("replaySelect").value = r.path; loadReplay(); }
+  [...$("replaySelect").options].forEach((o) => { o.selected = paths.includes(o.value); });
+  $("replaySelCount").textContent = paths.length > 1 ? `${paths.length} files selected` : "";
+  if (!paths.length) { $("replayMeta").textContent = ""; return; }
+  if (paths.length === 1) return void loadReplay();
+  const gap = $("txAutoGap").checked ? "auto" : 0;
+  txItems = paths.map((p) => ({ path: p, gap_before_ms: gap, repeat: 1, baud: txBaud }));
+  txOpenStep("stepPlaylist");                // the result must be visible
+  await pushPlan();
+  setStatus(`Uploaded ${paths.length} logs — they play in order as one playlist`);
 });
-$("replaySelect").addEventListener("change", loadReplay);
+let replayMeta = null;                      // last loaded meta, for the bitrate button
+let txItems = [];                           // the playlist being edited (TxItem dicts)
+// Bitrate the operator declared for these captures. A PCAN .trc records none at
+// any format version, so the reader assumes 500 k; this overrides that and is
+// what the bus-load estimate and the bitrate-mismatch check then use.
+let txBaud = null;
+
+const txSelectedPaths = () => [...$("replaySelect").selectedOptions].map((o) => o.value).filter(Boolean);
+
+$("replaySelect").addEventListener("change", () => {
+  const n = txSelectedPaths().length;
+  $("replaySelCount").textContent = n > 1 ? `${n} files selected` : "";
+  // One file selected and no playlist yet: behave like the old single-file picker.
+  if (n === 1 && txItems.length <= 1) loadReplay();
+});
+
 async function loadReplay() {
-  const path = $("replaySelect").value; if (!path) return;
-  const r = await POST("/api/replay/load", { path });
-  if (r.ok) $("replayMeta").textContent =
-    `${r.meta.frames} frames · ${r.meta.duration_s}s · ${r.meta.ids.length} IDs · ch ${r.meta.channels.join("+") || "?"}`;
-  else $("replayMeta").textContent = r.error;
+  const path = txSelectedPaths()[0]; if (!path) return;
+  $("replayMeta").textContent = "reading log…";
+  $("replayWarn").textContent = "";
+  txItems = [{ path, gap_before_ms: 0, repeat: 1, baud: txBaud }];
+  renderTxItems();
+  showReplayMeta(await POST("/api/replay/load", { path, baud: txBaud }));
 }
-$("btnPlay").addEventListener("click", () =>
-  POST("/api/replay/play", { speed: parseFloat($("speedRange").value), loop: $("replayLoop").checked })
-    .then((r) => { if (!r.ok) setStatus(r.error); }));
-$("btnPause").addEventListener("click", () => POST("/api/replay/pause"));
+// A bitrate is not a bitrate: where it came from decides what the operator
+// should do next. "from log" needs no action; "assumed" invites a declaration;
+// a mismatch against the connected bus means different things in each case. So
+// the provenance is never dropped from the wording.
+function baudLabel(m) {
+  if (!m.baud) return "bitrate unknown";
+  const k = `${(m.baud / 1000).toFixed(0)} kbit/s`;
+  if (m.baud_source === "assumed") return `${k} assumed — this format records none`;
+  if (m.baud_source === "declared") return `${k} (you declared)`;
+  if (m.baud_source === "mixed") return `${k} (mixed sources)`;
+  return `${k} (from log)`;
+}
+
+// Declaring the capture bitrate rebuilds the plan: bus load and the mismatch
+// check are derived from it. The parse cache means this costs no re-read.
+$("replayBaud").addEventListener("change", async () => {
+  txBaud = $("replayBaud").value ? +$("replayBaud").value : null;
+  txItems.forEach((it) => { it.baud = txBaud; });
+  if (txItems.length) await pushPlan();
+});
+
+// Re-target an already-parsed log: network / tool-TX filter. Cheap — no re-parse.
+async function reselectReplay() {
+  if (!replayMeta) return;
+  showReplayMeta(await POST("/api/replay/select", {
+    network: $("replayNetwork").value || null,
+    skip_tx: $("replaySkipTx").checked,
+  }));
+}
+
+// ----- playlist ------------------------------------------------------------
+async function pushPlan() {
+  if (!txItems.length) return;
+  $("replayMeta").textContent = `reading ${txItems.length} log${txItems.length > 1 ? "s" : ""}…`;
+  showReplayMeta(await POST("/api/tx/plan", { items: txItems, name: $("txScenario").value || "" }));
+}
+// NB: distinct from the TX Scheduler's own "btnTxAdd" — sharing that id made
+// getElementById return the scheduler's button and silently killed one of them.
+$("btnTxPlaylistAdd").addEventListener("click", () => {
+  const paths = txSelectedPaths();
+  if (!paths.length) return setStatus("Select one or more logs first");
+  const gap = $("txAutoGap").checked ? "auto" : 0;
+  paths.forEach((p) => txItems.push({ path: p, gap_before_ms: gap, repeat: 1, baud: txBaud }));
+  txOpenStep("stepPlaylist");            // the result of the click must be visible
+  pushPlan();
+});
+// Source → Clear and Playlist → Clear: forget the log on the server too. Clearing
+// only the page left the plan loaded, and Play then transmitted a log the screen
+// no longer showed.
+async function clearReplaySource() {
+  const r = await POST("/api/replay/unload").catch((e) => ({ ok: false, error: String(e) }));
+  if (r && r.ok === false) return void setStatus(r.error || "Could not clear the source");
+  txItems = []; replayMeta = null; txBaud = null;
+  [...$("replaySelect").options].forEach((o) => { o.selected = false; });
+  $("replaySelCount").textContent = "";
+  $("replayMeta").textContent = ""; $("replayWarn").innerHTML = "";
+  $("replayNetwork").innerHTML = "";
+  $("replayBaud").value = "";
+  $("replayBaudWrap").classList.add("hidden");
+  $("btnReplayBitrate").classList.add("hidden");
+  renderTxItems();
+  txSum("sumSource", "No log chosen"); $("sumSource").classList.remove("has-warn");
+  txSum("sumPlaylist", "Single file");
+}
+$("btnTxClear").addEventListener("click", clearReplaySource);
+$("btnReplayClear").addEventListener("click", clearReplaySource);
+
+// Source → Remove: take logs off the list. Only hidden — an upload folder can hold the only
+// copy of a capture session — and "Show all" brings them back.
+$("btnReplayRemove").addEventListener("click", async () => {
+  let paths = txSelectedPaths();
+  const all = [...$("replaySelect").options].map((o) => o.value).filter(Boolean);
+  if (!all.length) return;
+  if (!paths.length) {
+    if (!(await UI.confirm({ title: "Remove every log from the list?",
+      text: `All ${all.length} logs leave this list. Nothing is deleted from disk — Show all brings them back.`,
+      action: "Remove all" }))) return;
+    paths = all;
+  }
+  const r = await POST("/api/logs/hide", { paths });
+  if (!r.ok) {
+    // FastAPI answers an unknown route with {"detail":"Not Found"}: the server is older than the page
+    return void setStatus(r.detail === "Not Found"
+      ? "This copy of uCANdo is older than its page — restart it to remove logs"
+      : (r.error || "Could not remove the logs"));
+  }
+  if (txItems.some((it) => paths.includes(it.path))) await clearReplaySource();
+  await refreshLogs();
+  $("replaySelCount").textContent = "";
+  setStatus(`Removed ${paths.length} log${paths.length === 1 ? "" : "s"} from the list`);
+});
+$("btnReplayShowAll").addEventListener("click", async () => {
+  await POST("/api/logs/unhide");
+  await refreshLogs();
+});
+$("txAutoGap").addEventListener("change", () => {
+  const gap = $("txAutoGap").checked ? "auto" : 0;
+  txItems.forEach((it) => { it.gap_before_ms = gap; });
+  pushPlan();
+});
+
+function renderTxItems(resolved) {
+  $("txEmpty").classList.toggle("hidden", txItems.length > 0);
+  $("txItems").innerHTML = txItems.map((it, i) => {
+    const info = resolved && resolved[i];
+    const detail = info
+      ? `${info.frames.toLocaleString()} frames · ${info.duration_s.toFixed(1)} s` +
+        (info.gap_s ? ` · +${info.gap_s.toFixed(2)} s gap` : "")
+      : "…";
+    return `<tr data-i="${i}">
+      <td class="tx-n">${i + 1}</td>
+      <td class="tx-name" title="${it.path}">${(info && info.label) || it.path.split(/[\\/]/).pop()}
+        <div class="tx-detail">${detail}</div></td>
+      <td class="tx-rep-cell" data-tip="Passes of this file. 0 plays it endlessly.">×<input type="number" class="tx-rep" min="0" max="100000" value="${it.repeat || 1}"
+             aria-label="Passes" /></td>
+      <td class="tx-btns">
+        <button type="button" class="btn-mini icon-only" data-act="up" title="Move up" aria-label="Move up" ${i === 0 ? "disabled" : ""}>${ICONS.chevronUp}</button>
+        <button type="button" class="btn-mini icon-only" data-act="down" title="Move down" aria-label="Move down" ${i === txItems.length - 1 ? "disabled" : ""}>${ICONS.chevronDown}</button>
+        <button type="button" class="btn-mini" data-act="del">Remove</button></td></tr>`;
+  }).join("");
+  const totalFrames = resolved ? resolved.reduce((a, r, i) => a + r.frames * Math.max(1, txItems[i].repeat || 1), 0) : 0;
+  $("txTotals").textContent = txItems.length > 1 && resolved
+    ? `${txItems.length} items · ${totalFrames.toLocaleString()} frames per pass` : "";
+}
+
+$("txItems").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]"); if (!btn) return;
+  const i = +btn.closest("tr").dataset.i;
+  const act = btn.dataset.act;
+  if (act === "del") txItems.splice(i, 1);
+  else if (act === "up") txItems.splice(i - 1, 0, txItems.splice(i, 1)[0]);
+  else if (act === "down") txItems.splice(i + 1, 0, txItems.splice(i, 1)[0]);
+  txItems.length ? pushPlan() : renderTxItems();
+});
+$("txItems").addEventListener("change", (e) => {
+  if (!e.target.classList.contains("tx-rep")) return;
+  txItems[+e.target.closest("tr").dataset.i].repeat = Math.max(0, parseInt(e.target.value, 10) || 1);
+  pushPlan();
+});
+
+// ----- signal overrides & loop-seam continuity -----------------------------
+let txPatch = null;                         // last /api/tx/patch state
+let txSeamFound = null;                     // last "Detect from log" result
+
+async function refreshPatch(state) {
+  txPatch = state || await api("/api/tx/patch");
+  const on = !!txPatch.loaded;
+  $("txPatchNone").classList.toggle("hidden", on);
+  $("txPatchBody").classList.toggle("hidden", !on);
+  if (!on) return;
+  if (txPatch.messages && txPatch.messages.length && !$("txPatchMsg").options.length) {
+    $("txPatchMsg").innerHTML = txPatch.messages
+      .map((m) => `<option value="${m.message}">${m.message} (0x${m.id_hex})</option>`).join("");
+    fillPatchSignals();
+  }
+  renderPatchRules();
+}
+function patchMessages() { return (txPatch && txPatch.messages) || []; }
+function fillPatchSignals() {
+  const msg = patchMessages().find((m) => m.message === $("txPatchMsg").value);
+  $("txPatchSig").innerHTML = msg
+    ? msg.signals.map((s) => `<option value="${s.signal}">${s.signal}${s.unit ? " (" + s.unit + ")" : ""}</option>`).join("")
+    : "";
+  // Byte-aligned 8-bit fields are the only ones we can recompute a checksum into.
+  $("txCsumSig").innerHTML = `<option value="">None</option>` + (msg
+    ? msg.signals.filter((s) => s.length === 8)
+        .map((s) => `<option value="${s.signal}">${msg.message}.${s.signal}</option>`).join("")
+    : "");
+  showPatchHint();
+}
+function showPatchHint() {
+  const msg = patchMessages().find((m) => m.message === $("txPatchMsg").value);
+  const sig = msg && msg.signals.find((s) => s.signal === $("txPatchSig").value);
+  $("txPatchHint").textContent = sig
+    ? `${sig.length} bit ${sig.signed ? "signed" : "unsigned"} · ×${sig.scale}` +
+      (sig.offset ? ` ${sig.offset > 0 ? "+" : ""}${sig.offset}` : "") +
+      (sig.minimum != null && sig.maximum != null ? ` · range ${sig.minimum}…${sig.maximum}` : "")
+    : "";
+}
+$("txPatchMsg").addEventListener("change", fillPatchSignals);
+$("txPatchSig").addEventListener("change", showPatchHint);
+
+$("btnTxDbcUpload").addEventListener("click", () => $("txDbcFile").click());
+$("txDbcFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const up = await apiUpload("/api/upload", f);
+  const r = await POST("/api/tx/patch/dbc", { path: up.path });
+  if (!r.ok) return setStatus(r.error);
+  $("txPatchMsg").innerHTML = "";            // force a rebuild for the new DBC
+  txOpenStep("stepPatch");                   // the result of the click must be visible
+  refreshPatch(r);
+});
+$("btnTxDbcViewer").addEventListener("click", async () => {
+  const r = await POST("/api/tx/patch/dbc", { use_viewer: true });
+  if (!r.ok) return setStatus(r.error);
+  $("txPatchMsg").innerHTML = "";
+  txOpenStep("stepPatch");
+  refreshPatch(r);
+});
+
+$("btnTxPatchAdd").addEventListener("click", async () => {
+  const value = parseFloat($("txPatchVal").value);
+  if (Number.isNaN(value)) return setStatus("enter a value to force");
+  const r = await POST("/api/tx/patch/override", {
+    message: $("txPatchMsg").value, signal: $("txPatchSig").value, value });
+  r.ok ? refreshPatch(r) : setStatus(r.error);
+});
+$("btnTxPatchClear").addEventListener("click", async () => refreshPatch(await POST("/api/tx/patch/clear")));
+
+function renderPatchRules() {
+  const rules = (txPatch && txPatch.rules) || [];
+  const checks = (txPatch && txPatch.checksums) || [];
+  const KIND = { set: "forced", monotonic: "continuous", counter: "regenerated" };
+  // Patching changes what goes on the wire, so a collapsed step must still say
+  // so plainly — silently-active overrides would invalidate a byte comparison.
+  txSum("sumPatch", !rules.length && !checks.length
+    ? (txPatch && txPatch.loaded ? `${txPatch.dbc} loaded · no rules` : "Off — bytes go out exactly as captured")
+    : [rules.filter((r) => r.kind === "set").map((r) => `${r.signal}=${r.value}`).join(", "),
+       rules.some((r) => r.kind === "monotonic") ? "odometer continuous" : null,
+       rules.some((r) => r.kind === "counter") ? "counters regenerated" : null,
+       checks.length ? `${checks.length} checksum` : null].filter(Boolean).join(" · "));
+  $("txPatchRules").innerHTML = rules.map((r) => `<tr>
+      <td class="tx-name mono">${r.message}.${r.signal}
+        <div class="tx-detail">${cap(KIND[r.kind] || r.kind)}${
+          r.kind === "set" ? ` at ${r.value}${r.unit ? " " + r.unit : ""}` : ""}${
+          r.last != null ? ` · last sent ${r.last}${r.unit ? " " + r.unit : ""}` : ""}</div></td>
+      <td class="tx-btns"><button type="button" class="btn-mini" data-msg="${r.message}" data-sig="${r.signal}">Remove</button></td>
+    </tr>`).join("") + checks.map((c) => `<tr>
+      <td class="tx-name mono">${c.message}.${c.signal}
+        <div class="tx-detail">Checksum recomputed (${c.algorithm})</div></td>
+      <td class="tx-btns"></td></tr>`).join("");
+}
+$("txPatchRules").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-sig]"); if (!btn) return;
+  refreshPatch(await POST("/api/tx/patch/override",
+    { message: btn.dataset.msg, signal: btn.dataset.sig, remove: true }));
+});
+
+$("btnTxPatchAnalyze").addEventListener("click", async () => {
+  $("txPatchSeamInfo").textContent = "Scanning the log…";
+  const r = await POST("/api/tx/patch/analyze");
+  if (!r.ok) { $("txPatchSeamInfo").textContent = ""; return setStatus(r.error); }
+  txSeamFound = r;
+  $("txPatchSeamInfo").textContent =
+    `${r.monotonic.length} rising · ${r.counters.length} counter-like in ${r.scanned}`;
+  $("txSeamBox").classList.remove("hidden");
+  // Nothing is pre-checked on purpose: "rose during this capture" is not the
+  // same claim as "must climb forever". A battery temperature drifting up over
+  // 41 s is monotonic in the data and would be wrong to accumulate on a loop.
+  const star = UI.ico("star", "ico ico-star");
+  const list = (items, group, label, tip) => `<div><div class="seam-h" data-tip="${tip}">${label}</div>` +
+    (items.length ? items.slice(0, 12).map((e) => `<label class="check">
+        <input type="checkbox" data-group="${group}" data-msg="${e.message}" data-sig="${e.signal}" />
+        <span class="mono">${e.message}.${e.signal}</span>${e.accumulator_hint ? `<span title="Name looks like an accumulator">${star}</span>` : ""}
+        <span class="ui-count">${
+          group === "monotonic" ? `+${e.rise}${e.unit ? " " + e.unit : ""}` : `step ${e.step}, ${e.wraps} wraps`}</span>
+      </label>`).join("") : `<div class="muted-line">None detected</div>`) + `</div>`;
+  $("txSeamLists").innerHTML =
+    list(r.monotonic, "monotonic", "Rose through this capture",
+      "Signals that only went up in this log. A star marks a name that looks like an accumulator (odometer, energy total).") +
+    list(r.counters, "counters", "Rolls over", "Rolling counters — safe to regenerate, so they never jump at a loop.");
+});
+
+$("btnTxSeamApply").addEventListener("click", async () => {
+  const pick = (group) => [...document.querySelectorAll(`#txSeamLists input[data-group="${group}"]:checked`)]
+    .map((el) => [el.dataset.msg, el.dataset.sig]);
+  const body = { monotonic: pick("monotonic"), counters: pick("counters"), checksums: [] };
+  if ($("txCsumSig").value) {
+    body.checksums = [{ message: $("txPatchMsg").value, signal: $("txCsumSig").value,
+                        algorithm: $("txCsumAlgo").value }];
+  }
+  const r = await POST("/api/tx/patch/seam", body);
+  r.ok ? refreshPatch(r) : setStatus(r.error);
+});
+
+// ----- saved scenarios -----------------------------------------------------
+async function refreshScenarios(selected) {
+  const r = await api("/api/tx/scenarios");
+  $("txScenario").innerHTML = `<option value="">Saved scenarios</option>` +
+    (r.scenarios || []).map((s) => `<option value="${s}"${s === selected ? " selected" : ""}>${s}</option>`).join("");
+}
+$("btnTxScenarioSave").addEventListener("click", async () => {
+  if (!txItems.length) return setStatus("Nothing to save — the playlist is empty");
+  const name = await UI.prompt({ title: "Save playlist", label: "Scenario name",
+    value: $("txScenario").value || "bench-scenario", action: "Save" });
+  if (!name) return;
+  const r = await POST("/api/tx/save", { name });
+  if (!r.ok) return setStatus(r.error);
+  await refreshScenarios(name);
+  setStatus(`Saved scenario “${name}”`);
+});
+$("btnTxScenarioLoad").addEventListener("click", async () => {
+  const name = $("txScenario").value; if (!name) return;
+  const r = await POST("/api/tx/load", { name });
+  if (!r.ok) return setStatus(r.error);
+  txItems = r.meta.items.map((it) => ({
+    path: it.path, repeat: it.repeat, network: it.network,
+    gap_before_ms: $("txAutoGap").checked ? "auto" : 0,
+  }));
+  showReplayMeta(r);
+  renderTxItems(r.meta.items);
+});
+$("btnTxScenarioDelete").addEventListener("click", async () => {
+  const name = $("txScenario").value; if (!name) return;
+  if (!(await UI.confirm({ title: "Delete scenario?", text: `The saved scenario “${name}” will be removed.`,
+    action: "Delete", tone: "danger" }))) return;
+  await POST("/api/tx/delete", { name });
+  refreshScenarios();
+});
+$("replayNetwork").addEventListener("change", reselectReplay);
+$("replaySkipTx").addEventListener("change", reselectReplay);
+
+function showReplayMeta(r) {
+  if (!r.ok) { replayMeta = null; $("replayMeta").textContent = r.error; return; }
+  const m = replayMeta = r.meta;
+  // Networks come from the log itself; a Vehicle Spy capture holds several.
+  const carrying = (m.networks || []).filter((n) => n.frames);
+  $("replayNetwork").innerHTML = carrying.length
+    ? carrying.map((n) => `<option value="${n.name}"${n.name === m.network ? " selected" : ""}>${n.name} · ${n.frames.toLocaleString()} frames</option>`).join("")
+    : `<option value="">—</option>`;
+  renderTxItems(m.items);
+  const bits = [
+    m.item_count > 1 ? `${m.item_count} files` : null,
+    `${m.frames.toLocaleString()} frames`,
+    `${m.duration_s.toFixed(1)} s`,
+    `${m.ids.length} IDs`,
+    m.fps ? `${m.fps.toFixed(0)} fps` : null,
+    baudLabel(m),
+    m.load_pct != null ? `~${m.load_pct}% bus load` : null,
+  ].filter(Boolean);
+  $("replayMeta").textContent = bits.join(" · ");
+  $("replayWarn").innerHTML = (r.warnings || []).map((w) => warnLine(UI.esc(w))).join("");
+  $("btnReplayBitrate").classList.toggle("hidden", !m.baud);
+  // Offer the declaration only for formats that record no bitrate — otherwise
+  // the log already knows and overriding it would just be a way to be wrong.
+  const declarable = m.baud_source === "assumed" || m.baud_source === "declared";
+  $("replayBaudWrap").classList.toggle("hidden", !declarable);
+  if (declarable) $("replayBaud").value = m.baud_source === "declared" ? String(m.baud) : "";
+
+  // Header summaries, so a collapsed step still reports what it holds. A
+  // warning always shows in the summary — it must not be hidden by collapsing.
+  const name = (m.path || "").split(/[\\/]/).pop().replace(/\.[^.]+$/, "");
+  const warn = (r.warnings || []).length;
+  txSum("sumSource", [
+    m.item_count > 1 ? `${m.item_count} files` : name,
+    m.network, `${m.frames.toLocaleString()} frames`,
+    m.baud ? `${(m.baud / 1000).toFixed(0)} kbit/s${m.baud_source === "assumed" ? " (assumed)" : ""}`
+           : "bitrate unknown",
+    warn ? `${warn} note${warn > 1 ? "s" : ""}` : null,
+  ].filter(Boolean).join(" · "));
+  $("sumSource").classList.toggle("has-warn", !!warn);
+  txSum("sumPlaylist", m.item_count > 1
+    ? `${m.item_count} files · ${m.frames.toLocaleString()} frames per pass · ${m.duration_s.toFixed(1)} s`
+    : "Single file");
+}
+
+// Reconnect the current adapter at the log's own bitrate — the mismatch that
+// otherwise looks like "the bus is dead" on the bench.
+$("btnReplayBitrate").addEventListener("click", async () => {
+  if (!replayMeta || !replayMeta.baud) return;
+  const conn = (await api("/api/status")).connection;
+  if (!conn) { setStatus("Not connected — connect an adapter, then apply the log bitrate"); return; }
+  if (conn.bitrate === replayMeta.baud) { setStatus("Already at the log's bitrate"); return; }
+  const r = await POST("/api/connect", { hw: conn.hw, channel: conn.channel,
+    bitrate: replayMeta.baud, fd: !!conn.fd, simulate: !!conn.simulated });
+  setStatus(r.ok ? `Reconnected at ${(replayMeta.baud / 1000).toFixed(0)} kbit/s` : r.error);
+  reselectReplay();
+});
+
+$("replayRepeat").addEventListener("change", () => {
+  $("replayCount").classList.toggle("hidden", $("replayRepeat").value !== "n");
+});
+function replayPasses() {
+  const mode = $("replayRepeat").value;
+  if (mode === "0") return 0;                              // endless
+  if (mode === "n") return Math.max(2, parseInt($("replayCount").value, 10) || 2);
+  return 1;
+}
+// One button that says what a click will do (the user, 25-11-2026: "instead of having separate
+// play and pause buttons, a single button, green to play and another colour for pause"):
+// Play (green) → Pause (amber) while sending → Resume (green) while paused. Waiting for the bus it
+// is a greyed Pause: Stop is what ends that wait.
+function paintPlayButton(st) {
+  const b = $("btnPlay");
+  const mode = st === "playing" ? "pause" : st === "paused" ? "resume" : st === "recovering" ? "waiting" : "play";
+  if (b.dataset.mode === mode) return;
+  b.dataset.mode = mode;
+  const hold = mode === "pause" || mode === "waiting";
+  b.innerHTML = (hold ? ICONS.pause : ICONS.play) +
+    `<span>${hold ? "Pause" : mode === "resume" ? "Resume" : "Play"}</span>`;
+  b.classList.add("btn-ico");
+  b.classList.toggle("btn-primary", !hold);
+  b.classList.toggle("btn-pause", hold);
+  b.disabled = mode === "waiting";
+  if (mode === "waiting") b.dataset.tip = "Waiting for the bus — it carries on by itself. Stop ends the wait.";
+  else delete b.dataset.tip;
+}
+$("btnPlay").addEventListener("click", () => {
+  const mode = $("btnPlay").dataset.mode || "play";
+  if (mode === "pause") return void POST("/api/replay/pause");
+  if (mode === "resume") return void POST("/api/replay/resume");
+  POST("/api/replay/play", { speed: parseFloat($("speedRange").value), repeat: replayPasses() })
+    .then((r) => { if (!r.ok) setStatus(r.error); });
+});
 $("btnStop").addEventListener("click", () => POST("/api/replay/stop"));
 $("btnStep").addEventListener("click", () => POST("/api/replay/step"));
 $("speedRange").addEventListener("input", () => {
   $("speedLabel").textContent = parseFloat($("speedRange").value).toFixed(1) + "×";
+  POST("/api/replay/speed", { speed: parseFloat($("speedRange").value) });
 });
+const REPLAY_TONE = { playing: "ok", paused: "warn", recovering: "warn", error: "bad" };
 function renderReplay(s) {
-  $("replayState").textContent = s.state;
+  paintPlayButton(s.state);
+  $("replayState").textContent = s.state === "playing" && s.passes !== 1
+    ? `Playing ${s.pass_no}/${s.passes || "∞"}`
+    : s.state === "recovering" ? "Waiting for the bus" : cap(s.state);
+  $("replayState").className = "tag " + (REPLAY_TONE[s.state] || "");
   $("replayBar").style.width = (s.progress * 100).toFixed(1) + "%";
-  $("replayCursor").textContent = `${s.cursor_s.toFixed(3)} s · ${s.sent} sent · ${s.cursor}/${s.total}`;
+  $("replayCursor").textContent = `${s.cursor_s.toFixed(3)} s · ${s.sent.toLocaleString()} sent · ${s.cursor}/${s.total}`;
+  // Which file is on the wire right now — said for a single file too (the user, 24-11-2026:
+  // "unable to distinguish which file is transmitting"). The full path is the hover title.
+  const active = s.state === "playing" || s.state === "paused" || s.state === "recovering";
+  const items = (replayMeta && replayMeta.items) || [];
+  const fullPath = (items[s.item] && items[s.item].path) || (replayMeta && replayMeta.path) || "";
+  const fileName = s.item_label || fullPath.split(/[\\/]/).pop() || "";
+  $("replayNow").classList.toggle("is-live", s.state === "playing");
+  $("replayNow").title = fullPath;
+  $("replayNow").textContent = s.state === "recovering" && s.recovering
+    // the bus stopped taking frames: say so, and what usually causes it — playback carries on by itself
+    ? `Waiting for the bus for ${tvFmtAge(s.recovering.since_s)}${s.recovering.tries ? ` · try ${s.recovering.tries}` : ""}` +
+      ` — no acknowledgement. Is the device powered, the bus terminated (about 60 Ω), the bitrate right? ` +
+      `Sending resumes from ${fileName || "the same frame"} by itself.`
+    : active && fileName
+    ? `${s.state === "paused" ? "Paused on" : "Now sending"} ${fileName}` +
+      (s.item_count > 1 ? ` · file ${s.item + 1} of ${s.item_count}` +
+        (s.item_repeat !== 1 ? ` (its pass ${s.item_pass} of ${s.item_repeat || "endless"})` : "") : "") +
+      (s.passes !== 1 ? ` · pass ${s.pass_no} of ${s.passes || "endless"}` : "")
+    : "";
+  document.querySelectorAll("#txItems tr").forEach((tr, i) =>
+    tr.classList.toggle("tx-now", s.item_count > 1 && i === s.item &&
+                                  (s.state === "playing" || s.state === "paused")));
+  const h = s.health;
+  if (!h) return;
+  // Health, not decoration: on a real capture the OS clock is the limit, so show
+  // achieved vs target rate and how far off the deadlines we ran.
+  const parts = [`${h.fps.toFixed(0)} fps sent`];
+  if (h.target_fps) parts.push(`target ${h.target_fps.toFixed(0)}`);
+  parts.push(`drift ${h.drift_ms.toFixed(0)} ms`,
+             `late ${h.late_pct.toFixed(1)}% (max ${h.max_late_ms.toFixed(1)} ms)`,
+             `burst ≤${h.burst_max}`);
+  if (h.errors) parts.push(`TX errors ${h.errors}`);
+  if (h.recoveries) parts.push(`bus back ${h.recoveries}× after ${tvFmtAge(h.outage_s)} without it`);
+  // "Behind" is only meaningful while frames are going out: paused, the wall
+  // clock runs on and the same figure would blame the speed for the pause.
+  const behind = h.keeping_up === false && s.state === "playing";
+  if (s.error && s.state === "recovering") {
+    $("replayHealth").innerHTML = UI.esc(parts.join(" · ")) + warnLine(UI.esc(s.error));
+  } else if (s.error) {
+    $("replayHealth").innerHTML = badLine(UI.esc(s.error));
+  } else if (behind) {
+    // Say it plainly rather than leaving it to be inferred from late_pct.
+    $("replayHealth").innerHTML = UI.esc(parts.join(" · ")) +
+      warnLine(`Cannot sustain ${s.speed}× — sending ${h.fps.toFixed(0)} of ` +
+        `${h.target_fps.toFixed(0)} fps, ${(h.drift_ms / 1000).toFixed(1)} s behind. Lower the speed.`);
+  } else {
+    $("replayHealth").textContent = parts.join(" · ");
+  }
+  // Send's own header summary: state, position and whether it is keeping up —
+  // the three things you glance at while it runs.
+  txSum("sumSend", s.state === "recovering" && s.recovering
+    ? `Waiting for the bus · ${tvFmtAge(s.recovering.since_s)}`
+    : s.state === "playing" || s.state === "paused"
+    ? [fileName || null, `${(s.progress * 100).toFixed(0)}%`, `${s.sent.toLocaleString()} sent`,
+       h.fps ? `${h.fps.toFixed(0)} fps` : null,
+       behind ? "behind" : null].filter(Boolean).join(" · ")
+    : s.state === "done" ? `Finished · ${s.sent.toLocaleString()} frames sent`
+    : s.error ? s.error
+    : s.state === "empty" ? "No log loaded"          // after Clear: "Ready" would promise a Play that sends nothing
+    : "Ready");
+  $("sumSend").classList.toggle("has-warn", !!s.error || behind);
+}
+
+// ----------------------------------------------------------------- TX Monitor
+// What we transmitted (post-patch, as handed to the adapter) -> what it should
+// mean -> whether the cloud got the same bytes.
+let tvSelId = null, tvSelSig = 0, tvDecoded = null, tvRecording = false;
+let tvDefIds = new Set();                   // IDs the loaded definition can decode
+
+// ---- Transmit signal: Tiles / Bytes -------------------------------------------
+// Two views of what left the machine. Tiles: every signal the loaded definition
+// describes, the way the device's cloud panel shows it — the picture to hold up
+// beside the cloud. Bytes: every transmitted ID's raw payload, plus one ID's bit
+// layout. A tile opens its ID in Bytes, so choosing tiles loses nothing.
+// Changes light up in both (a tile's value, a byte) and fade over TV_FLASH_MS.
+const TV_FLASH_MS = 1500;
+let tvMode = UI.store.get("tv.mode", null);       // "tiles" | "bytes"; null: tiles once a definition is loaded
+let tvShow = UI.store.get("tv.show", null);       // "all" | "pinned"; null: pinned when there are pins
+let tvIdFilter = UI.store.get("tv.idfilter", "all");  // "all" | "def"
+let tvSearch = "";
+let tvDefinition = null;                          // the loaded definition's name
+let tvSelSigName = null;                          // a tile opened in Bytes selects its signal by name
+let tvScrollToSel = false;
+let tvLastLive = null, tvLastSigs = null;
+let tvTilesShape = "", tvIdsShape = "";           // the structure last drawn: same shape → update in place
+const tvBytesSeen = new Map();                    // id → { data, at: [when each byte last changed] }
+const tvSigSeen = new Map();                      // tile key → { v, at }
+
+const tvDefKind = () => (/JSON/.test(tvDefinition || "") ? "JSON" : "DBC");
+const tvPinsKey = () => "tv.pins:" + (tvDefinition || "");
+function tvPins() { try { return JSON.parse(UI.store.get(tvPinsKey(), "[]")) || []; } catch (e) { return []; } }
+function tvSetPins(p) { UI.store.set(tvPinsKey(), p.length ? JSON.stringify(p) : null); }
+const tvCurrentMode = () => tvMode || (tvDefinition ? "tiles" : "bytes");
+const tvFmtPeriod = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`);
+const tvFmtAge = (s) => (s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`);
+// Stopped by its *own* rhythm: 3 s of silence is nothing for a 10 s message and an
+// outage for a 10 ms one. Paused playback and S8-style silence go grey honestly —
+// it is what the device sees too.
+function tvIsStale(m) {
+  const p = m.period_ms ? m.period_ms / 1000 : null;
+  return m.age_s > Math.max(p ? 3 * p : 3, 1);
+}
+
+// A segmented control redrawn only when its options or choice change — redrawing
+// it on every poll would eat clicks and focus.
+function tvSeg(host, opts, cur, pick) {
+  const sig = JSON.stringify([opts, cur]);
+  if (host.dataset.sig === sig) return;
+  host.dataset.sig = sig;
+  segButtons(host, opts, cur, pick);
+}
+function tvApplyMode() {
+  const m = tvCurrentMode();
+  $("tvTilesPane").classList.toggle("hidden", m !== "tiles");
+  $("tvBytesPane").classList.toggle("hidden", m !== "bytes");
+  tvSeg($("tvMode"), [{ id: "tiles", label: "Tiles" }, { id: "bytes", label: "Bytes" }], m, (id) => {
+    tvMode = id; UI.store.set("tv.mode", id); tvTilesShape = ""; tvIdsShape = "";
+    tvApplyMode(); pollTxVerify();
+  });
+}
+
+async function pollTxVerify() {
+  const tiles = tvCurrentMode() === "tiles";
+  const [live, sigs] = await Promise.all([api("/api/tx/live"), tiles ? api("/api/tx/live/signals") : null]);
+  if (!live || !live.ok) return;
+  tvLastLive = live;
+  tvRecording = !!live.recording;
+  tvDefIds = new Set(live.def_ids || []);
+  if ((live.definition || null) !== tvDefinition) {     // pins and the default view follow the definition
+    tvDefinition = live.definition || null;
+    tvTilesShape = ""; tvIdsShape = "";
+    tvApplyMode();
+  }
+  $("tvStatus").textContent =
+    `${live.frames.toLocaleString()} frames transmitted · ${live.unique_ids} IDs` +
+    (live.recording ? ` · recording ${live.recorded.toLocaleString()}` : " · not recording");
+  $("btnTvRecord").textContent = live.recording ? "Stop recording" : "Start recording";
+  if (live.definition) $("tvDefName").textContent = live.definition;
+  tvTrackBytes(live.ids);
+  if (tvCurrentMode() === "tiles") {
+    if (sigs) { tvLastSigs = sigs; tvRenderTiles(); }
+    else pollTxVerify();                                // the definition just arrived: fetch its tiles
+  } else tvRenderIds(live);
+}
+
+// When each byte of each ID last changed — what the Bytes view lights up.
+function tvTrackBytes(rows) {
+  const now = performance.now();
+  rows.forEach((r) => {
+    const prev = tvBytesSeen.get(r.id);
+    if (!prev || prev.data.length !== r.data.length) {
+      tvBytesSeen.set(r.id, { data: r.data, at: new Array(r.data.length / 2).fill(prev ? now : 0) });
+      return;
+    }
+    if (prev.data === r.data) return;
+    for (let i = 0; i < prev.at.length; i++) {
+      if (prev.data.substr(i * 2, 2) !== r.data.substr(i * 2, 2)) prev.at[i] = now;
+    }
+    prev.data = r.data;
+  });
+}
+const tvByteLit = (id, i, now) => {
+  const s = tvBytesSeen.get(id);
+  return !!(s && s.at[i] && now - s.at[i] < TV_FLASH_MS);
+};
+
+// ---- Bytes: the transmitted IDs ----
+function tvRenderIds(live) {
+  const all = live.ids;
+  const tbody = $("tvIdTable").querySelector("tbody");
+  const known = tvDefIds.size;
+  const nIn = all.filter((r) => tvDefIds.has(r.id)).length;
+  const filter = known ? tvIdFilter : "all";
+  $("tvIdFilter").classList.toggle("hidden", !known);
+  if (known) {
+    tvSeg($("tvIdFilter"), [{ id: "all", label: `All ${all.length}` }, { id: "def", label: `In ${tvDefKind()} ${nIn}` }],
+      filter, (id) => { tvIdFilter = id; UI.store.set("tv.idfilter", id); tvIdsShape = ""; tvRenderIds(tvLastLive); });
+  }
+  $("tvIdCount").textContent = known ? `${nIn} of ${all.length} in the ${tvDefKind()}` : String(all.length);
+  // Nothing on the wire yet: say what to do instead of showing a blank panel.
+  if (!all.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="tv-empty">Nothing transmitted yet.</td></tr>`;
+    $("tvDecode").innerHTML = ""; tvIdsShape = "";
+    return;
+  }
+  const rows = filter === "def" ? all.filter((r) => tvDefIds.has(r.id)) : all;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="tv-empty">None of the ${all.length} transmitted IDs is in ${UI.esc(tvDefinition || "the definition")}.</td></tr>`;
+    tvIdsShape = "";
+    return;
+  }
+  // Prefer a first selection the loaded definition can actually decode.
+  if (tvSelId === null || !rows.some((r) => r.id === tvSelId)) {
+    const decodable = rows.find((r) => tvDefIds.has(r.id));
+    tvSelId = (decodable || rows[0]).id;
+  }
+  const shape = filter + ":" + known + ":" + rows.map((r) => r.id + "/" + r.dlc).join(",");
+  if (shape !== tvIdsShape) {
+    tvIdsShape = shape;
+    tbody.innerHTML = rows.map((r) => {
+      const inDef = tvDefIds.has(r.id);
+      return `<tr data-id="${r.id}" class="row-pick${known && !inDef ? " tv-undef" : ""}">` +
+        `<td>0x${r.id_hex}${known && inDef ? ` <span class="tv-dot" data-tip="In the ${tvDefKind()}: its signals show in Tiles and below."></span>` : ""}</td>` +
+        `<td class="num">${r.dlc}</td><td class="num" data-c></td>` +
+        `<td data-p>${(r.data.match(/../g) || []).map(() => `<span class="tv-b"></span>`).join(" ")}</td></tr>`;
+    }).join("");
+  }
+  // Update in place, so a changed byte fades instead of blinking off on the next redraw.
+  const now = performance.now();
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  tbody.querySelectorAll("tr[data-id]").forEach((tr) => {
+    const r = byId.get(+tr.dataset.id); if (!r) return;
+    tr.classList.toggle("sel", r.id === tvSelId);
+    tr.querySelector("[data-c]").textContent = r.count.toLocaleString();
+    const bytes = r.data.match(/../g) || [];
+    tr.querySelectorAll(".tv-b").forEach((sp, i) => {
+      if (sp.textContent !== bytes[i]) sp.textContent = bytes[i] || "";
+      sp.classList.toggle("chg", tvByteLit(r.id, i, now));
+    });
+  });
+  if (tvScrollToSel) {
+    tvScrollToSel = false;
+    const tr = tbody.querySelector(`tr[data-id="${tvSelId}"]`);
+    if (tr) tr.scrollIntoView({ block: "center" });
+  }
+  tvLoadDecode();
+}
+
+$("tvIdTable").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  tvSelId = +tr.dataset.id; tvSelSig = 0;
+  if (tvLastLive) tvRenderIds(tvLastLive);
+});
+
+// ---- Tiles: every signal, as the cloud shows it ----
+function tvTileEmpty(text, tone, action) {
+  tvTilesShape = "";
+  $("tvTileCount").textContent = "";
+  $("tvTiles").innerHTML = `<div class="ui-notice ${tone || "muted"} tv-tiles-empty">` +
+    `<span class="ui-ico">${UI.icons[tone === "warn" ? "alert" : "info"]}</span>` +
+    `<span class="ui-notice-t">${text}</span>` +
+    (action ? `<button type="button" class="btn-mini" data-act="${action.act}">${action.label}</button>` : "") + `</div>`;
+}
+
+function tvRenderTiles() {
+  const r = tvLastSigs;
+  if (!r || !r.ok) return;
+  $("tvSearch").parentElement.classList.toggle("hidden", !r.definition || !r.messages.length);
+  if (!r.definition) {
+    return tvTileEmpty("Upload the device's Signature JSON or a DBC to see each transmitted signal as a tile.",
+      "muted", { act: "def", label: "Upload JSON / DBC" });
+  }
+  if (!r.transmitted) return tvTileEmpty("Nothing transmitted yet — tiles appear as frames go out.");
+  if (!r.messages.length) {
+    return tvTileEmpty(`None of the ${r.transmitted} transmitted IDs is in ${UI.esc(r.definition)}.`, "warn");
+  }
+  const now = performance.now();
+  const tiles = [];
+  r.messages.forEach((m) => (m.signals || []).forEach((s) => tiles.push({ key: `${m.id_hex}:${s.name}`, m, s })));
+  const byKey = new Map(tiles.map((t) => [t.key, t]));
+  tiles.forEach((t) => {                               // when each value last changed
+    const v = t.s.choice != null ? t.s.choice : t.s.physical;
+    const seen = tvSigSeen.get(t.key);
+    if (!seen) tvSigSeen.set(t.key, { v, at: 0 });
+    else if (seen.v !== v) { seen.v = v; seen.at = now; }
+  });
+
+  const pins = tvPins();
+  const show = pins.length ? (tvShow || "pinned") : "all";
+  tvSeg($("tvShow"), [{ id: "all", label: `All ${tiles.length}` }]
+    .concat(pins.length ? [{ id: "pinned", label: `Pinned ${pins.length}` }] : []), show,
+    (id) => { tvShow = id; UI.store.set("tv.show", id); tvTilesShape = ""; tvRenderTiles(); });
+  const q = tvSearch.trim().toLowerCase();
+  const match = (t) => !q || t.s.name.toLowerCase().includes(q) ||
+    (t.m.name || "").toLowerCase().includes(q) || ("0x" + t.m.id_hex).toLowerCase().includes(q);
+  const groups = show === "pinned"
+    ? [{ m: null, items: pins.map((k) => byKey.get(k)).filter(Boolean).filter(match) }]
+    : r.messages.map((m) => ({ m, items: tiles.filter((t) => t.m === m && match(t)) })).filter((g) => g.items.length);
+  const shown = groups.reduce((n, g) => n + g.items.length, 0);
+  $("tvTileCount").textContent = `${shown} of ${tiles.length} signals · ${r.messages.length} messages` +
+    (pins.length ? ` · ${pins.length} pinned` : "");
+  if (!shown) {
+    return tvTileEmpty(q ? `No signal matches “${UI.esc(tvSearch.trim())}”.`
+      : "None of the pinned signals has been transmitted yet.");
+  }
+  const pinSet = new Set(pins);
+  const shape = [show, q, pins.join(","), groups.map((g) => (g.m ? g.m.id : "p") + ":" + g.items.map((t) => t.key).join(",")).join("|")].join("¦");
+  if (shape !== tvTilesShape) {
+    tvTilesShape = shape;
+    // Compact tiles (the user, 25-11-2026: "small moderate tiles this fits in the UI"). Under a
+    // message heading the ID is said once, by the heading; a pinned tile has no heading, so it
+    // carries its own ID chip.
+    const tile = (t) => `<div class="tv-tile${pinSet.has(t.key) ? " is-pinned" : ""}" data-key="${UI.esc(t.key)}" role="button" tabindex="0">` +
+      `<div class="tv-tile-head"><span class="tv-tile-name" title="${UI.esc(t.s.name)}">${UI.esc(t.s.name)}</span>` +
+      (show === "pinned" ? `<span class="tv-tile-id">0x${t.m.id_hex}</span>` : "") +
+      `<button type="button" class="tv-pin" aria-label="${pinSet.has(t.key) ? "Unpin" : "Pin"} ${UI.esc(t.s.name)}"` +
+      ` data-tip="${pinSet.has(t.key) ? "Unpin" : "Pin it: pinned signals show first, in the order you pin them — match the device's cloud panel."}">${UI.ico("star")}</button></div>` +
+      `<div class="tv-tile-val"></div><div class="tv-tile-foot"></div></div>`;
+    // Message groups flow side by side, so a two-signal message does not leave a row empty.
+    $("tvTiles").innerHTML = groups.map((g) => g.m
+      ? `<div class="tv-group"><div class="tv-group-title"><span>${UI.esc(g.m.name || "")}</span>` +
+        `<span class="tv-gid">0x${g.m.id_hex}</span><span class="ui-count" data-grp="${g.m.id}"></span></div>` +
+        `<div class="tv-row">${g.items.map(tile).join("")}</div></div>`
+      : `<div class="tv-row">${g.items.map(tile).join("")}</div>`).join("");
+  }
+  // Paint values and states in place: a change lights up and then fades.
+  const byMsg = new Map(r.messages.map((m) => [String(m.id), m]));
+  $("tvTiles").querySelectorAll("[data-grp]").forEach((el) => {
+    const m = byMsg.get(el.dataset.grp); if (!m) return;
+    el.textContent = tvIsStale(m) ? `not sent for ${tvFmtAge(m.age_s)}`
+      : m.period_ms ? `every ${tvFmtPeriod(m.period_ms)}` : "sent once";
+  });
+  $("tvTiles").querySelectorAll(".tv-tile").forEach((el) => {
+    const t = byKey.get(el.dataset.key);
+    if (t) tvPaintTile(el, t, now);
+  });
+}
+
+function tvPaintTile(el, t, now) {
+  const { m, s } = t;
+  const stale = tvIsStale(m);
+  const text = s.choice != null;
+  const val = text ? s.choice : s.physical;
+  const unit = text ? "" : (s.unit || "");
+  if (el.dataset.v !== val + "|" + unit) {
+    el.dataset.v = val + "|" + unit;
+    const v = el.querySelector(".tv-tile-val");
+    v.innerHTML = `${UI.esc(String(val))}<span class="tv-tile-unit">${UI.esc(unit)}</span>`;
+    v.title = text ? String(val) : "";
+  }
+  const seen = tvSigSeen.get(t.key);
+  el.classList.toggle("is-text", text);
+  el.classList.toggle("stale", stale);
+  el.classList.toggle("is-oor", !!s.out_of_range);
+  el.classList.toggle("is-changed", !stale && !!(seen && seen.at && now - seen.at < TV_FLASH_MS));
+  const tags = [];
+  if (s.patch === "set") tags.push(`<span class="tag warn" data-tip="Patch is holding this value: the log said otherwise. The device gets this one.">Forced</span>`);
+  else if (s.patch) tags.push(`<span class="tag info" data-tip="Patch rewrites this (${s.patch}) so it stays continuous across loops.">Rewritten</span>`);
+  if (s.out_of_range) tags.push(`<span class="tag warn" data-tip="Outside the definition's own range${s.min != null ? ` (${s.min} to ${s.max})` : ""}.">Out of range</span>`);
+  if (stale) tags.push(`<span>Not sent for ${tvFmtAge(m.age_s)}</span>`);
+  const foot = tags.join("");
+  const footEl = el.querySelector(".tv-tile-foot");
+  if (footEl.innerHTML !== foot) footEl.innerHTML = foot;
+  el.dataset.tip = `${m.name || ""} · 0x${m.id_hex} · raw ${s.raw}` +
+    (s.min != null && s.max != null ? ` · range ${s.min} to ${s.max}${s.unit ? " " + s.unit : ""}` : "") +
+    (m.period_ms ? ` · every ${tvFmtPeriod(m.period_ms)}` : "") + ". Click to see its bytes.";
+}
+
+// A tile opens its ID in Bytes with that signal's bits highlighted: nothing is lost.
+function tvOpenInBytes(key) {
+  const t = tvLastSigs && tvLastSigs.messages
+    .flatMap((m) => (m.signals || []).map((s) => ({ m, s })))
+    .find(({ m, s }) => `${m.id_hex}:${s.name}` === key);
+  if (!t) return;
+  tvMode = "bytes"; UI.store.set("tv.mode", "bytes");
+  tvSelId = t.m.id; tvSelSigName = t.s.name; tvScrollToSel = true;
+  tvIdsShape = "";
+  tvApplyMode();
+  pollTxVerify();
+}
+function tvTogglePin(key) {
+  const pins = tvPins();
+  const i = pins.indexOf(key);
+  if (i >= 0) pins.splice(i, 1); else pins.push(key);
+  // Pinning while looking at All stays in All — jumping to a one-tile Pinned view would lose the place.
+  if (tvShow === null) tvShow = "all";
+  tvSetPins(pins);
+  tvTilesShape = "";
+  tvRenderTiles();
+}
+$("tvTiles").addEventListener("click", (e) => {
+  const act = e.target.closest("[data-act]");
+  if (act && act.dataset.act === "def") return void $("tvDefFile").click();
+  const pin = e.target.closest(".tv-pin");
+  const tile = e.target.closest(".tv-tile");
+  if (!tile) return;
+  if (pin) return void tvTogglePin(tile.dataset.key);
+  if (window.getSelection && String(window.getSelection()).length) return;   // a text selection, not a click
+  tvOpenInBytes(tile.dataset.key);
+});
+$("tvTiles").addEventListener("keydown", (e) => {
+  const tile = e.target.closest(".tv-tile");
+  if (!tile || e.target.closest(".tv-pin") || (e.key !== "Enter" && e.key !== " ")) return;
+  e.preventDefault();
+  tvOpenInBytes(tile.dataset.key);
+});
+$("tvSearch").addEventListener("input", () => { tvSearch = $("tvSearch").value; tvTilesShape = ""; tvRenderTiles(); });
+tvApplyMode();
+
+async function tvLoadDecode() {
+  if (tvSelId === null) return;
+  const hex = `0x${tvSelId.toString(16).toUpperCase()}`;
+  $("tvSelId").textContent = hex;
+  const r = await api(`/api/tx/live/decode?frame_id=${tvSelId}`);
+  // Every failure here has a different fix, so each says which one it is rather
+  // than leaving an empty panel: no definition loaded, or this ID isn't in it.
+  if (!r || !r.ok || r.error) {
+    const raw = ((tvLastLive && tvLastLive.ids) || []).find((x) => x.id === tvSelId);
+    // No definition: the raw bytes are the whole answer, and the line above says
+    // why there is nothing more. Not in it: say so, and how many it does cover.
+    $("tvDecode").innerHTML = tvRawOnly(raw) + (tvDefIds.size
+      ? warnLine(`${hex} is not in ${UI.esc($("tvDefName").textContent)} — it describes ` +
+                 `${tvDefIds.size} messages. Rows with an amber mark are in it.`)
+      : "");
+    return;
+  }
+  tvDecoded = r;
+  if (tvSelSigName) {                                  // opened from a tile: select that signal
+    const i = (r.signals || []).findIndex((s) => s.name === tvSelSigName);
+    if (i >= 0) tvSelSig = i;
+    tvSelSigName = null;
+  }
+  tvRenderDecode(r);
+}
+
+// The raw bytes are always worth showing — they are the thing under test, and
+// they do not depend on having a definition at all.
+function tvRawOnly(row) {
+  if (!row) return "";
+  const bytes = row.data.match(/../g) || [];
+  const now = performance.now();
+  return `<div class="sub-h">Raw payload <span class="ui-count">DLC ${row.dlc}</span></div>` +
+    `<table class="byteview"><thead><tr><th>byte</th>` +
+    bytes.map((_, i) => `<th>${i}</th>`).join("") + `</tr></thead><tbody><tr><th>hex</th>` +
+    bytes.map((b, i) => `<td${tvByteLit(row.id, i, now) ? ' class="chg"' : ""}>${b}</td>`).join("") + `</tr></tbody></table>`;
+}
+
+// Purpose-built lightweight renderer — the Frame Decoder's grid is bound to its
+// own selection state, and duplicating 30 lines beats refactoring it from under
+// a working view.
+function tvRenderDecode(f) {
+  const COLS = [7, 6, 5, 4, 3, 2, 1, 0];
+  const bytes = f.bytes || [];
+  const sigs = f.signals || [];
+  if (tvSelSig >= sigs.length) tvSelSig = 0;
+
+  const now = performance.now();
+  const byteRow = `<table class="byteview"><thead><tr><th>byte</th>` +
+    bytes.map((_, i) => `<th>${i}</th>`).join("") + `</tr></thead><tbody><tr><th>hex</th>` +
+    bytes.map((b, i) => `<td${tvByteLit(f.id, i, now) ? ' class="chg"' : ""}>${b.toString(16).toUpperCase().padStart(2, "0")}</td>`).join("") +
+    `</tr></tbody></table>`;
+
+  const owner = {}, msb = {}, lsb = {};
+  sigs.forEach((s, i) => {
+    (s.cells || []).forEach((c) => { owner[c[0] + ":" + c[1]] = i; });
+    if (s.msb_cell) msb[s.msb_cell[0] + ":" + s.msb_cell[1]] = i;
+    if (s.lsb_cell) lsb[s.lsb_cell[0] + ":" + s.lsb_cell[1]] = i;
+  });
+  let grid = `<table class="bitgrid"><thead><tr><th></th>` +
+    COLS.map((c) => `<th>${c}</th>`).join("") + `</tr></thead><tbody>`;
+  for (let b = 0; b < bytes.length; b++) {
+    grid += `<tr><th>${b}</th>` + COLS.map((c) => {
+      const key = b + ":" + c, bit = (bytes[b] >> c) & 1, mine = owner[key] === tvSelSig;
+      const cls = !mine ? "" : msb[key] === tvSelSig ? "bit-msb"
+                : lsb[key] === tvSelSig ? "bit-lsb" : "bit-hi";
+      return `<td class="${cls}">${bit}</td>`;
+    }).join("") + `</tr>`;
+  }
+  grid += `</tbody></table>`;
+
+  const table = `<table class="data-table" id="tvSigTable"><thead><tr>
+      <th>Signal</th><th>Raw</th><th>Value</th><th>Unit</th><th>Bits</th><th>Order</th></tr></thead><tbody>` +
+    sigs.map((s, i) => `<tr data-sig="${i}" class="row-pick ${i === tvSelSig ? "sel" : ""}">
+      <td>${s.name}</td><td class="mono">${s.raw}</td>
+      <td class="mono${s.out_of_range ? " tc-oor" : ""}">${s.physical}</td>
+      <td>${s.unit || ""}</td><td class="mono">${s.start_bit}+${s.length}</td>
+      <td>${s.byte_order === "big_endian" ? "Motorola" : "Intel"}</td></tr>`).join("") +
+    `</tbody></table>`;
+
+  $("tvDecode").innerHTML =
+    `<div class="sub-h" data-tip="What the cloud should display for these bytes. Click a signal to highlight its bits.">` +
+    `${UI.esc(f.name || "")} <span class="ui-count">DLC ${bytes.length}</span></div>` +
+    byteRow +
+    `<div class="tv-split">${table}<div>${grid}</div></div>`;
+  $("tvSigTable").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-sig]"); if (!tr) return;
+    tvSelSig = +tr.dataset.sig; tvRenderDecode(tvDecoded);
+  });
+}
+
+$("btnTvRecord").addEventListener("click", async () => {
+  const r = await POST(tvRecording ? "/api/tx/record/stop" : "/api/tx/record/start");
+  setStatus(r.recording ? "Recording every transmitted frame" : "TX recording stopped");
+});
+$("btnTvReset").addEventListener("click", async () => {
+  await POST("/api/tx/record/reset");
+  tvSelId = null; tvDecoded = null;
+  tvBytesSeen.clear(); tvSigSeen.clear(); tvTilesShape = ""; tvIdsShape = "";
+  $("tvDecode").innerHTML = ""; $("tvReport").innerHTML = "";
+  $("tvVerdict").innerHTML = `<div class="muted-line">No cloud log uploaded.</div>`;
+  txSum("sumVerify", "No comparison yet");
+});
+
+$("btnTvDef").addEventListener("click", () => $("tvDefFile").click());
+$("tvDefFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = await apiUpload("/api/tx/live/definition", f);
+  if (!r.ok) return setStatus(r.error);
+  $("tvDefName").textContent = r.definition;
+  e.target.value = "";                               // the same file can be uploaded again
+  pollTxVerify();                                    // the definition decides the default view and the pins
+});
+
+$("btnTvCloud").addEventListener("click", () => $("tvCloudFile").click());
+$("tvCloudFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $("tvVerdict").innerHTML = `<div class="muted-line">Comparing…</div>`;
+  tvRenderReport(await apiUpload("/api/tx/verify", f));
+});
+
+function tvRenderReport(r) {
+  txOpenStep("stepVerify");
+  if (!r.ok && r.error) {
+    $("tvVerdict").innerHTML = badLine(UI.esc(r.error));
+    $("tvReport").innerHTML = "";
+    txSum("sumVerify", "Could not read that cloud log");
+    $("sumVerify").classList.add("has-warn");
+    return;
+  }
+  const pass = r.unknown_payloads === 0;
+  txSum("sumVerify", `${pass ? "Byte-identical" : "Mismatch"} · ` +
+    `${r.matched_frames.toLocaleString()}/${r.cloud_frames.toLocaleString()} cloud frames matched` +
+    (pass ? "" : ` · ${r.unknown_payloads} payload(s) we never sent`));
+  $("sumVerify").classList.toggle("has-warn", !pass);
+  $("tvVerdict").innerHTML =
+    `<div class="tv-verdict ${pass ? "pass" : "fail"}">${pass ? UI.ico("check") : ICONS.alert}${pass ? "Byte-identical" : "Mismatch"}</div>` +
+    `<div class="muted-line">${r.tx_frames.toLocaleString()} transmitted · ` +
+    `${r.cloud_frames.toLocaleString()} at the cloud (${r.cloud_dialect}) · ` +
+    `${r.matched_frames.toLocaleString()} matched · ${r.unknown_payloads} payload(s) we never sent</div>` +
+    (r.warnings || []).map((w) => warnLine(UI.esc(w))).join("") +
+    // What we deliberately did not transmit — stated, so "missing at the cloud"
+    // is never confused with our own filtering.
+    ((r.tx_filters && r.tx_filters.networks_not_sent || []).length
+      ? `<div class="muted-line">Not transmitted by us: ` +
+        r.tx_filters.networks_not_sent.map((n) => `${n.name} (${n.frames.toLocaleString()} frames)`).join(", ") +
+        `</div>` : "");
+
+  // One word and one colour per verdict. Only "corrupt" is a fault; a TCU that
+  // forwards a subset ("sampled") is normal, and another node on the bench bus
+  // ("not sent by us") is worth a look, not an alarm.
+  const V = { complete: ["Complete", "ok"], sampled: ["Sampled", ""], "not forwarded": ["Not forwarded", ""],
+              corrupt: ["Corrupt", "bad"], "unexpected id": ["Not sent by us", "warn"] };
+  $("tvReport").innerHTML = `<div class="table-wrap report-wrap">
+    <table class="data-table mono"><thead><tr>
+      <th>ID</th><th class="num">TX</th><th class="num">Cloud</th><th class="num">Matched</th><th class="num">Delivery</th><th>Verdict</th><th>Detail</th>
+    </tr></thead><tbody>` + r.per_id.map((p) => `<tr>
+      <td>0x${p.id_hex}</td><td class="num">${p.tx.toLocaleString()}</td><td class="num">${p.cloud.toLocaleString()}</td>
+      <td class="num">${p.matched.toLocaleString()}</td><td class="num">${p.delivery_pct == null ? "—" : p.delivery_pct + "%"}</td>
+      <td><span class="tag ${(V[p.verdict] || [])[1] || ""}">${(V[p.verdict] || [p.verdict])[0]}</span></td>
+      <td>${p.unknown_samples ? "cloud sent " + p.unknown_samples.join(", ") : ""}</td>
+    </tr>`).join("") + `</tbody></table></div>`;
 }
 
 // -------------------------------------------------------- Reverse Engineering
@@ -283,11 +1833,11 @@ function entropyColor(h) {  // 0 (blue, constant) → 8 (red, noisy)
   return `rgb(${r},${g + 60},${b})`;
 }
 const KIND_COLOR = {
-  counter: "#7bd88f", crc: "#e06c75", physical: "#61afef",
-  "multi-state": "#e5c07b", constant: "#6b7280", event: "#c678dd",
+  counter: "var(--ok-ink)", crc: "var(--danger-ink)", physical: "var(--info-ink)",
+  "multi-state": "var(--warn-ink)", constant: "var(--muted)", event: "var(--series-5)",
 };
 function candChip(c) {
-  const col = KIND_COLOR[c.kind] || "#9aa0a6";
+  const col = KIND_COLOR[c.kind] || "var(--dim)";
   const conf = c.confidence != null ? ` ${Math.round(c.confidence * 100)}%` : "";
   const order = c.byte_order === "little_endian" ? " LE" : "";
   const step = c.step != null ? ` +${c.step}` : "";
@@ -307,7 +1857,7 @@ $("btnAnalyze").addEventListener("click", async () => {
     const ent = id.bytes.map((b) =>
       `<div class="ebyte" title="byte ${b.index}: ${b.kind}, H=${b.entropy}" style="background:${entropyColor(b.entropy)}">${b.entropy.toFixed(1)}</div>`).join("");
     const cands = id.candidates.map(candChip).join(" ") || "—";
-    const mux = id.multiplexor ? ` <span class="cand-chip" style="border-color:#c678dd;color:#c678dd" title="multiplexor">mux@byte${id.multiplexor.selector_byte}</span>` : "";
+    const mux = id.multiplexor ? ` <span class="cand-chip" style="border-color:var(--series-5);color:var(--series-5)" title="Multiplexor">mux@byte${id.multiplexor.selector_byte}</span>` : "";
     return `<tr><td class="mono">0x${id.id_hex}</td><td>${id.frames}</td><td>${id.period_ms} ms</td>
       <td>${id.length}</td><td><div class="entropy-row">${ent}</div></td><td>${cands}${mux}</td>
       <td><button class="btn-mini" onclick="seedDbc(${i})">${ICONS.arrowRight} DBC</button></td></tr>`;
@@ -325,7 +1875,7 @@ function renderChanged(wrapId, ns, result) {
   changedStore[ns] = {};
   const rows = (result.changed || []).map((c) => {
     changedStore[ns][c.id_hex] = c;
-    const bits = c.candidates.map((cd) => `<span class="cand-chip" style="border-color:#c678dd;color:#c678dd">@${cd.start_bit}/${cd.length}</span>`).join(" ");
+    const bits = c.candidates.map((cd) => `<span class="cand-chip" style="border-color:var(--series-5);color:var(--series-5)">@${cd.start_bit}/${cd.length}</span>`).join(" ");
     const bytes = c.changed_bytes.map((b) => `byte${b.index}: ${b.baseline.join("/")}→${b.after.join("/")}`).join("; ");
     return `<tr><td class="mono">0x${c.id_hex}</td><td>${bits}</td><td class="muted-line">${bytes}</td>
       <td><button class="btn-mini" onclick="promoteChanged('${ns}','${c.id_hex}')">${ICONS.arrowRight} DBC</button></td></tr>`;
@@ -420,8 +1970,9 @@ function oemVariant(p) {
 
 function oemDrawProfiles() {
   const tb = $("oemTable").querySelector("tbody");
+  $("oemCount").textContent = oemProfiles.length ? String(oemProfiles.length) : "";
   if (!oemProfiles.length) {
-    tb.innerHTML = `<tr><td colspan="7" class="muted-line" style="padding:14px">No profiles.</td></tr>`;
+    tb.innerHTML = `<tr class="empty-row"><td colspan="7">No profiles yet.</td></tr>`;
     return;
   }
   tb.innerHTML = oemProfiles.map((p) => {
@@ -431,18 +1982,18 @@ function oemDrawProfiles() {
     const variant = p.model ? oemVariant(p) : "";
     return `<tr>
       <td>${escAttr(p.oem)}</td>
-      <td><button class="oem-model" onclick="oemToggle(${p.id})" title="Show the signals this profile decodes">
+      <td><button type="button" class="oem-model" onclick="oemToggle(${p.id})" aria-expanded="${open}">
           ${ICONS[open ? "chevronUp" : "chevronDown"]}<span>${escAttr(p.model || p.name)}</span></button>
-        ${variant ? `<span class="muted-line">${escAttr(variant)}</span>` : ""}</td>
-      <td>${p.id_count}</td>
-      <td>${p.msg_count ? `${p.msg_count} <span class="muted-line">· ${p.signal_count} sig</span>`
-                        : `<span class="muted-line">none</span>`}</td>
-      <td>${p.year || `<span class="muted-line">—</span>`}</td>
-      <td><span class="tag">${p.status}</span></td>
-      <td style="white-space:nowrap">${p.msg_count
-        ? `<button class="btn-mini" onclick="oemApply(${p.id})" title="Load this profile's DBC into the Signal Viewer and decode the live bus with it">Apply</button>`
+        ${variant ? `<span class="oem-variant">${escAttr(variant)}</span>` : ""}</td>
+      <td class="num">${p.id_count}</td>
+      <td class="num">${p.msg_count ? `${p.msg_count} <span class="ui-count">· ${p.signal_count} signals</span>`
+                        : `<span class="dim-note">None</span>`}</td>
+      <td>${p.year || `<span class="dim-note">—</span>`}</td>
+      <td><span class="tag ${p.status === "shipped" ? "ok" : ""}">${cap(p.status)}</span></td>
+      <td class="row-actions">${p.msg_count
+        ? `<button type="button" class="btn-mini" onclick="oemApply(${p.id})" data-tip="Load this profile's DBC into the Signal viewer and decode the live bus with it.">Apply</button>`
         : ""}
-        <button class="btn-mini" onclick="oemDelete(${p.id})" title="Delete this profile from the database">${ICONS.close}</button></td>
+        <button type="button" class="btn-mini danger" onclick="oemDelete(${p.id})">Delete</button></td>
     </tr>${open ? oemDetailRow(p) : ""}`;
   }).join("");
 }
@@ -450,23 +2001,23 @@ function oemDrawProfiles() {
 function oemDetailRow(p) {
   const d = oemDetail[p.id];
   let body;
-  if (!d) body = `<div class="muted-line" style="padding:8px 2px">Loading signals…</div>`;
-  else if (d.error) body = `<div class="muted-line" style="padding:8px 2px">Could not read this profile's DBC — ${escAttr(d.error)}</div>`;
-  else if (!d.messages.length) body = `<div class="muted-line" style="padding:8px 2px">Fingerprint only — this profile identifies the vehicle but decodes nothing yet.</div>`;
+  if (!d) body = `<div class="muted-line oem-note">Loading signals…</div>`;
+  else if (d.error) body = `<div class="oem-note">${badLine(`Could not read this profile's DBC — ${escAttr(d.error)}`)}</div>`;
+  else if (!d.messages.length) body = `<div class="muted-line oem-note">Fingerprint only — identifies the vehicle, decodes nothing yet.</div>`;
   else body = d.messages.map((m) => `<div class="cv-msg">
       <div class="cv-msg-head">
         <span class="mono">0x${m.id_hex}</span><strong>${escAttr(m.name)}</strong>
-        <span class="muted-line">${m.length} byte${m.length === 1 ? "" : "s"}${m.is_extended ? " · 29-bit" : ""}</span>
-        <span class="muted-line">${m.signals.length} signal${m.signals.length === 1 ? "" : "s"}</span>
+        <span class="ui-count">${m.length} byte${m.length === 1 ? "" : "s"}${m.is_extended ? " · 29-bit" : ""}</span>
+        <span class="ui-count">${m.signals.length} signal${m.signals.length === 1 ? "" : "s"}</span>
       </div>
       ${m.signals.length ? `<div class="table-wrap"><table class="data-table cv-sigtable"><thead><tr>
-        <th>Signal</th><th>Start</th><th>Len</th><th>Layout</th><th>Scale</th><th>Offset</th><th>Range</th><th>Unit</th>
+        <th>Signal</th><th class="num">Start</th><th class="num">Length</th><th>Layout</th><th class="num">Scale</th><th class="num">Offset</th><th>Range</th><th>Unit</th>
       </tr></thead><tbody>${m.signals.map((s) => `<tr>
-        <td>${escAttr(s.name)}</td><td class="mono">${s.start_bit}</td><td class="mono">${s.length}</td>
-        <td class="muted-line">${String(s.byte_order || "").startsWith("big") ? "Motorola" : "Intel"}${s.is_signed ? " · signed" : ""}</td>
-        <td class="mono">${s.scale}</td><td class="mono">${s.offset}</td>
-        <td class="muted-line">${s.minimum == null && s.maximum == null ? "—" : `${s.minimum ?? "—"} … ${s.maximum ?? "—"}`}</td>
-        <td class="muted-line">${escAttr(s.unit || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        <td>${escAttr(s.name)}</td><td class="mono num">${s.start_bit}</td><td class="mono num">${s.length}</td>
+        <td class="cell-dim">${String(s.byte_order || "").startsWith("big") ? "Motorola" : "Intel"}${s.is_signed ? " · signed" : ""}</td>
+        <td class="mono num">${s.scale}</td><td class="mono num">${s.offset}</td>
+        <td class="cell-dim">${s.minimum == null && s.maximum == null ? "—" : `${s.minimum ?? "—"} … ${s.maximum ?? "—"}`}</td>
+        <td class="cell-dim">${escAttr(s.unit || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
     </div>`).join("");
   return `<tr class="oem-detail"><td colspan="7">${body}</td></tr>`;
 }
@@ -482,11 +2033,13 @@ window.oemToggle = async (id) => {
 };
 window.oemApply = async (id) => {
   const r = await POST("/api/oem/apply?pid=" + id);
-  setStatus(r.ok ? `Applied profile → Signal Viewer (${r.signals ? r.signals.length : 0} signals)` : "Apply: " + r.error);
+  setStatus(r.ok ? `Applied profile → Signal viewer (${r.signals ? r.signals.length : 0} signals)` : "Apply: " + r.error);
 };
 window.oemDelete = async (id) => {
   const p = oemProfiles.find((x) => x.id === id) || {};
-  if (!confirm(`Delete profile "${p.oem || ""} ${p.name || id}"?\n\nShipped vehicle packs are restored from oem_packs/ on the next restart.`)) return;
+  if (!(await UI.confirm({ title: "Delete profile?",
+    text: `“${`${p.oem || ""} ${p.name || id}`.trim()}” will be removed. Vehicle packs that ship with uCANdo come back from oem_packs/ at the next start.`,
+    action: "Delete", tone: "danger" }))) return;
   await POST("/api/oem/profile/delete?pid=" + id);
   delete oemDetail[id]; oemOpen.delete(id);
   renderOem();
@@ -502,15 +2055,15 @@ $("btnOemIdentify").addEventListener("click", async () => {
   const r = await api("/api/oem/identify");
   if (!r.ok) return void ($("oemIdentStatus").textContent = r.error);
   $("oemIdentStatus").textContent = `${r.observed_ids} IDs observed`;
-  $("oemIdentWrap").innerHTML = `<table class="data-table"><thead><tr><th>Match</th><th>OEM</th><th>Score</th><th>IDs matched</th><th></th></tr></thead>
-    <tbody>${(r.matches || []).map((m) => `<tr><td>${m.name}</td><td>${m.oem}</td>
-      <td>${(m.score * 100).toFixed(0)}%</td><td>${m.matched}/${m.profile_ids}</td>
-      <td><button class="btn-mini" onclick="oemApply(${m.profile_id})">Apply</button></td></tr>`).join("")
-      || `<tr><td colspan="5" class="muted-line" style="padding:14px">No confident match — reverse-engineer it and save a new profile.</td></tr>`}</tbody></table>`;
+  $("oemIdentWrap").innerHTML = `<table class="data-table"><thead><tr><th>Match</th><th>OEM</th><th class="num">Score</th><th class="num">IDs matched</th><th></th></tr></thead>
+    <tbody>${(r.matches || []).map((m) => `<tr><td>${escAttr(m.name)}</td><td>${escAttr(m.oem)}</td>
+      <td class="num">${(m.score * 100).toFixed(0)}%</td><td class="num">${m.matched}/${m.profile_ids}</td>
+      <td class="row-actions"><button type="button" class="btn-mini" onclick="oemApply(${m.profile_id})">Apply</button></td></tr>`).join("")
+      || `<tr class="empty-row"><td colspan="5">No confident match.</td></tr>`}</tbody></table>`;
 });
 $("btnOemAutoApply").addEventListener("click", async () => {
   const r = await POST("/api/oem/auto-apply");
-  if (r.ok && r.applied) setStatus(`Auto-applied "${r.applied.name}" (${(r.match.score * 100).toFixed(0)}%) → Signal Viewer`);
+  if (r.ok && r.applied) setStatus(`Applied “${r.applied.name}” (${(r.match.score * 100).toFixed(0)}% match) → Signal viewer`);
   else setStatus(r.reason ? "No confident decodable match" : ("Auto-apply: " + (r.error || "?")));
   $("btnOemIdentify").click();
 });
@@ -519,14 +2072,16 @@ $("btnOemAutoApply").addEventListener("click", async () => {
 function renderAutomation() { renderRules(); renderJobs(); pollRestbus(); }
 async function renderRules() {
   const t = await api("/api/rules");
-  $("rulesWrap").innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>When</th><th>Action</th><th>Fired</th><th></th></tr></thead>
-    <tbody>${(t.rules || []).map((r) => `<tr><td>${r.name}</td><td class="mono">${r.when}</td>
-      <td>${r.action.type}</td><td>${r.fired}</td>
-      <td><button class="btn-mini" onclick="delRule(${r.uid})">${ICONS.close}</button></td></tr>`).join("")
-      || `<tr><td colspan="5" class="muted-line" style="padding:12px">No rules.</td></tr>`}</tbody></table>`;
+  const rules = t.rules || [];
+  $("ruleCount").textContent = rules.length ? String(rules.length) : "";
+  $("rulesWrap").innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>When</th><th>Action</th><th class="num">Fired</th><th></th></tr></thead>
+    <tbody>${rules.map((r) => `<tr><td>${UI.esc(r.name)}</td><td class="mono">${UI.esc(r.when)}</td>
+      <td>${cap(r.action.type)}</td><td class="num">${r.fired}</td>
+      <td class="row-actions"><button type="button" class="btn-mini danger" data-name="${UI.esc(r.name || r.when)}" onclick="delRule(${r.uid}, this.dataset.name)">Remove</button></td></tr>`).join("")
+      || `<tr class="empty-row"><td colspan="5">No rules yet.</td></tr>`}</tbody></table>`;
   $("ruleEventsWrap").innerHTML = `<table class="data-table mono"><tbody>${(t.events || []).slice(0, 30).map((e) =>
-    `<tr><td>${e.ts}</td><td>${e.rule}</td><td>${e.action}</td><td>${e.detail}</td></tr>`).join("")
-    || `<tr><td class="muted-line" style="padding:12px">No events yet.</td></tr>`}</tbody></table>`;
+    `<tr><td>${e.ts}</td><td>${UI.esc(e.rule)}</td><td>${e.action}</td><td>${UI.esc(e.detail)}</td></tr>`).join("")
+    || `<tr class="empty-row"><td>No events yet.</td></tr>`}</tbody></table>`;
 }
 $("btnRuleAdd").addEventListener("click", async () => {
   const when = $("ruleWhen").value.trim(); if (!when) return;
@@ -540,15 +2095,23 @@ $("btnRuleAdd").addEventListener("click", async () => {
   if (r.ok) { $("ruleName").value = $("ruleWhen").value = $("ruleActArg").value = ""; renderRules(); }
   else setStatus("Rule: " + r.error);
 });
-window.delRule = async (uid) => { await POST("/api/rules/remove?uid=" + uid); renderRules(); };
+// Rules and jobs are saved: removing one asks first (the name is passed as
+// data, never spliced into the handler's script).
+window.delRule = async (uid, name) => {
+  if (!(await UI.confirm({ title: "Remove rule?", text: `The rule “${name || uid}” will be deleted.`,
+    action: "Remove", tone: "danger" }))) return;
+  await POST("/api/rules/remove?uid=" + uid); renderRules();
+};
 
 async function renderJobs() {
   const { jobs } = await api("/api/jobs");
+  $("jobCount").textContent = (jobs || []).length ? String(jobs.length) : "";
   $("jobsWrap").innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Kind</th><th>Schedule</th><th>Last run</th><th></th></tr></thead>
-    <tbody>${(jobs || []).map((j) => `<tr><td>${j.name}</td><td>${j.kind}</td><td class="mono">${j.schedule || "manual"}</td>
+    <tbody>${(jobs || []).map((j) => `<tr><td>${UI.esc(j.name)}</td><td>${cap(j.kind)}</td><td>${/^every:/.test(j.schedule || "") ? `Every ${j.schedule.slice(6)} s` : (j.schedule || "Manual")}</td>
       <td>${j.last_run ? new Date(j.last_run * 1000).toLocaleTimeString() : "—"}</td>
-      <td><button class="btn-mini" onclick="runJob(${j.id})">Run</button> <button class="btn-mini" onclick="delJob(${j.id})">${ICONS.close}</button></td></tr>`).join("")
-      || `<tr><td colspan="5" class="muted-line" style="padding:12px">No jobs.</td></tr>`}</tbody></table>`;
+      <td class="row-actions"><button type="button" class="btn-mini" onclick="runJob(${j.id})">${ICONS.play}<span>Run</span></button>
+        <button type="button" class="btn-mini danger" data-name="${UI.esc(j.name)}" onclick="delJob(${j.id}, this.dataset.name)">Remove</button></td></tr>`).join("")
+      || `<tr class="empty-row"><td colspan="5">No jobs yet.</td></tr>`}</tbody></table>`;
 }
 $("btnJobAdd").addEventListener("click", async () => {
   const name = $("jobName").value.trim() || "job"; const every = $("jobEvery").value.trim();
@@ -556,11 +2119,15 @@ $("btnJobAdd").addEventListener("click", async () => {
   $("jobName").value = $("jobEvery").value = ""; renderJobs();
 });
 window.runJob = async (id) => { const r = await POST("/api/jobs/run?jid=" + id); setStatus("Job: " + JSON.stringify(r.result || r)); renderJobs(); };
-window.delJob = async (id) => { await POST("/api/jobs/remove?jid=" + id); renderJobs(); };
+window.delJob = async (id, name) => {
+  if (!(await UI.confirm({ title: "Remove job?", text: `The job “${name || id}” will be deleted.`,
+    action: "Remove", tone: "danger" }))) return;
+  await POST("/api/jobs/remove?jid=" + id); renderJobs();
+};
 
 async function pollRestbus() {
   const s = await api("/api/restbus/status");
-  $("restbusStatus").textContent = `${s.running ? "running" : "stopped"} · ${s.messages} msgs · ${s.sent} sent`;
+  $("restbusStatus").textContent = `${s.running ? "Running" : "Stopped"} · ${s.messages} messages · ${s.sent.toLocaleString()} sent`;
 }
 $("btnRestbusBuilder").addEventListener("click", async () => { const r = await POST("/api/restbus/load-builder"); setStatus(r.ok ? `Restbus: ${r.messages} messages loaded` : "Restbus: " + r.error); pollRestbus(); });
 $("btnRestbusStart").addEventListener("click", async () => { const r = await POST("/api/restbus/start"); if (!r.ok) setStatus("Restbus: " + r.error); pollRestbus(); });
@@ -963,7 +2530,7 @@ function fdRenderTrace() {
     return `<span class="${isConst[c] ? "tc-const" : ""}" style="display:inline-flex;gap:5px;align-items:center">
       <b style="font-weight:600;color:var(--text)">${c}</b>` +
       (isConst[c] ? `<span class="muted-line">const</span>`
-                  : `<span style="color:var(--green)">varies</span><span class="muted-line">${s.min}–${s.max}${u}</span>`) + `</span>`;
+                  : `<span class="ok-ink">varies</span><span class="muted-line">${s.min}–${s.max}${u}</span>`) + `</span>`;
   };
   const summary = `<div style="display:flex;flex-wrap:wrap;gap:8px 18px;font-size:11px;color:var(--muted);margin-bottom:12px">${cols.map(sChip).join("")}</div>`;
 
@@ -1017,10 +2584,9 @@ function fdRenderBody(f) {
 
   const rows = f.signals.map((s, si) => {
     const oor = s.out_of_range;
-    const physColor = oor ? "var(--red)" : "var(--accent)";
+    const physColor = oor ? "var(--danger-ink)" : "var(--accent-ink)";
     const oorBadge = oor
-      ? `<span title="Outside DBC range [${s.min ?? "?"}…${s.max ?? "?"}]"
-           style="margin-left:5px;font-size:10px;background:#3a1c1c;color:var(--red);border-radius:3px;padding:1px 5px;vertical-align:middle">OOR</span>`
+      ? ` <span class="tag bad" title="Outside the DBC range [${s.min ?? "?"}…${s.max ?? "?"}]">Out of range</span>`
       : "";
     // Value description (DBC VAL_ label) — wraps inside its column, never overflows
     const descCell = hasChoices
@@ -1034,21 +2600,20 @@ function fdRenderBody(f) {
       <td style="color:var(--muted);font-size:12px;vertical-align:top">${s.unit || "—"}</td>
       ${descCell}
     </tr>`;
-  }).join("") || `<tr><td colspan="${hasChoices ? 6 : 5}" class="muted-line" style="padding:12px;text-align:center">no decoded signals</td></tr>`;
+  }).join("") || `<tr class="empty-row"><td colspan="${hasChoices ? 6 : 5}">No decoded signals.</td></tr>`;
 
   // Header: add Description column only when needed
-  const descHead = hasChoices ? `<th style="color:var(--green)">Description</th>` : "";
+  const descHead = hasChoices ? `<th>Description</th>` : "";
 
-  // Inline colours (cache-proof — don't depend on style.css being fresh).
-  const C_HI = "#4ea1ff", C_MSB = "#e0a82e", C_LSB = "#46b86a";
-  // Distinct palette for the message-layout view (one colour per signal).
-  const PALETTE = ["#4ea1ff", "#46b86a", "#e0a82e", "#c264d6", "#e06c4e",
-                   "#3fb6c0", "#d65a8a", "#8a9a3f", "#6a78e0", "#cf7e3f"];
-  const sigColorAt = (i) => PALETTE[i % PALETTE.length];
+  // Colours from the theme tokens: the selected signal's bits in --info (a
+  // second kind beside the green LSB), the MSB in the fixed amber swatch.
+  const C_HI = tok("--info"), C_MSB = tok("--bit-msb"), C_LSB = tok("--ok");
+  // One series colour per signal for the message-layout view.
+  const sigColorAt = (i) => SERIES[i % SERIES.length];
   const _lum = (h) => 0.299 * parseInt(h.slice(1, 3), 16)
                     + 0.587 * parseInt(h.slice(3, 5), 16)
                     + 0.114 * parseInt(h.slice(5, 7), 16);
-  const txtOn = (h) => (_lum(h) > 150 ? "#1b1d1f" : "#fff");
+  const txtOn = (h) => (_lum(h) > 150 ? "var(--ink-on-bright)" : "var(--ink-light)");
 
   // Map every grid cell to its owning signal + remember each signal's MSB/LSB cell.
   const owner = {}, msbOf = {}, lsbOf = {};
@@ -1068,7 +2633,7 @@ function fdRenderBody(f) {
   };
 
   // Highlighted header cells (gray top row + left column, like CANdb++ Layout).
-  const hSty = "background:#2a2d31;color:#cdd3da;font-weight:600;border:1px solid var(--line);font-size:11px;text-align:center;font-family:var(--mono)";
+  const hSty = "background:var(--panel-2);color:var(--dim);font-weight:600;border:1px solid var(--border-strong);font-size:11px;text-align:center;font-family:var(--mono)";
   const bitHead = COLS.map((c) => `<th style="${hSty};width:30px;height:24px">${c}</th>`).join("");
 
   let grid = `<table class="bitgrid" style="border-collapse:collapse"><thead><tr>`
@@ -1083,10 +2648,10 @@ function fdRenderBody(f) {
       if (sel) {                                   // single-signal highlight mode
         if (si === fdSelSig) {
           fw = "700";
-          if (single) { bg = C_HI; tc = "#fff"; tag = "bit"; }
-          else if (isMsb) { bg = C_MSB; tc = "#1b1d1f"; tag = "msb"; }
-          else if (isLsb) { bg = C_LSB; tc = "#fff"; tag = "lsb " + arrowFor(sel); }
-          else { bg = C_HI; tc = "#fff"; }
+          if (single) { bg = C_HI; tc = txtOn(C_HI); tag = "bit"; }
+          else if (isMsb) { bg = C_MSB; tc = "var(--ink-on-bright)"; tag = "msb"; }
+          else if (isLsb) { bg = C_LSB; tc = txtOn(C_LSB); tag = "lsb " + arrowFor(sel); }
+          else { bg = C_HI; tc = txtOn(C_HI); }
         }
       } else if (si !== undefined) {               // message-layout mode (all signals)
         const col = sigColorAt(si);
@@ -1096,8 +2661,8 @@ function fdRenderBody(f) {
         else if (isLsb) tag = "lsb " + arrowFor(f.signals[si]);
       }
       const idxSpan = `<span style="position:absolute;top:0;right:2px;font-size:8px;line-height:1.1;opacity:.5;font-weight:400">${idx}</span>`;
-      const tagSpan = tag ? `<span style="position:absolute;bottom:-1px;left:0;right:0;font-size:7px;line-height:1.2;font-weight:600;letter-spacing:.02em">${tag}</span>` : "";
-      return `<td style="position:relative;width:30px;height:30px;padding:0;border:1px solid var(--line);text-align:center;background:${bg};color:${tc};font-weight:${fw}">`
+      const tagSpan = tag ? `<span style="position:absolute;bottom:-1px;left:0;right:0;font-size:7px;line-height:1.2;font-weight:600">${tag}</span>` : "";
+      return `<td style="position:relative;width:30px;height:30px;padding:0;border:1px solid var(--border-strong);text-align:center;background:${bg};color:${tc};font-weight:${fw}">`
         + `${idxSpan}<span style="font-size:12px;line-height:30px">${bit}</span>${tagSpan}</td>`;
     }).join("") + `</tr>`;
   }
@@ -1120,10 +2685,10 @@ function fdRenderBody(f) {
   }
 
   $("fdDetailBody").innerHTML = `<div style="padding:12px 16px">
-    <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Data Byte View (HEX)</div>
+    <div class="sec-h">Data bytes <span class="ui-count">hex</span></div>
     <table class="byteview mono"><tbody><tr><th>Byte</th>${idx}</tr><tr><th>Value</th>${val}</tr></tbody></table>
     <div style="margin-top:16px">
-      <div class="muted-line" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Signal Details</div>
+      <div class="sec-h">Signals</div>
       <div style="overflow-x:auto">
         <table class="data-table">
           <colgroup><col style="width:34px"><col><col style="width:84px"><col style="width:92px"><col style="width:48px">${hasChoices ? "<col>" : ""}</colgroup>
@@ -1138,9 +2703,8 @@ function fdRenderBody(f) {
         </table>
       </div>
     </div>
-    <div style="margin-top:24px;border-top:1px solid var(--line);padding-top:16px">
-      <h3 style="font-size:15px;font-weight:600;color:var(--text);margin:0 0 2px">Bit Layout</h3>
-      <div class="muted-line" style="font-size:11px;margin-bottom:10px">Click a signal to isolate · arrows point LSB→MSB</div>
+    <div class="fd-sec">
+      <div class="sec-h" data-tip="Click a signal above to isolate its bits. The arrows point from the LSB towards the MSB.">Bit layout</div>
       <div style="overflow-x:auto">${grid}</div>
       ${legend}
     </div>
@@ -1204,7 +2768,7 @@ $("btnFdFill").addEventListener("click", () => {
   }
   if (!recs.length) msg = "nothing to read — expected `id payload` per line, or `id:payload;id:payload`";
   const out = $("fdFillMsg");
-  if (out) { out.textContent = msg; out.style.color = matched ? "var(--ok, #4ade80)" : "var(--bad, #f87171)"; }
+  if (out) { out.textContent = msg; out.style.color = matched ? "var(--ok-ink)" : "var(--danger-ink)"; }
   setStatus("Fill payloads — " + msg);
 });
 
@@ -1221,11 +2785,7 @@ const cvParseId = (val) => {
   if (/^0x/i.test(t)) return parseInt(t, 16) || 0;
   return (cvIdHex() ? parseInt(t, 16) : parseInt(t, 10)) || 0;
 };
-const _svg = (body) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
-const CV_ICON = {
-  edit: _svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
-  lock: _svg('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
-};
+const CV_ICON = { edit: ICONS.edit, lock: ICONS.lock };
 const escAttr = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 const cvParseVT = (raw) => {
   const out = {}; let any = false;
@@ -1262,9 +2822,9 @@ $("cvFile").addEventListener("change", async (e) => {
 });
 
 function cvWarnBox(warns, ctx) {
-  return `<div style="border:1px solid #7a5;background:#2a2410;border-radius:8px;padding:10px 14px">
-    <div style="color:#e0a82e;margin-bottom:6px">⚠ ${warns.length} note${warns.length === 1 ? "" : "s"} ${ctx || ""}</div>
-    <ul style="margin:0;padding-left:18px;color:var(--muted);font-size:13px">${warns.map((w) => `<li>${w}</li>`).join("")}</ul></div>`;
+  return `<div class="notes-box">
+    <div class="notes-h">${ICONS.alert}<span>${warns.length} note${warns.length === 1 ? "" : "s"} ${ctx || ""}</span></div>
+    <ul>${warns.map((w) => `<li>${w}</li>`).join("")}</ul></div>`;
 }
 
 function cvBuildFormatOptions() {
@@ -1315,7 +2875,7 @@ function renderCv() {
 
 function cvSigRow(mi, si, s) {
   const doubt = cvBeDoubt(s.start_bit, s.length, s.byte_order);
-  const warn = doubt ? `<span title="${escAttr(doubt)}" style="color:#e0a82e;margin-left:4px">⚠</span>` : "";
+  const warn = doubt ? `<span class="doubt-mark" title="${escAttr(doubt)}">${ICONS.alert}</span>` : "";
   const isM = s.byte_order === "big_endian";
   const ro = cvEditMode ? "" : "readonly", dis = cvEditMode ? "" : "disabled";
   return `<tr>
@@ -1346,7 +2906,7 @@ window.cvEdit = (mi, si, key, val) => {
   else if (key === "value_table") s.value_table = cvParseVT(val);
   else s[key] = val;
   cvMarkEdited();
-  renderCv();      // refresh ⚠ markers + loss preview
+  renderCv();      // refresh the doubt markers + loss preview
 };
 window.cvEditMsg = (mi, key, val) => {
   const m = cvModel.messages[mi];
@@ -1398,7 +2958,7 @@ function cvUpdateLoss() {
   }
   let dbt = 0;
   cvModel.messages.forEach((m) => m.signals.forEach((s) => { if (s._sel && cvBeDoubt(s.start_bit, s.length, s.byte_order)) dbt++; }));
-  if (dbt) msg += ` ⚠ ${dbt} sub-byte big-endian signal${dbt === 1 ? "" : "s"}${to === "dbc" ? " will get a verify comment" : ""}.`;
+  if (dbt) msg += ` · ${dbt} sub-byte big-endian signal${dbt === 1 ? "" : "s"}${to === "dbc" ? " will get a verify comment" : ""}.`;
   $("cvLoss").textContent = msg;
 }
 
@@ -1427,7 +2987,7 @@ $("btnCvDownload").addEventListener("click", async () => {
   $("cvStatus").textContent = `Downloaded ${r.filename}`;
   $("cvWarnings").innerHTML = (r.warnings && r.warnings.length)
     ? cvWarnBox(r.warnings, "— annotated in the file")
-    : `<div class="muted-line" style="color:var(--green)">Clean conversion — downloaded ${r.filename}</div>`;
+    : `<div class="muted-line ok-ink">Clean conversion — downloaded ${r.filename}</div>`;
 });
 
 // -------------------------------------------------------------- DBC Builder
@@ -1443,7 +3003,7 @@ async function renderDbc() {
         <input type="number" value="${m.length}" onchange="dbcEdit(${mi},null,'length',+this.value)" style="width:60px" />
         <span style="flex:1"></span>
         <button class="btn-mini" onclick="dbcAddSig(${mi})">+ Signal</button>
-        <button class="btn-mini" onclick="dbcDelMsg(${mi})">${ICONS.close}</button>
+        <button type="button" class="btn-mini" onclick="dbcDelMsg(${mi})">Remove</button>
       </div>
       <table class="data-table dbc-sig-table"><thead><tr>
         <th>Name</th><th>Start</th><th>Len</th><th>Order</th><th>Signed</th><th>Scale</th><th>Offset</th><th>Unit</th><th></th>
@@ -1459,7 +3019,7 @@ async function renderDbc() {
         <td><input type="number" step="any" value="${s.scale}" onchange="dbcEdit(${mi},${si},'scale',+this.value)"/></td>
         <td><input type="number" step="any" value="${s.offset}" onchange="dbcEdit(${mi},${si},'offset',+this.value)"/></td>
         <td><input value="${s.unit || ""}" onchange="dbcEdit(${mi},${si},'unit',this.value)"/></td>
-        <td><button class="btn-mini" onclick="dbcDelSig(${mi},${si})">${ICONS.close}</button></td>
+        <td><button type="button" class="btn-mini" onclick="dbcDelSig(${mi},${si})">Remove</button></td>
       </tr>`).join("")}
       </tbody></table>
     </div>`).join("") || `<div class="placeholder" style="padding:40px">No messages. Add one, or seed from Reverse Engineering.</div>`;
@@ -1469,8 +3029,9 @@ window.dbcEdit = (mi, si, key, val) => { (si === null ? dbcModel.messages[mi] : 
 window.dbcAddSig = (mi) => { dbcModel.messages[mi].signals.push({ name: "sig_" + dbcModel.messages[mi].signals.length, start_bit: 0, length: 8, byte_order: "little_endian", is_signed: false, scale: 1, offset: 0, unit: "" }); dbcSave().then(renderDbc); };
 window.dbcDelSig = (mi, si) => { dbcModel.messages[mi].signals.splice(si, 1); dbcSave().then(renderDbc); };
 window.dbcDelMsg = (mi) => { dbcModel.messages.splice(mi, 1); dbcSave().then(renderDbc); };
-$("btnDbcAddMsg").addEventListener("click", () => {
-  const hex = prompt("New message frame ID (hex):", "200"); if (!hex) return;
+$("btnDbcAddMsg").addEventListener("click", async () => {
+  const hex = await UI.prompt({ title: "New message", label: "Frame ID (hex)", value: "200", action: "Add" });
+  if (!hex) return;
   dbcModel.messages.push({ frame_id: parseInt(hex, 16), name: "MSG_" + hex.toUpperCase(), length: 8, is_extended: false, comment: "", signals: [] });
   dbcSave().then(renderDbc);
 });
@@ -1491,7 +3052,6 @@ $("btnDbcToViewer").addEventListener("click", async () => {
 
 // ------------------------------------------------------------- Signal Viewer
 const sigSelected = new Set();
-const SIG_COLORS = ["#4ea1ff", "#46b86a", "#e2a055", "#c46bde", "#e25555", "#3fc7c7", "#d4d04e"];
 // Log-playback mode: chart a decoded-once log instead of polling live traffic.
 // null = live (the original behaviour); set by "Upload log for playback" below.
 let sigLogSeries = null;
@@ -1645,7 +3205,7 @@ function sigColorOf(key) {
     i = 0;
     for (let c = 0; c < key.length; c++) i = (i * 31 + key.charCodeAt(c)) >>> 0;
   }
-  return SIG_COLORS[i % SIG_COLORS.length];
+  return SERIES[i % SERIES.length];
 }
 function renderSigCheckboxes() {
   const q = ($("sigFilter").value || "").trim().toLowerCase();
@@ -1659,8 +3219,8 @@ function renderSigCheckboxes() {
       <span class="sig-swatch" style="background:${sigColorOf(s.key)}"></span>
       <span class="sig-item-name" onclick="toggleSig('${k}')">${k}${s.unit ? " (" + escAttr(s.unit) + ")" : ""}</span>
       <button class="pin${pinned ? " on" : ""}" title="${pinned ? "Unpin" : "Pin to the front of every view"}"
-        onclick="togglePin('${k}')">${pinned ? "★" : "☆"}</button></div>`;
-  }).join("") || `<div class="muted-line">No signal matches “${escAttr(q)}”.</div>`;
+        onclick="togglePin('${k}')">${UI.ico("star")}</button></div>`;
+  }).join("") || `<div class="muted-line">${q ? `No signal matches “${escAttr(q)}”.` : "No DBC loaded."}</div>`;
 }
 // Pinned signals lead every view — with 30 columns selected, the one you care
 // about is otherwise scrolled off the right edge.
@@ -1734,7 +3294,7 @@ let sigTilePrev = {};
 function renderSigTiles() {
   const host = $("sigTiles"), keys = sigOrderedKeys();
   if (!keys.length) {
-    host.innerHTML = `<div class="muted-line">Select signals on the left to show tiles.</div>`;
+    host.innerHTML = `<div class="muted-line">No signals selected.</div>`;
     $("sigTileHint").textContent = "";
     return;
   }
@@ -1747,7 +3307,7 @@ function renderSigTiles() {
     const idx = sigIndexAt(pts, at);
     const swatch = `<span class="sig-swatch" style="background:${sigColorOf(k)}"></span>`;
     const name = `<div class="sig-tile-name">${swatch}<span title="${escAttr(k)}">${escAttr(k)}</span>` +
-      `${sigPinned.has(k) ? '<span class="pin on" style="margin-left:auto">★</span>' : ""}</div>`;
+      `${sigPinned.has(k) ? `<span class="pin on pin-end">${UI.ico("star")}</span>` : ""}</div>`;
     if (idx < 0) {
       return `<div class="sig-tile unseen">${name}<div class="sig-tile-val">not seen yet</div>
         <div class="sig-tile-foot"><span>—</span><span>—</span></div></div>`;
@@ -1825,7 +3385,7 @@ function sigBuildRows(keys, t0, t1, grid, changesOnly) {
 function renderSigTable() {
   const wrap = $("sigTableWrap"), keys = sigOrderedKeys();
   if (!keys.length) {
-    wrap.innerHTML = `<div style="padding:16px" class="muted-line">Select signals on the left to build the table.</div>`;
+    wrap.innerHTML = `<div class="panel-body muted-line m0">No signals selected.</div>`;
     $("sigTableHint").textContent = "";
     return;
   }
@@ -1851,7 +3411,7 @@ function renderSigTable() {
 
   const head = `<tr><th class="t-col">t (s)</th>${keys.map((k) => {
     const m = sigMeta[k] || {}, short = k.split(".").slice(-1)[0];
-    return `<th title="${escAttr(k)}">${sigPinned.has(k) ? '<span class="pin on">★</span> ' : ""}` +
+    return `<th title="${escAttr(k)}">${sigPinned.has(k) ? `<span class="pin on">${UI.ico("star")}</span> ` : ""}` +
       `${escAttr(short)}${m.unit ? ` <span style="opacity:.6">${escAttr(m.unit)}</span>` : ""}</th>`;
   }).join("")}</tr>`;
 
@@ -1870,7 +3430,7 @@ function renderSigTable() {
   wrap.innerHTML = `<table class="sig-table${sigLogSeries ? " seekable" : ""}">` +
     `<thead>${head}</thead><tbody>${body}</tbody></table>`;
   $("sigTableHint").innerHTML = `<span class="sig-legend"><span><i style="background:var(--accent-soft)"></i>changed</span>` +
-    `<span style="opacity:.55;font-style:italic">held</span><span style="color:#5a6066">— not seen</span>` +
+    `<span style="opacity:.55;font-style:italic">held</span><span class="dim-note">— not seen</span>` +
     `<span>${list.length} row${list.length === 1 ? "" : "s"} @ ${fmtInterval(grid)}${clipped ? ` (+${clipped} off-screen)` : ""}</span></span>`;
 
   // Follow the anchor row while playing or right after a seek; when paused and
@@ -2004,8 +3564,8 @@ function sigSetFolded(folded) {
   $("sigGrid").classList.toggle("sig-folded", folded);
   const b = $("btnSigFold");
   // Spelled out, and highlighted while folded — this button IS the way back
-  // once the list (and the ◀ in its header) is gone.
-  b.innerHTML = folded ? "&#9654; Show signals" : "&#9664; Hide signals";
+  // once the list (and the fold button in its header) is gone.
+  b.innerHTML = folded ? `${ICONS.chevronRight}<span>Show signals</span>` : `${ICONS.chevronLeft}<span>Hide signals</span>`;
   b.title = folded ? "Bring the signal list back" : "Hide the signal list to give the data more width";
   b.classList.toggle("active", folded);
   sigRenderData(true);
@@ -2032,8 +3592,8 @@ function sigRenderCoverage(unknownFrames, errorFrames) {
   if (!c.unknown_ids.length && !c.decode_errors.length) { $("sigCoveragePanel").hidden = true; return; }
   $("sigCoveragePanel").hidden = false;
   const rows = [];
-  if (errorFrames) rows.push(`<div style="color:var(--red);margin-bottom:6px">⚠ ${errorFrames} frame(s) from ${c.decode_errors.length} ID(s) ARE in this DBC but failed to decode — likely a DBC/vehicle mismatch:</div>`);
-  rows.push(...c.decode_errors.map((e) => `<div style="padding-left:10px;color:var(--red)">0x${e.id_hex} × ${e.count} — ${e.error}</div>`));
+  if (errorFrames) rows.push(badLine(`${errorFrames} frame(s) from ${c.decode_errors.length} ID(s) are in this DBC but failed to decode — likely a DBC / vehicle mismatch:`));
+  rows.push(...c.decode_errors.map((e) => `<div class="err-sub">0x${e.id_hex} × ${e.count} — ${e.error}</div>`));
   if (unknownFrames) rows.push(`<div style="margin:6px 0">${unknownFrames} frame(s) from ${c.unknown_ids.length} ID(s) have no message in this DBC (expected for a partial DBC):</div>`);
   rows.push(`<div style="padding-left:10px;display:flex;flex-wrap:wrap;gap:6px">${
     c.unknown_ids.map((u) => `<span class="tag" style="font-size:11px">0x${u.id_hex} ×${u.count}</span>`).join("")}</div>`);
@@ -2285,10 +3845,10 @@ async function pollDerived() {
   const d = await api("/api/signals/derived");
   const active = (d.alarms || []).filter((a) => a.active);
   $("sigAlarmBanner").innerHTML = active.length
-    ? `<span class="cand-chip" style="border-color:#e25555;color:#e25555">⚠ ${active.map((a) => a.name).join(", ")}</span>` : "";
+    ? `<span class="tag bad">${active.map((a) => a.name).join(", ")} in alarm</span>` : "";
   $("almList").innerHTML = (d.alarms || []).map((a, i) =>
-    `<span class="cand-chip" style="border-color:${a.active ? "#e25555" : "#6b7280"};color:${a.active ? "#e25555" : "#9aa0a6"}">
-      ${a.name} [${a.min ?? "−∞"},${a.max ?? "∞"}]${a.active ? " ⚠" : ""} <a href="#" onclick="delAlarm(${i});return false">${ICONS.close}</a></span>`).join("") || "none";
+    `<span class="tag ${a.active ? "bad" : ""}">
+      ${a.name} [${a.min ?? "−∞"},${a.max ?? "∞"}] <a href="#" class="tag-x" aria-label="Remove alarm" onclick="delAlarm(${i});return false">${ICONS.close}</a></span>`).join("") || "None";
 }
 $("btnCompAdd").addEventListener("click", async () => {
   const name = $("compName").value.trim(), expr = $("compExpr").value.trim();
@@ -2299,7 +3859,7 @@ $("btnCompAdd").addEventListener("click", async () => {
 });
 function renderCompList() {
   $("compList").innerHTML = computedDefs.map((c, i) =>
-    `<span class="cand-chip" style="border-color:#61afef;color:#61afef">${c.name} = ${c.expr} <a href="#" onclick="delComp(${i});return false">${ICONS.close}</a></span>`).join("") || "none";
+    `<span class="tag info">${c.name} = ${c.expr} <a href="#" class="tag-x" aria-label="Remove" onclick="delComp(${i});return false">${ICONS.close}</a></span>`).join("") || "None";
 }
 window.delComp = async (i) => { computedDefs.splice(i, 1); await POST("/api/signals/computed", { defs: computedDefs }); renderCompList(); refreshSigList(); };
 $("btnAlmAdd").addEventListener("click", async () => {
@@ -2341,7 +3901,7 @@ function drawChart(key, pts, winT0, winT1) {
   // Playhead: centred in log playback, at the right edge when live.
   const headT = sigLogSeries ? (x0 + x1) / 2 : x1;
   ctx.save();
-  ctx.strokeStyle = "#4ea1ff"; ctx.globalAlpha = 0.5; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = tok("--accent"); ctx.globalAlpha = 0.5; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
   ctx.beginPath(); ctx.moveTo(sx(headT), 2); ctx.lineTo(sx(headT), h - 2); ctx.stroke();
   ctx.restore();
 
@@ -2378,7 +3938,7 @@ function drawChart(key, pts, winT0, winT1) {
     const cur = i < 0 ? null : src[i][1];
     const stale = i >= 0 && (headT - src[i][0]) > (meta.staleAfter || 1);
     vEl.innerHTML = cur == null
-      ? `<span style="color:#5a6066">not seen yet</span>`
+      ? `<span class="dim-note">Not seen yet</span>`
       : `<span${stale ? ' style="opacity:.55;font-style:italic" title="held — this message stopped arriving"' : ""}>${cur.toFixed(dec)}${meta.unit ? " " + escAttr(meta.unit) : ""}</span>` +
         (constant ? ` <span class="sum-warn" style="font-size:11px">flat</span>` : "");
   }
@@ -2425,13 +3985,16 @@ window.txRemove = (uid) => fetch("/api/tx/remove?uid=" + uid, { method: "POST" }
 window.txOnce = (uid) => fetch("/api/tx/send-once?uid=" + uid, { method: "POST" });
 async function pollTx() {
   const t = await api("/api/tx");
-  $("txState").textContent = t.running ? "running" : "stopped";
+  $("txState").textContent = t.running ? "Running" : "Stopped";
+  $("txState").className = "tag" + (t.running ? " ok" : "");
+  $("txCount").textContent = t.entries.length ? String(t.entries.length) : "";
   $("txTable").querySelector("tbody").innerHTML = t.entries.map((e) => `
-    <tr><td style="text-align:center"><input type="checkbox" ${e.enabled ? "checked" : ""} onchange="txToggle(${e.uid},this.checked)"/></td>
-    <td>${e.name}</td><td class="mono">0x${e.id_hex}</td><td class="mono">${e.data}</td>
-    <td>${e.cycle_ms} ms</td><td>${e.mode}</td><td>${e.count}</td>
-    <td><button class="btn-mini" onclick="txOnce(${e.uid})">Send</button>
-        <button class="btn-mini" onclick="txRemove(${e.uid})">${ICONS.close}</button></td></tr>`).join("");
+    <tr><td class="cell-center"><input type="checkbox" ${e.enabled ? "checked" : ""} aria-label="Enabled" onchange="txToggle(${e.uid},this.checked)"/></td>
+    <td>${UI.esc(e.name)}</td><td class="mono">0x${e.id_hex}</td><td class="mono">${e.data}</td>
+    <td class="num">${e.cycle_ms} ms</td><td>${cap(e.mode)}</td><td class="num">${e.count.toLocaleString()}</td>
+    <td class="row-actions"><button type="button" class="btn-mini" onclick="txOnce(${e.uid})">Send once</button>
+        <button type="button" class="btn-mini" onclick="txRemove(${e.uid})">Remove</button></td></tr>`).join("")
+    || `<tr class="empty-row"><td colspan="8">No frames yet.</td></tr>`;
 }
 
 // ----------------------------------------------------------- Protocol Decoder
@@ -2463,9 +4026,10 @@ async function pollDashboard() {
   const d = await api("/api/dashboard");
   const has = d.groups && d.groups.some((g) => g.items.length);
   $("dashEmpty").classList.toggle("hidden", has);
+  $("dashBar").classList.toggle("hidden", !has);
   $("dashGroups").innerHTML = (d.groups || []).map((g) => `
     <div class="dash-group">
-      <div class="dash-group-title">${g.group}</div>
+      <div class="dash-group-title">${g.group} <span class="ui-count">${g.items.length}</span></div>
       <div class="gauge-grid">
         ${g.items.map((it) => `
           <div class="gauge ${it.stale ? "stale" : ""}">
@@ -2481,25 +4045,28 @@ async function pollDashboard() {
 // ----------------------------------------------------------------- DTC Codes
 $("btnDtcScan").addEventListener("click", () => POST("/api/dtc/scan").then((r) => !r.ok && setStatus(r.error)));
 $("btnDtcClearList").addEventListener("click", () => POST("/api/dtc/clear").then(pollDtc));
-$("btnDtcClearEcu").addEventListener("click", () => {
-  if (!confirm("Send Mode 04 to CLEAR diagnostic trouble codes on the vehicle?\nThis erases stored DTCs and freeze-frame data.")) return;
+$("btnDtcClearEcu").addEventListener("click", async () => {
+  if (!(await UI.confirm({ title: "Clear trouble codes on the vehicle?",
+    text: "This sends OBD-II Mode 04. The ECU erases its stored DTCs and freeze-frame data.",
+    action: "Clear codes", tone: "danger" }))) return;
   POST("/api/dtc/clear-ecu").then((r) => setStatus(r.ok ? "Sent Mode 04 clear request" : r.error));
 });
 async function pollDtc() {
   const d = await api("/api/dtc");
-  $("dtcCount").textContent = (d.count || 0) + " codes";
-  $("dtcEmpty").classList.toggle("hidden", (d.count || 0) > 0);
+  const n = d.count || 0;
+  $("dtcCount").textContent = `${n} code${n === 1 ? "" : "s"}`;
+  $("dtcEmpty").classList.toggle("hidden", n > 0);
   $("dtcGroups").innerHTML = (d.groups || []).map((g) => `
     <div class="dash-group">
-      <div class="dash-group-title">${g.group} · ${g.items.length}</div>
+      <div class="dash-group-title">${g.group} <span class="ui-count">${g.items.length}</span></div>
       ${g.items.map((it) => `
         <div class="dtc-card ${it.stale ? "stale" : ""}">
           <div class="dtc-code">${it.code}</div>
           <div class="dtc-body">
-            <div class="dtc-desc">${it.desc || "<span style='color:var(--muted)'>no description</span>"}</div>
+            <div class="dtc-desc">${it.desc || '<span class="dtc-nodesc">No description</span>'}</div>
             ${it.status ? `<div class="dtc-status">${it.status}${it.oc !== undefined ? " · OC " + it.oc : ""}</div>` : ""}
           </div>
-          <div class="dtc-seen">×${it.seen}</div>
+          <div class="dtc-seen" title="Times seen">×${it.seen}</div>
         </div>`).join("")}
     </div>`).join("");
 }
@@ -2518,12 +4085,12 @@ async function checkDrivers() {
     else if (r.type === "installer") {
       const dl = b.download || {};
       const pct = dl.total ? Math.round((dl.downloaded / dl.total) * 100) : 0;
-      if (dl.state === "downloading") action = `downloading… ${pct}% <button class="btn-mini" onclick="driverPoll('${b.hw}')">refresh</button>`;
-      else if (dl.state === "done" || dl.cached) action = `<button class="btn-mini" onclick="driverLaunch('${b.hw}')">Install now</button>`;
-      else action = `<button class="btn-mini" onclick="driverDownload('${b.hw}')">Download & install (${r.approx_mb || "?"} MB)</button>`;
+      if (dl.state === "downloading") action = `Downloading… ${pct}% <button type="button" class="btn-mini" onclick="driverPoll('${b.hw}')">Refresh</button>`;
+      else if (dl.state === "done" || dl.cached) action = `<button type="button" class="btn-mini" onclick="driverLaunch('${b.hw}')">Install now</button>`;
+      else action = `<button type="button" class="btn-mini" onclick="driverDownload('${b.hw}')">Download and install (${r.approx_mb || "?"} MB)</button>`;
     }
-    return `<div style="margin:4px 0"><b>${b.label}</b> — <span class="muted-line">${b.detail}</span><br>
-      <span class="muted-line">${(r.note || "")}</span> ${action}</div>`;
+    return `<div class="driver-row"><b>${b.label}</b> — ${b.detail}
+      ${r.note ? `<div class="muted-line">${r.note}</div>` : ""} ${action}</div>`;
   }).join("");
 }
 window.driverDownload = async (hw) => {
@@ -2541,44 +4108,26 @@ window.driverLaunch = async (hw) => {
 $("btnDriverRecheck").addEventListener("click", checkDrivers);
 checkDrivers();
 
-// ----------------------------------- sidebar nav icons (consistent SVG set)
-const _svgNav = (body) => `<svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
-const NAV_ICONS = {
-  dashboard: _svgNav('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>'),
-  logger: _svgNav('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'),
-  replay: _svgNav('<polygon points="5 3 19 12 5 21 5 3"/>'),
-  re: _svgNav('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'),
-  autore: _svgNav('<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>'),
-  framedec: _svgNav('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>'),
-  convert: _svgNav('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'),
-  dbc: _svgNav('<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>'),
-  oem: _svgNav('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>'),
-  signals: _svgNav('<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>'),
-  scheduler: _svgNav('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
-  automation: _svgNav('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
-  dtc: _svgNav('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
-  decoder: _svgNav('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
-};
-document.querySelectorAll(".nav").forEach((b) => {
-  const ic = NAV_ICONS[b.dataset.view];
-  const label = b.textContent.trim();
-  if (ic) b.innerHTML = ic + `<span>${label}</span>`;
-  b.title = label;            // tooltip — useful when the rail is collapsed
-});
-
 // ----------------------------------- icons on static action buttons (by id)
 const BTN_ICONS = {
-  btnPlay: [ICONS.play, "Play"], btnPause: [ICONS.pause, "Pause"],
+  btnPlay: [ICONS.play, "Play"],
   btnStop: [ICONS.stop, "Stop"], btnStep: [ICONS.step, "Step"],
   btnTxStart: [ICONS.play, "Start all"], btnTxStop: [ICONS.stop, "Stop"],
   btnRestbusStart: [ICONS.play, "Start"], btnRestbusStop: [ICONS.stop, "Stop"],
   btnScriptRun: [ICONS.play, "Run script"],
-  btnReplayRescan: [ICONS.refresh, "Logs"], btnReRescan: [ICONS.refresh, "Logs"],
-  btnAutoReRescan: [ICONS.refresh, "Logs"], btnOemRefresh: [ICONS.refresh, ""],
-  btnRefreshDevs: [ICONS.refresh, "Rescan"], btnDbcToViewer: [ICONS.arrowRight, "Signal Viewer"],
+  btnReplayRescan: [ICONS.refresh, "Rescan"], btnReRescan: [ICONS.refresh, "Rescan"],
+  btnAutoReRescan: [ICONS.refresh, "Rescan"], btnOemRefresh: [ICONS.refresh, "Refresh"],
+  btnRefreshDevs: [ICONS.refresh, "Rescan"], btnDbcToViewer: [ICONS.arrowRight, "Signal viewer"],
+  btnReplayUpload: [ICONS.upload, "Upload logs"], btnTvCloud: [ICONS.upload, "Upload cloud log"],
+  btnTvDef: [ICONS.upload, "Upload JSON / DBC"], btnTxDbcUpload: [ICONS.upload, "Upload .dbc"],
+  btnTxPlaylistAdd: [UI.ico("plus"), "Add to playlist"], btnTxAdd: [UI.ico("plus"), "Add"],
+  btnTxObdPreset: [UI.ico("plus"), "OBD PIDs"], btnRuleAdd: [UI.ico("plus"), "Add rule"],
+  btnJobAdd: [UI.ico("plus"), "Add job"], btnDtcScan: [ICONS.refresh, "Scan"],
+  btnTxScenarioDelete: [UI.ico("trash"), "Delete"],
   btnFdToggleFill: [ICONS.clipboard, "Paste frames"],
   btnDbcImport: [ICONS.upload, "Upload .dbc"], btnDbcExport: [ICONS.download, "Download .dbc"],
   btnSigImport: [ICONS.upload, "Upload .dbc"],
+  btnUsageName: [ICONS.edit, "Edit name"],
 };
 Object.entries(BTN_ICONS).forEach(([id, [ic, label]]) => {
   const el = $(id);
@@ -2587,29 +4136,14 @@ Object.entries(BTN_ICONS).forEach(([id, [ic, label]]) => {
   el.classList.add("btn-ico");
 });
 
-// --------------------------- sidebar: simple open ↔ collapsed toggle (persisted)
-// (auto-hide/hover-flyout mode is disabled for now — needs more work.)
-const _appEl = document.querySelector(".app");
-let navMode = "open";
-function applyNavMode(mode) {
-  navMode = mode === "rail" ? "rail" : "open";   // only two states supported
-  _appEl.classList.toggle("nav-rail", navMode === "rail");
-  $("navToggle").title = navMode === "rail" ? "Expand sidebar" : "Collapse sidebar";
-  try { localStorage.setItem("ucando_nav_mode", navMode); } catch (e) {}
-}
-$("navToggle").addEventListener("click", () => applyNavMode(navMode === "rail" ? "open" : "rail"));
-let _savedMode = "open";
-try { _savedMode = localStorage.getItem("ucando_nav_mode") || "open"; } catch (e) {}
-applyNavMode(_savedMode === "rail" ? "rail" : "open");   // legacy "auto" → open
-
 // ===================== Animated idle / empty states ========================
 // One self-contained CAN-bus SVG (no GIF, no library) reused across idle pages:
 // ECU chip-nodes tapping a differential bus while data frames flow + nodes pulse.
 const CAN_BUS_SVG = `<svg class="bus-anim" viewBox="0 0 440 200" role="img" aria-label="CAN bus animation">
-  <line class="bus-line" x1="40" y1="112" x2="400" y2="112" stroke="var(--accent)" stroke-width="2.5"/>
-  <line class="bus-line" x1="40" y1="120" x2="400" y2="120" stroke="var(--green)" stroke-width="2.5"/>
-  <line class="bus-flow" x1="40" y1="112" x2="400" y2="112" stroke="var(--accent)" stroke-width="2.5"/>
-  <line class="bus-flow" x1="40" y1="120" x2="400" y2="120" stroke="var(--green)" stroke-width="2.5"/>
+  <line class="bus-line" x1="40" y1="112" x2="400" y2="112" stroke="var(--brand)" stroke-width="2.5"/>
+  <line class="bus-line" x1="40" y1="120" x2="400" y2="120" stroke="var(--accent)" stroke-width="2.5"/>
+  <line class="bus-flow" x1="40" y1="112" x2="400" y2="112" stroke="var(--brand)" stroke-width="2.5"/>
+  <line class="bus-flow" x1="40" y1="120" x2="400" y2="120" stroke="var(--accent)" stroke-width="2.5"/>
   <line x1="40" y1="110" x2="40" y2="122" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/>
   <line x1="400" y1="110" x2="400" y2="122" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/>
   <line class="tap" x1="90" y1="66" x2="90" y2="112"/><line class="tap" x1="180" y1="120" x2="180" y2="134"/>
@@ -2642,10 +4176,16 @@ const CAN_BUS_SVG = `<svg class="bus-anim" viewBox="0 0 440 200" role="img" aria
 function startHeroCanvas(canvas) {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no 2d context");
-  const css = getComputedStyle(document.documentElement);
-  const pick = (v, d) => { const x = (css.getPropertyValue(v) || "").trim(); return x || d; };
-  const C = { acc: pick("--accent", "#4ea1ff"), grn: pick("--green", "#46b86a"),
-              mut: pick("--muted", "#8b9298"), line: pick("--line", "#2b2f36") };
+  // The two bus wires are the brand blue and the accent green (CAN-H / CAN-L);
+  // colours are re-read whenever the theme changes, so a light page never
+  // keeps a dark page's canvas.
+  const tokens = () => {
+    const css = getComputedStyle(document.documentElement);
+    const pick = (v) => (css.getPropertyValue(v) || "").trim();
+    return { acc: pick("--brand"), grn: pick("--accent"), mut: pick("--muted"), txt: pick("--text") };
+  };
+  let C = tokens();
+  UI.onTheme(() => { C = tokens(); });
   const NAMES = ["ENGINE", "BMS", "ABS", "DASH", "GATEWAY", "TPMS", "HVAC", "EPS"];
   const HEX = ["0x0C9", "0x1A4", "0x244", "0x316", "0x5B0", "FF 2C", "3A 90", "0x7DF", "1B C0", "0x18F", "0x202", "0x45A"];
   const BANDS = [-86, 54, -50, 88, -56, 50, -86, 60];   // y-offsets from the bus → 2D scatter
@@ -2745,7 +4285,7 @@ function startHeroCanvas(canvas) {
       ctx.strokeStyle = hexA(C.mut, .35); ctx.lineWidth = 1.5; seg(nd.x, nd.y < busY ? b.y + b.h : b.y, nd.x, busY);
       const hot = i === hover ? 1 : nd.pulse;
       if (hot > 0) { ctx.save(); ctx.globalAlpha = hot; ctx.shadowColor = C.acc; ctx.shadowBlur = 18; ctx.strokeStyle = C.acc; ctx.lineWidth = 2; rrect(b.x - 4, b.y - 4, b.w + 8, b.h + 8, 8); ctx.stroke(); ctx.restore(); }
-      ctx.fillStyle = "rgba(255,255,255,.03)"; ctx.strokeStyle = C.acc; ctx.lineWidth = 1.5; rrect(b.x, b.y, b.w, b.h, 6); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = hexA(C.txt, .03); ctx.strokeStyle = C.acc; ctx.lineWidth = 1.5; rrect(b.x, b.y, b.w, b.h, 6); ctx.fill(); ctx.stroke();
       ctx.strokeStyle = hexA(C.mut, .8); ctx.lineWidth = 1.3; rrect(nd.x - 9, nd.y - 7, 18, 14, 3); ctx.stroke();
       ctx.fillStyle = hexA(C.mut, .85); ctx.font = "9px ui-sans-serif,system-ui,sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = nd.y < busY ? "bottom" : "top";
       ctx.fillText(nd.name, nd.x, nd.y < busY ? b.y - 6 : b.y + b.h + 6); ctx.textAlign = "left";
@@ -2801,10 +4341,11 @@ function startHeroCanvas(canvas) {
   document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); else if (canvas.offsetParent) start(); });
 }
 
-const _SWAP_ICON = _ico('<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>');
+// An action card: an icon and a name. What it does is its hold-tip — a caption
+// under every card is help text, and the page carries none.
 function idleCard(c) {
-  return `<button class="idle-card ${c.primary ? "primary" : ""}" onclick="${c.onclick}">
-    <span class="ic-wrap">${c.icon}</span><h4>${c.title}</h4><p>${c.desc}</p></button>`;
+  return `<button type="button" class="idle-card ${c.primary ? "primary" : ""}" onclick="${c.onclick}" data-tip="${c.tip}">
+    <span class="ic-wrap">${c.icon}</span><h4>${c.title}</h4></button>`;
 }
 function emptyHero(id, o) {
   const el = $(id); if (!el) return;
@@ -2812,14 +4353,13 @@ function emptyHero(id, o) {
   el.innerHTML = `<div class="idle-hero">
     <div class="hero-stage"><canvas class="hero-canvas"></canvas></div>
     <div class="empty-anim-title">${o.title}</div>
-    <div class="empty-anim-sub">${o.sub}</div>
+    ${o.sub ? `<div class="empty-anim-sub">${o.sub}</div>` : ""}
     ${cards ? `<div class="idle-cards">${cards}</div>` : ""}
-    ${o.tips ? `<div class="idle-tips">${o.tips.map((t) => `<span>${t}</span>`).join("")}</div>` : ""}
   </div>`;
   try { startHeroCanvas(el.querySelector(".hero-canvas")); }
   catch (e) { el.querySelector(".hero-stage").innerHTML = CAN_BUS_SVG; }   // graceful fallback
 }
-window.goView = (v) => { const b = document.querySelector(`.nav[data-view="${v}"]`); if (b) b.click(); };
+window.goView = (v) => openView(v);
 window.quickConnectVirtual = async () => {
   setStatus("Connecting to virtual bus…");
   const r = await POST("/api/connect", { hw: "virtual", channel: "ucando", bitrate: 500000, simulate: true });
@@ -2828,28 +4368,28 @@ window.quickConnectVirtual = async () => {
 window.cvUploadClick = () => $("btnCvUpload").click();
 
 emptyHero("dashEmpty", {
-  title: "Waiting for live frames…",
-  sub: "Connect a bus to start decoding standard protocols (OBD-II · J1939) — no DBC required.",
+  title: "Waiting for live frames",
+  sub: "OBD-II and J1939 values appear here as soon as a bus carries them.",
   cards: [
-    { icon: ICON_POWER, title: "Try it now", desc: "Spin up the virtual bus with demo OBD-II + J1939 traffic.", onclick: "quickConnectVirtual()", primary: true },
-    { icon: ICONS.grid, title: "Frame Decoder", desc: "Decode payloads against a DBC or Signature JSON.", onclick: "goView('framedec')" },
-    { icon: _SWAP_ICON, title: "Converter", desc: "Convert DBC ⇄ JSON ⇄ CSV in any direction.", onclick: "goView('convert')" },
-  ],
-  tips: [
-    "Tip: Frame Decoder → Trace mode highlights which signals change across many payloads.",
-    "Tip: the Converter shows DBC/CSV IDs in hex and downloads a clean, sorted layout.",
-    "Tip: no hardware? The virtual bus streams realistic CAN traffic for testing.",
+    { icon: ICONS.plug, title: "Virtual bus", onclick: "quickConnectVirtual()", primary: true,
+      tip: "Connect the built-in virtual bus with demo OBD-II and J1939 traffic." },
+    { icon: ICONS.grid, title: "Frame decoder", onclick: "goView('framedec')",
+      tip: "Decode payloads against a DBC or Signature JSON, one frame or a whole trace." },
+    { icon: ICONS.swap, title: "Converter", onclick: "goView('convert')",
+      tip: "Convert a signal database between DBC, Signature JSON and CSV." },
   ],
 });
 emptyHero("cvEmpty", {
-  title: "Convert & inspect CAN databases",
-  sub: "Upload a DBC, cloud Signature JSON, CSV, or a CanPlus vehicle-library XML to preview its messages & signals — edit fields, pick the signals you want, and download in any format.",
-  cards: [{ icon: ICONS.upload, title: "Upload file", desc: "DBC · JSON · CSV · CanPlus XML — auto-detected.", onclick: "cvUploadClick()", primary: true }],
+  title: "No database open",
+  sub: "DBC, Signature JSON, CSV or a CanPlus vehicle library.",
+  cards: [{ icon: ICONS.upload, title: "Upload file", onclick: "cvUploadClick()", primary: true,
+    tip: "The format is detected from the file. Edit fields, pick signals, then download in any format." }],
 });
 emptyHero("dtcEmpty", {
   title: "No trouble codes",
-  sub: "Connect a bus and Scan for OBD-II / UDS / J1939 codes. J1939 DM1 codes also appear passively.",
-  cards: [{ icon: ICON_POWER, title: "Connect virtual bus", desc: "Stream demo frames to see the flow.", onclick: "quickConnectVirtual()", primary: true }],
+  sub: "",
+  cards: [{ icon: ICONS.plug, title: "Virtual bus", onclick: "quickConnectVirtual()", primary: true,
+    tip: "Connect the built-in virtual bus; its demo traffic includes trouble codes." }],
 });
 
 // Initial header title/description + kick off polling for the Dashboard view.

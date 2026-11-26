@@ -1,0 +1,21 @@
+{
+  "vin_patterns": [
+    "MALB241CLS*"
+  ],
+  "vin_pattern_confidence": "low",
+  "notes": [
+    "Read from a Teltonika FMB001 attached in the same session; the vehicle does",
+    "not broadcast its VIN on this bus.",
+    "WMI MAL = Hyundai Motor India.",
+    "Only characters 1-9 are stored: manufacturer + model/body/powertrain.",
+    "This is the BI-FUEL petrol+CNG car. OBD-II PID 51 reported fuel type 13 =",
+    "'bifuel running CNG', and the cluster photo shows a CNG/PETROL indicator with",
+    "CNG active, a separate CNG gauge under the tachometer, and the petrol gauge",
+    "near empty with its low-fuel lamp lit.",
+    "Position 10 is 'S', which ISO 3779 reads as 2025 - the folder says 2024 on the",
+    "owner's identification of the vehicle, the 'S' most likely being the build",
+    "year of a 2024-model car. Treat the folder year as the authority here.",
+    "The petrol Aura pack (Petrol_2023) shares this bus map: its three signals",
+    "decode correctly on this vehicle."
+  ]
+}

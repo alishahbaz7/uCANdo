@@ -1,28 +1,19 @@
-# Build a shareable uCANdo bundle (Windows). Run from the project root:
-#     .\packaging\build.ps1
-# Produces:  dist\uCANdo\uCANdo.exe   and   dist\uCANdo_v<version>.zip
+# Build a uCANdo release (Windows). Run from anywhere:
+#     .\packaging\build.ps1               build what is missing, then package
+#     .\packaging\build.ps1 --rebuild     a fresh program and launcher build
+# Produces, in dist\:  uCANdo-v<version>.zip, latest.json, notes.md and a runnable
+# uCANdo-v<version>\ install (uCANdo.exe = the launcher; the program in versions\).
+# The work is packaging\build_release.py (app-updates: the launcher install that
+# updates itself); this script only finds the venv and runs it.
+#
+# ASCII only, deliberately. Windows PowerShell 5.1 decodes a BOM-less script as
+# cp1252 - any non-ASCII character becomes mojibake and breaks the parser.
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 $py = Join-Path $root ".venv\Scripts\python.exe"
-
-$ver = (& $py -c "import ucando; print(ucando.__version__)").Trim()
-Write-Host "Building uCANdo v$ver ..." -ForegroundColor Cyan
+if (-not (Test-Path $py)) { throw "No venv at .venv - see CLAUDE.md for setup." }
 
 & $py -m pip install --quiet pyinstaller
-& $py -m PyInstaller "packaging\uCANdo.spec" --noconfirm --distpath dist --workpath build\pyi --log-level WARN
-if (-not (Test-Path "dist\uCANdo\uCANdo.exe")) { throw "Build failed — no exe produced." }
-
-# drop a one-line launcher + readme next to the exe, then zip the folder
-@"
-uCANdo v$ver — Unified CAN Workbench
-Double-click uCANdo.exe. It serves the UI at http://127.0.0.1:8765 and opens your browser.
-Runs fully offline on localhost only — it does not use or affect your internet/network.
-Your captures, logs and database are written to the 'data' folder next to the exe.
-To stop: close the console window.
-"@ | Set-Content "dist\uCANdo\README.txt"
-
-$zip = "dist\uCANdo_v$ver.zip"
-if (Test-Path $zip) { Remove-Item $zip }
-Compress-Archive -Path "dist\uCANdo\*" -DestinationPath $zip
-Write-Host "Done: $zip" -ForegroundColor Green
+& $py (Join-Path $root "packaging\build_release.py") @args
+if ($LASTEXITCODE -ne 0) { throw "build_release.py failed ($LASTEXITCODE)" }

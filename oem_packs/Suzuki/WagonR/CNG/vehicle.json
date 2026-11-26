@@ -1,0 +1,24 @@
+{
+  "vin_patterns": [
+    "MA3JMTB1S*"
+  ],
+  "vin_pattern_confidence": "low",
+  "notes": [
+    "Read live off the bus (0x500) AND photographed on the vehicle's build",
+    "plate in the same session - the two agree character for character, so the",
+    "VIN decode is confirmed against a physical artifact.",
+    "WMI MA3 = Maruti Suzuki India. The plate also gives ENGINE NO. K10CN,",
+    "the K10C DualJet in its CNG form, which is consistent with the bi-fuel",
+    "badge and the CNG indicator lit on the dash.",
+    "Derived from a SINGLE observed VIN, so this prefix may be too narrow or",
+    "too wide. Note it differs from the Dzire's MA3CZF63S in the VDS, so the",
+    "two packs cannot be confused by VIN even though they share a bus map.",
+    "Only characters 1-9 are stored: manufacturer + model/body/powertrain.",
+    "The unit-identifying tail is deliberately omitted - this identifies a",
+    "MODEL, not a car. The build plate happens to print the split at exactly",
+    "that boundary.",
+    "Position 10 is 'N', which ISO 3779 would read as model year 2022. That is",
+    "NOT confirmed for Maruti Suzuki India and the folder carries no year - see",
+    "the MG note in oem_packs/README.md."
+  ]
+}

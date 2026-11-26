@@ -57,9 +57,34 @@ class LoggerSnapshot(TypedDict):
     recent: list[FrameDict]
 
 
+class TxHealth(TypedDict):
+    """Transmit quality — what the UI's Playback health line reads.
+
+    A replay is only trustworthy if it kept up: ``fps`` vs ``target_fps`` and
+    ``drift_ms`` say whether the timeline held, ``late``/``max_late_ms`` say how
+    much jitter the OS clock introduced, ``burst_max`` how many frames one
+    wake-up had to emit back-to-back.
+    """
+    sent: int
+    errors: int
+    late: int
+    late_pct: float
+    avg_late_ms: float
+    max_late_ms: float
+    fps: float
+    target_fps: float
+    drift_ms: float
+    burst_max: int
+    tick_ms: float
+    keeping_up: bool     # False once the timeline is measurably behind the clock
+    recoveries: int      # bus outages ridden out (no ACK / bus-off / adapter reopened)
+    outage_s: float      # seconds without a bus, the current outage included
+
+
 class ReplayStatus(TypedDict):
-    """The shape returned by ``LogReplayer.status()``."""
+    """The shape returned by ``TxEngine.status()``."""
     state: str
+    error: str
     meta: dict
     cursor: int
     total: int
@@ -67,13 +92,27 @@ class ReplayStatus(TypedDict):
     cursor_s: float
     speed: float
     loop: bool
-    progress: float
+    passes: int          # 0 == endless
+    pass_no: int
+    network: Optional[str]
+    progress: float      # across the whole playlist (time-weighted)
+    health: TxHealth
+    # Playlist position (a single file is a one-item playlist)
+    item: int
+    item_count: int
+    item_label: str
+    item_pass: int
+    item_repeat: int
+    item_progress: float
+    plan_frames: int
+    recovering: Optional[dict]   # {since_s, tries} while state == "recovering", else None
 
 
 class LiveWsPayload(LoggerSnapshot, total=False):
     """What ``/ws/live`` sends each tick: a snapshot plus these extra keys."""
     connected: bool
     replay: ReplayStatus
+    bus_health: Optional[dict]   # the controller's error state (PCAN): {state, code} — or None
 
 
 # The keys the UI depends on existing in every /ws/live payload (even when not

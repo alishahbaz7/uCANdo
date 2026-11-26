@@ -5,8 +5,15 @@ venv/
 data/logs/
 data/uploads/
 data/drivers/
+data/cache/
 data/*.log
 data/*.log.*
+# uCANdo's own Edge profile for its app window (desktop.py) — large, per machine
+data/window/
+data/uCANdoWindow/
+data/uCANdoDevWin/
+# usage reports waiting to be sent (usage_client) — per machine, holds the install id
+data/usage.json
 *.asc
 *.blf
 *.db

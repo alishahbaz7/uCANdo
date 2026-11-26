@@ -242,3 +242,52 @@ def test_asset_token_changes_when_any_asset_changes():
         finally:
             os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
     assert _asset_token() == base          # exact restore (ns precision preserved)
+
+
+def test_upload_never_overwrites_a_different_file_of_the_same_name(tmp_path, monkeypatch):
+    """Capture tools reuse names across sessions (Vehicle Spy buffers, PCAN-View Trace.trc).
+    Logs now arrive many at once: a same-named different file must not replace the one a saved
+    playlist points at, and the same file again reuses its copy."""
+    import os
+    from ucando import server
+    monkeypatch.setattr(server, "UPLOAD_DIR", str(tmp_path))
+    c = TestClient(server.app)
+    up = lambda body: c.post("/api/upload", files={"file": ("Trace.trc", body, "text/plain")}).json()["path"]
+    first = up(b"session one")
+    again = up(b"session one")
+    other = up(b"session two")
+    assert again == first                                   # identical: reused, not duplicated
+    assert other != first and os.path.basename(other) == "Trace (2).trc"
+    assert open(first, "rb").read() == b"session one"       # the original is untouched
+    assert open(other, "rb").read() == b"session two"
+
+
+def test_remove_from_the_log_list_hides_and_never_deletes(tmp_path, monkeypatch):
+    """TX replay -> Source -> Remove: an upload folder can hold the only copy of a capture,
+    so Remove hides a log from the list; Show all brings it back; the file stays on disk."""
+    import os
+    from ucando import server
+    monkeypatch.setattr(server, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(server, "_active_log_dir", lambda: str(tmp_path))
+    (tmp_path / "a.trc").write_text("x", encoding="utf-8")
+    (tmp_path / "b.trc").write_text("y", encoding="utf-8")
+    c = TestClient(server.app)
+    c.post("/api/logs/unhide")
+    names = lambda: sorted(l["name"] for l in c.get("/api/logs").json()["logs"])
+    assert names() == ["a.trc", "b.trc"]
+    c.post("/api/logs/hide", json={"paths": [str(tmp_path / "a.trc")]})
+    r = c.get("/api/logs").json()
+    assert [l["name"] for l in r["logs"]] == ["b.trc"] and r["hidden"] == 1
+    assert os.path.exists(tmp_path / "a.trc")                # hidden, never deleted
+    c.post("/api/logs/unhide")
+    assert names() == ["a.trc", "b.trc"]
+
+
+def test_info_says_when_a_source_copy_runs_older_code(monkeypatch):
+    """A source copy whose Python changed after it started must say so ("Restart to load new
+    code"): otherwise the always-fresh page shows buttons whose routes this process lacks."""
+    from ucando import server
+    c = TestClient(server.app)
+    assert c.get("/api/info").json()["code_stale"] is False
+    monkeypatch.setattr(server, "_CODE_AT_START", 0.0)         # as if the files changed since
+    assert c.get("/api/info").json()["code_stale"] is (server.BUILD == "dev")

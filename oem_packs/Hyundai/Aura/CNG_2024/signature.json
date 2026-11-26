@@ -1,0 +1,224 @@
+{
+ "ids": [
+  {
+   "id": 292,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 399,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 512,
+   "ext": false,
+   "dlc": 6,
+   "period_ms": 10.0
+  },
+  {
+   "id": 608,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 640,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 790,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 809,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 897,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 902,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 903,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 906,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 1047,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.0
+  },
+  {
+   "id": 1093,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1170,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 50.0
+  },
+  {
+   "id": 1265,
+   "ext": false,
+   "dlc": 4,
+   "period_ms": 20.0
+  },
+  {
+   "id": 1280,
+   "ext": false,
+   "dlc": 1,
+   "period_ms": 99.96
+  },
+  {
+   "id": 1292,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1322,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.01
+  },
+  {
+   "id": 1345,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 1349,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1351,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1353,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1363,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.01
+  },
+  {
+   "id": 1366,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1367,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1427,
+   "ext": false,
+   "dlc": 6,
+   "period_ms": 200.0
+  },
+  {
+   "id": 1440,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 999.58
+  },
+  {
+   "id": 1456,
+   "ext": false,
+   "dlc": 4,
+   "period_ms": 1000.05
+  },
+  {
+   "id": 1486,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 1487,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  }
+ ],
+ "id_set": [
+  "124",
+  "18F",
+  "200",
+  "260",
+  "280",
+  "316",
+  "329",
+  "381",
+  "386",
+  "387",
+  "38A",
+  "417",
+  "445",
+  "492",
+  "4F1",
+  "500",
+  "50C",
+  "52A",
+  "541",
+  "545",
+  "547",
+  "549",
+  "553",
+  "556",
+  "557",
+  "593",
+  "5A0",
+  "5B0",
+  "5CE",
+  "5CF"
+ ],
+ "_source": "data/uploads/Aura/ - Vehicle Spy 3 (neoVI 3G), 2026-08-20, single HS CAN at 500 kbit/s, 17 captures incl. 4 moving",
+ "notes": [
+  "30 IDs, identical in all seventeen captures. No OBD scan tool was on the",
+  "bus during these recordings, so nothing needed excluding - unlike the",
+  "WagonR set, where 0x7DF/0x7E8/0x7EE had to be dropped.",
+  "This vehicle broadcasts freely on the OBD-2 connector, in contrast to the",
+  "2026 Maruti Dzire whose port is gateway-isolated."
+ ]
+}

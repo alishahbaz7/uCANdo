@@ -3,13 +3,28 @@
 > **India-first, fleet/telematics-focused CAN bus workbench.**
 > One tool. Any adapter. Log → Decode → Analyse → Reverse-engineer → Transmit.
 
-[![version](https://img.shields.io/badge/release-v1.4.0-brightgreen)](#release-history)
+[![version](https://img.shields.io/badge/release-v1.6.0-brightgreen)](#release-history)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.11x-green)](https://fastapi.tiangolo.com/)
 
 ---
 
-## What's New — v1.4 *(current)*
+## What's New — v1.6 *(current)*
+
+| Feature | Details |
+|---|---|
+| **Updates itself** | Pin `uCANdo.exe` (now a small launcher) once: each start checks for a newer version and offers it with its notes; *Update* downloads it, checks its SHA-256, installs it beside the running one and restarts into it. Your `data` stays put; Shift while starting picks an earlier version. Releases are published to a public releases-only repo (`docs/RELEASE_PACKAGING.md`) |
+| **The house design** | The look shared by this user's utilities: Supabase's palette and the Inter font (bundled, offline), Auto / Light / Dark, a fixed banner (uCANdo · *Hello, Name* · the page), a resizable rail with *Expanded / Collapsed / Expand on hover*, house dialogs, sentence case, no help text on screen — explanations are hold-tips |
+| **Its own window** | `python main.py` / `uCANdo.exe` open uCANdo as an app window, not a browser tab — its own taskbar button with uCANdo's logo (pin it and it starts uCANdo), the title bar following the theme |
+| **Release and dev side by side** | The packaged exe on **8765**, a run from source on **8865** (marked *Dev*), separate data folders; a second start just opens a window on the running copy |
+| **Settings → Views** | Hide any view you don't use, or preview one held back from this release |
+| **TX replay, faster to set up** | Upload several logs at once (a playlist in file-name order), *Remove* logs from the list (never deleted — *Show all* brings them back), *Clear* the source, and *Now sending ‹file› · file k of n* while it plays |
+| **Transmit signal: Tiles or Bytes** | What left the machine, two ways. *Tiles*: every signal of the uploaded JSON/DBC as the device's cloud panel shows it — pin the fields your cloud shows and hold the two side by side; a changed value lights up, a silent ID greys, a Patch-forced value says *Forced*. *Bytes*: every transmitted ID with changed bytes lit, an *All / In DBC* filter, and one ID's bit layout — a tile opens straight into it |
+| **TX rides out a lost bus** | Unplug the device under test, or let the bus go bus-off, and TX replay no longer stops with an error: it says *Waiting for the bus*, resets the adapter (PCAN `CAN_Reset`, then a reopen), and carries on from the frame it could not send. The outage is reported, never counted as drift; only *Stop* ends the wait. The bus chip shows the adapter's error state (error-warning / error-passive is PCAN's blinking red LED) |
+| **Usage reporting** (release builds) | The first start asks your name, to greet you. The packaged exe reports who uses it and how — counts, never CAN data — to the shared usage server; *Settings → Usage reporting* shows exactly what is sent (`docs/RELEASE_PACKAGING.md`) |
+| **UI guard rails** | `tests/test_ui.py` holds the design rules; `tools/ui_smoke.py` drives every view in both themes and fails on any page error |
+
+## What's New — v1.4
 
 | Feature | Details |
 |---|---|
@@ -125,17 +140,20 @@ pip install -r requirements.txt
 
 # 2. Run
 python main.py
-# Opens http://127.0.0.1:8765
+# Opens http://127.0.0.1:8865 (a run from source; the packaged uCANdo.exe uses 8765)
 
 # 3. Connect → Virtual bus (development) to capture synthetic traffic immediately
 ```
 
 ### Run options
 ```powershell
-python main.py                        # default port 8765, opens browser
+python main.py                        # source run: port 8865, opens browser
 python main.py --port 9000 --no-browser
 python main.py --reload               # dev auto-reload
 ```
+The packaged release (port **8765**) and a run from source (port **8865**) can be open at the
+same time: each keeps its own data folder, and the source copy is marked *Dev* in the banner.
+Starting a second copy of the same one just opens the copy that is already running.
 
 ### Tests
 ```powershell

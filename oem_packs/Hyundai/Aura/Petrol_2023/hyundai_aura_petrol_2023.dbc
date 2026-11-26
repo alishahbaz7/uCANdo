@@ -1,58 +1,64 @@
-VERSION ""
-
-
-NS_ : 
-	NS_DESC_
-	CM_
-	BA_DEF_
-	BA_
-	VAL_
-	CAT_DEF_
-	CAT_
-	FILTER
-	BA_DEF_DEF_
-	EV_DATA_
-	ENVVAR_DATA_
-	SGTYPE_
-	SGTYPE_VAL_
-	BA_DEF_SGTYPE_
-	BA_SGTYPE_
-	SIG_TYPE_REF_
-	VAL_TABLE_
-	SIG_GROUP_
-	SIG_VALTYPE_
-	SIGTYPE_VALTYPE_
-	BO_TX_BU_
-	BA_DEF_REL_
-	BA_REL_
-	BA_DEF_DEF_REL_
-	BU_SG_REL_
-	BU_EV_REL_
-	BU_BO_REL_
-	SG_MUL_VAL_
-
-BS_:
-
-BU_: 
-
-
-BO_ 790 HYUNDAI_316: 8 Vector__XXX
- SG_ EngineRPM : 16|16@1+ (0.25,0.0) [0|8000] "rpm" Vector__XXX
-
-BO_ 1366 HYUNDAI_556: 8 Vector__XXX
- SG_ EngineRPM : 16|16@1+ (0.25,0.0) [0|8000] "rpm" Vector__XXX
-
-BO_ 1456 HYUNDAI_5B0: 4 Vector__XXX
- SG_ Odometer : 0|24@1+ (0.1,0.0) [0|1000000] "km" Vector__XXX
-
-
-
-
-
-
-
-
-
-
-
-
+VERSION "Hyundai Aura petrol - uCANdo RE, capture 2026-06-13"
+
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_:
+
+BO_ 790 ECM_Engine: 8 Vector__XXX
+ SG_ EngineSpeed : 16|16@1+ (0.25,0) [0|16383.75] "rpm" Vector__XXX
+
+BO_ 1366 ECM_Engine2: 8 Vector__XXX
+ SG_ EngineSpeed2 : 16|16@1+ (0.25,0) [0|16383.75] "rpm" Vector__XXX
+
+BO_ 1456 CLUSTER_Odometer: 4 Vector__XXX
+ SG_ Odometer : 0|24@1+ (0.1,0) [0|1677721.5] "km" Vector__XXX
+
+CM_ BO_ 790 "Primary engine frame, 10 ms.";
+CM_ SG_ 790 EngineSpeed "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Engine speed. Confirmed on the 2026-06-13 petrol capture against an OBD reading, and again on the 2026-08-20 CNG car: idle median 929 rpm against 931 on a Teltonika FMB001, with a clean 905-5386 rpm sweep in the dedicated rev capture. This pack's own capture is the 2026-06-13 petrol vehicle; The Aura CNG_2024 pack shares this bus map: these signals decode correctly on both vehicles. See docs/HYUNDAI_AURA_DECODE.md.";
+CM_ BO_ 1366 "Secondary engine-speed broadcast, 10 ms.";
+CM_ SG_ 1366 EngineSpeed2 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Second engine-speed broadcast. Tracks ECM_Engine.EngineSpeed to under 1 rpm at idle and within 6 rpm across a full rev sweep. This pack's own capture is the 2026-06-13 petrol vehicle; The Aura CNG_2024 pack shares this bus map: these signals decode correctly on both vehicles. See docs/HYUNDAI_AURA_DECODE.md.";
+CM_ BO_ 1456 "Odometer, 1000 ms.";
+CM_ SG_ 1456 Odometer "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Odometer, 0.1 km per count. CONFIRMED BY MOTION on the CNG sibling: across a recorded drive the raw went 402419 -> 402430, i.e. 40241.9 -> 40243.0 km, and the cluster photos either side read 40241 and 40243 - the display floors to whole km, so both integers are reproduced. Note the trap: dividing the DISPLAYED 2 km by 11 counts gives a bogus 0.18 km/count. This pack's own capture is the 2026-06-13 petrol vehicle; The Aura CNG_2024 pack shares this bus map: these signals decode correctly on both vehicles. See docs/HYUNDAI_AURA_DECODE.md.";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ SG_ "SignalConfidence" ENUM "A_Confirmed","B_Corroborated","C_Inferred";
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "SignalConfidence" "C_Inferred";
+BA_ "GenMsgCycleTime" BO_ 790 10;
+BA_ "GenMsgCycleTime" BO_ 1366 10;
+BA_ "GenMsgCycleTime" BO_ 1456 1000;
+BA_ "SignalConfidence" SG_ 790 EngineSpeed 0;
+BA_ "SignalConfidence" SG_ 1366 EngineSpeed2 0;
+BA_ "SignalConfidence" SG_ 1456 Odometer 0;
+

@@ -1,0 +1,233 @@
+{
+ "ids": [
+  {
+   "id": 276,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 288,
+   "ext": false,
+   "dlc": 6,
+   "period_ms": 10.0
+  },
+  {
+   "id": 290,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 292,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 319,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 428,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 12.0
+  },
+  {
+   "id": 431,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 440,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 10.0
+  },
+  {
+   "id": 495,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 20.0
+  },
+  {
+   "id": 672,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 50.0
+  },
+  {
+   "id": 784,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 788,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 792,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 99.9
+  },
+  {
+   "id": 814,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 815,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 928,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 929,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.01
+  },
+  {
+   "id": 952,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 953,
+   "ext": false,
+   "dlc": 6,
+   "period_ms": 100.0
+  },
+  {
+   "id": 954,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 959,
+   "ext": false,
+   "dlc": 4,
+   "period_ms": 200.01
+  },
+  {
+   "id": 963,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 100.0
+  },
+  {
+   "id": 976,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 99.95
+  },
+  {
+   "id": 977,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 99.95
+  },
+  {
+   "id": 980,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 99.95
+  },
+  {
+   "id": 981,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 99.95
+  },
+  {
+   "id": 985,
+   "ext": false,
+   "dlc": 5,
+   "period_ms": 99.95
+  },
+  {
+   "id": 1000,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 99.95
+  },
+  {
+   "id": 1120,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 999.99
+  },
+  {
+   "id": 1123,
+   "ext": false,
+   "dlc": 3,
+   "period_ms": 200.0
+  },
+  {
+   "id": 1280,
+   "ext": false,
+   "dlc": 8,
+   "period_ms": 200.0
+  }
+ ],
+ "id_set": [
+  "114",
+  "120",
+  "122",
+  "124",
+  "13F",
+  "1AC",
+  "1AF",
+  "1B8",
+  "1EF",
+  "2A0",
+  "310",
+  "314",
+  "318",
+  "32E",
+  "32F",
+  "3A0",
+  "3A1",
+  "3B8",
+  "3B9",
+  "3BA",
+  "3BF",
+  "3C3",
+  "3D0",
+  "3D1",
+  "3D4",
+  "3D5",
+  "3D9",
+  "3E8",
+  "460",
+  "463",
+  "500"
+ ],
+ "_source": "data/uploads/Swift desire 19082026 - PCAN-View v5.2, 14 captures, 2026-08-19, single 500 kbit/s bus on the OBD-2 port",
+ "notes": [
+  "Capture-derived from the 2026-08-19 Maruti Suzuki Dzire petrol session,",
+  "PCAN-View v5.2 on the OBD-2 port, single 500 kbit/s bus.",
+  "These are the 31 IDs present in ALL fourteen captures - the steady-state",
+  "bus. Ten further IDs (0x0D0-0x0D2, 0x400, 0x40B, 0x4E0/1/4/5, 0x4ED) appear",
+  "only in a one-second burst at ignition-on and are deliberately excluded:",
+  "a live identify never sees them, so including them would only depress the",
+  "Jaccard score against a running vehicle."
+ ]
+}

@@ -1,0 +1,221 @@
+VERSION "Maruti Suzuki WagonR petrol+CNG - uCANdo RE, capture 2026-08-20"
+
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_:
+
+BO_ 292 ECM_Engine: 8 Vector__XXX
+ SG_ EngineSpeed : 15|16@0+ (0.25,0) [0|16383.75] "rpm" Vector__XXX
+
+BO_ 319 ECM_Engine2: 8 Vector__XXX
+ SG_ EngineSpeed2 : 15|16@0+ (0.25,0) [0|16383.75] "rpm" Vector__XXX
+
+BO_ 309 ECM_Load: 4 Vector__XXX
+ SG_ EngineLoad : 7|16@0+ (0.001953,0) [0|128] "%" Vector__XXX
+
+BO_ 1014 ECM_Ignition: 8 Vector__XXX
+ SG_ IgnitionTimingAdvance : 23|8@0+ (0.5,-64) [-64|63.5] "deg" Vector__XXX
+
+BO_ 784 ECM_Coolant: 8 Vector__XXX
+ SG_ EngineNotRunning : 0|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ EngineCoolantTemp : 15|8@0+ (1,-40) [-40|215] "degC" Vector__XXX
+
+BO_ 788 ECM_Manifold: 8 Vector__XXX
+ SG_ ManifoldAbsolutePressure : 55|8@0+ (0.286237,8.996) [0|82] "kPa" Vector__XXX
+
+BO_ 290 ECM_AccelPedal: 8 Vector__XXX
+ SG_ AccelPedalPosition : 15|8@0+ (0.4,0) [0|102] "%" Vector__XXX
+ SG_ ThrottlePosition : 39|8@0+ (0.392157,0) [0|100] "%" Vector__XXX
+
+BO_ 792 ECM_PedalState: 8 Vector__XXX
+ SG_ EngineThrottleState : 1|2@0+ (1,0) [0|3] "" Vector__XXX
+ SG_ BrakePedal : 2|1@0+ (1,0) [0|0] "" Vector__XXX
+
+BO_ 953 BCM_Fuel: 6 Vector__XXX
+ SG_ FuelLevelPrimary : 39|8@0+ (0.4,0) [0|102] "%" Vector__XXX
+ SG_ FuelLevelSecondary : 47|8@0+ (0.4,0) [0|102] "%" Vector__XXX
+
+BO_ 976 BCM_Status1: 8 Vector__XXX
+ SG_ HeadlampOn : 5|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ AcCompressorOn : 12|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ IgnitionOn : 14|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ TurnIndicatorA : 38|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ TurnIndicatorB : 39|1@0+ (1,0) [0|0] "" Vector__XXX
+
+BO_ 977 BCM_Status2: 8 Vector__XXX
+ SG_ DoorOpenSecond : 1|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ DriverSeatbeltFastened : 47|1@0+ (1,0) [0|0] "" Vector__XXX
+
+BO_ 981 BCM_Doors: 8 Vector__XXX
+ SG_ DoorOpen : 31|1@0+ (1,0) [0|0] "" Vector__XXX
+
+BO_ 952 BCM_Lights: 8 Vector__XXX
+ SG_ HeadlampOffIndication : 60|1@0+ (1,0) [0|0] "" Vector__XXX
+
+BO_ 440 ABS_WheelSpeed: 8 Vector__XXX
+ SG_ WheelSpeedRaw1 : 7|16@0+ (1,0) [0|65535] "" Vector__XXX
+ SG_ WheelSpeedRaw2 : 23|16@0+ (1,0) [0|65535] "" Vector__XXX
+ SG_ WheelSpeedRaw3 : 39|16@0+ (1,0) [0|65535] "" Vector__XXX
+ SG_ WheelSpeedRaw4 : 55|16@0+ (1,0) [0|65535] "" Vector__XXX
+
+BO_ 1120 CLUSTER_Odometer: 8 Vector__XXX
+ SG_ Odometer : 7|24@0+ (1,0) [0|16777215] "km" Vector__XXX
+
+BO_ 1280 VIN_Block: 8 Vector__XXX
+ SG_ VinBlockIndex : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VinChar1 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VinChar2 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VinChar3 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VinChar4 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VinChar5 : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VinChar6 : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+
+CM_ BO_ 292 "Primary engine frame, 10 ms.";
+CM_ SG_ 292 EngineSpeed "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Engine speed. Correlates with OBD-II PID 0C at r=+0.996 across 21 polled samples in this capture, and the textbook 0.25 rpm scale fits as well as a free regression (rms 0.81 vs 0.81 rpm). Same definition as the Dzire pack.";
+CM_ BO_ 319 "Secondary engine-speed broadcast, 20 ms.";
+CM_ SG_ 319 EngineSpeed2 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Second engine-speed broadcast from a different ECU; median matches OBD-II PID 0C exactly (852 rpm). Finer effective quantum than ECM_Engine but slower (20 ms vs 10 ms).";
+CM_ BO_ 309 "Engine load, 10 ms. WagonR-only frame.";
+CM_ SG_ 309 EngineLoad "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Calculated engine load. Correlates with OBD-II PID 04 at r=+0.9997, and the clean 1/512 scale reproduces it as well as a free regression (rms 0.14 % either way) with zero offset. Observed 28.3-45.2 %. NOT present on the Dzire - this ID is WagonR-only in the captures held so far.";
+CM_ BO_ 1014 "Ignition timing, 100 ms. WagonR-only frame.";
+CM_ SG_ 1014 IgnitionTimingAdvance "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Ignition timing advance before TDC. Correlates with OBD-II PID 0E at r=+0.977, and the bus uses the same encoding OBD does - raw/2 - 64 - which fits as well as a free regression (rms 0.89 deg either way). Observed -14.4 to +7.2 deg. WagonR-only frame in the captures held so far.";
+CM_ BO_ 784 "Coolant temperature and engine-running state, 100 ms.";
+CM_ SG_ 784 EngineNotRunning "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. 1 while the ignition is on and the engine is stopped, 0 once running. Reads 0 for this whole capture, consistent with an engine idling at 852 rpm. Isolated on the Dzire against its engine-crank event; the WagonR capture contains no crank, so the transition itself is unverified here.";
+CM_ SG_ 784 EngineCoolantTemp "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Coolant temperature. Matches OBD-II PID 05 EXACTLY - r=+1.0000, rms 0.000 over 21 samples, decoding 90-91 C against a reported 90-91 C. The strongest single confirmation in this pack.";
+CM_ BO_ 788 "Manifold pressure, 100 ms.";
+CM_ SG_ 788 ManifoldAbsolutePressure "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Intake manifold absolute pressure. Correlates with OBD-II PID 0B at r=+0.975 over 21 samples; the fit is 0.286*raw + 9.0 kPa, giving 35.9-53.9 against a reported 36-56 kPa. The SCALE IS FITTED, not a clean OEM constant, and rms is 1.5 kPa - treat the number as approximate. Identity is not in doubt: nothing else in a petrol engine tracks manifold pressure. This byte is the one the Dzire RE record listed as an unidentified fast-changing value - the WagonR OBD trace is what named it. On the Dzire capture this byte reads a flat 0 with the engine stopped, which decodes to a meaningless 9 kPa through the offset - the ECU does not publish manifold pressure until the engine runs, so gate on ECM_Coolant.EngineNotRunning before believing it.";
+CM_ BO_ 290 "Accelerator pedal and throttle, 10 ms.";
+CM_ SG_ 290 AccelPedalPosition "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Accelerator pedal. Reads a flat 0 for this entire capture (the car idled untouched), so nothing here calibrates it. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ SG_ 290 ThrottlePosition "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Throttle opening. Correlates with OBD-II PID 11 (absolute throttle) at r=+0.994, but over only SIX distinct raw counts spanning a 2 % idle band - the scale here is the conventional 0-255 -> 0-100 %, NOT a fitted value, and it is unverified anywhere outside idle. The ~7.5-point gap to PID 11 is consistent with the bus reporting relative throttle where OBD reports absolute. This byte is the Dzire pack's uncalibrated EngineLoadRaw.";
+CM_ BO_ 792 "Throttle/brake state, 100 ms.";
+CM_ SG_ 792 EngineThrottleState "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. 2-bit engine state. Reads a constant 1 (running, throttle closed) for this whole capture, which is consistent but proves nothing. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ SG_ 792 BrakePedal "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 0 throughout - the brake was never pressed during this capture. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ BO_ 953 "Fuel level, 100 ms. Two gauges on this bi-fuel vehicle - see signal comments.";
+CM_ SG_ 953 FuelLevelPrimary "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Fuel level, gauge 1. Wanders over raw 81-89 in 33 s, which is float-sender behaviour. The dash carries TWO gauges on this bi-fuel car (petrol and CNG, both reading roughly a third) and both decode near 33 % here, so WHICH TANK this is has NOT been established. The 0.4 %/bit scale is inherited from the Dzire and rests on one calibration point there.";
+CM_ SG_ 953 FuelLevelSecondary "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Fuel level, gauge 2. Dead constant at raw 87 (34.8 %) for the whole capture, while FuelLevelPrimary wanders - a real asymmetry, and the shape you would expect if one gauge is a sloshing float and the other is derived from CNG tank pressure. On the mono-fuel Dzire these two bytes track each other within two counts, so on THIS car they are probably two different tanks. That is a hypothesis, not a finding - see the RE record for the capture that would settle it.";
+CM_ BO_ 976 "Body control module status, 100 ms.";
+CM_ SG_ 976 HeadlampOn "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 0 throughout. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ SG_ 976 AcCompressorOn "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 1 throughout, consistent with the AC running. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ SG_ 976 IgnitionOn "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 1 throughout, consistent with a running vehicle. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ SG_ 976 TurnIndicatorA "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 0 throughout. Side (left vs right) is not established on either vehicle. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ SG_ 976 TurnIndicatorB "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 0 throughout. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ BO_ 977 "Body control module status, 100 ms.";
+CM_ SG_ 977 DoorOpenSecond "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 0 throughout. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ SG_ 977 DriverSeatbeltFastened "CONFIDENCE B (corroborated): isolated by a controlled experiment or forced by unambiguous physical behaviour; no external number to check against. Decodes 0 (unfastened) for the whole capture, and the dash photo taken at the same session shows the seatbelt warning lamp LIT. That is an independent confirmation on this vehicle, not merely inheritance - though only in the unfastened state; the buckled state was never captured here.";
+CM_ BO_ 981 "Door status, 100 ms.";
+CM_ SG_ 981 DoorOpen "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 0 (closed) throughout, consistent with a parked, closed car. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ BO_ 952 "Lighting feedback, 100 ms.";
+CM_ SG_ 952 HeadlampOffIndication "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. Reads 1 (headlamp off) throughout, agreeing with BCM_Status1.HeadlampOn=0. Inherited from the Dzire pack: the two cars share all 13 decodable messages and three OBD-checkable signals (rpm, second rpm, coolant) match exactly, so the platform transfer is well supported - but this particular control was NOT actuated during the WagonR capture, so it is unverified on this vehicle.";
+CM_ BO_ 440 "Wheel speeds, 10 ms. UNCALIBRATED - see the signal comments before using.";
+CM_ SG_ 440 WheelSpeedRaw1 "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. RAW COUNTS, NOT km/h. Reads a flat 0 for this whole capture and OBD-II PID 0D confirms the vehicle was stationary throughout, so the scale and the wheel-to-field mapping are both still unknown - exactly as on the Dzire.";
+CM_ SG_ 440 WheelSpeedRaw2 "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. RAW COUNTS, NOT km/h. Reads a flat 0 for this whole capture and OBD-II PID 0D confirms the vehicle was stationary throughout, so the scale and the wheel-to-field mapping are both still unknown - exactly as on the Dzire.";
+CM_ SG_ 440 WheelSpeedRaw3 "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. RAW COUNTS, NOT km/h. Reads a flat 0 for this whole capture and OBD-II PID 0D confirms the vehicle was stationary throughout, so the scale and the wheel-to-field mapping are both still unknown - exactly as on the Dzire.";
+CM_ SG_ 440 WheelSpeedRaw4 "CONFIDENCE C (inferred): structural inference only. Layout is plausible; scale and/or mapping are UNVERIFIED - do not trust the number. RAW COUNTS, NOT km/h. Reads a flat 0 for this whole capture and OBD-II PID 0D confirms the vehicle was stationary throughout, so the scale and the wheel-to-field mapping are both still unknown - exactly as on the Dzire.";
+CM_ BO_ 1120 "Odometer, 1000 ms.";
+CM_ SG_ 1120 Odometer "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Raw read 146282 against a dash photo reading 146282 km - exact, no scaling, and decoded with the definition carried over unchanged from the Dzire pack. The vehicle never moved during the capture, so the 1 km quantum itself is still not proven.";
+CM_ BO_ 1280 "Vehicle identification number, 200 ms. WMI MA3 = Maruti Suzuki India.";
+CM_ SG_ 1280 VinBlockIndex "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. Selects which six VIN characters this frame carries: 1, 2 or 3.";
+CM_ SG_ 1280 VinChar1 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. ASCII character. Concatenate VinChar1..6 across blocks 1, 2 and 3 and drop the single 0x00 pad leading block 1. The reassembled VIN matches the vehicle's build plate character for character - photographed in the same session - so this decode is confirmed against a physical artifact.";
+CM_ SG_ 1280 VinChar2 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. ASCII character. Concatenate VinChar1..6 across blocks 1, 2 and 3 and drop the single 0x00 pad leading block 1. The reassembled VIN matches the vehicle's build plate character for character - photographed in the same session - so this decode is confirmed against a physical artifact.";
+CM_ SG_ 1280 VinChar3 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. ASCII character. Concatenate VinChar1..6 across blocks 1, 2 and 3 and drop the single 0x00 pad leading block 1. The reassembled VIN matches the vehicle's build plate character for character - photographed in the same session - so this decode is confirmed against a physical artifact.";
+CM_ SG_ 1280 VinChar4 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. ASCII character. Concatenate VinChar1..6 across blocks 1, 2 and 3 and drop the single 0x00 pad leading block 1. The reassembled VIN matches the vehicle's build plate character for character - photographed in the same session - so this decode is confirmed against a physical artifact.";
+CM_ SG_ 1280 VinChar5 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. ASCII character. Concatenate VinChar1..6 across blocks 1, 2 and 3 and drop the single 0x00 pad leading block 1. The reassembled VIN matches the vehicle's build plate character for character - photographed in the same session - so this decode is confirmed against a physical artifact.";
+CM_ SG_ 1280 VinChar6 "CONFIDENCE A (confirmed): matched byte-exact against external ground truth. ASCII character. Concatenate VinChar1..6 across blocks 1, 2 and 3 and drop the single 0x00 pad leading block 1. The reassembled VIN matches the vehicle's build plate character for character - photographed in the same session - so this decode is confirmed against a physical artifact.";
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ SG_ "SignalConfidence" ENUM "A_Confirmed","B_Corroborated","C_Inferred";
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "SignalConfidence" "C_Inferred";
+BA_ "GenMsgCycleTime" BO_ 292 10;
+BA_ "GenMsgCycleTime" BO_ 319 20;
+BA_ "GenMsgCycleTime" BO_ 309 10;
+BA_ "GenMsgCycleTime" BO_ 1014 100;
+BA_ "GenMsgCycleTime" BO_ 784 100;
+BA_ "GenMsgCycleTime" BO_ 788 100;
+BA_ "GenMsgCycleTime" BO_ 290 10;
+BA_ "GenMsgCycleTime" BO_ 792 100;
+BA_ "GenMsgCycleTime" BO_ 953 100;
+BA_ "GenMsgCycleTime" BO_ 976 100;
+BA_ "GenMsgCycleTime" BO_ 977 100;
+BA_ "GenMsgCycleTime" BO_ 981 100;
+BA_ "GenMsgCycleTime" BO_ 952 100;
+BA_ "GenMsgCycleTime" BO_ 440 10;
+BA_ "GenMsgCycleTime" BO_ 1120 1000;
+BA_ "GenMsgCycleTime" BO_ 1280 200;
+BA_ "SignalConfidence" SG_ 292 EngineSpeed 0;
+BA_ "SignalConfidence" SG_ 319 EngineSpeed2 0;
+BA_ "SignalConfidence" SG_ 309 EngineLoad 0;
+BA_ "SignalConfidence" SG_ 1014 IgnitionTimingAdvance 0;
+BA_ "SignalConfidence" SG_ 784 EngineNotRunning 1;
+BA_ "SignalConfidence" SG_ 784 EngineCoolantTemp 0;
+BA_ "SignalConfidence" SG_ 788 ManifoldAbsolutePressure 1;
+BA_ "SignalConfidence" SG_ 290 AccelPedalPosition 2;
+BA_ "SignalConfidence" SG_ 290 ThrottlePosition 2;
+BA_ "SignalConfidence" SG_ 792 EngineThrottleState 2;
+BA_ "SignalConfidence" SG_ 792 BrakePedal 2;
+BA_ "SignalConfidence" SG_ 953 FuelLevelPrimary 2;
+BA_ "SignalConfidence" SG_ 953 FuelLevelSecondary 2;
+BA_ "SignalConfidence" SG_ 976 HeadlampOn 2;
+BA_ "SignalConfidence" SG_ 976 AcCompressorOn 2;
+BA_ "SignalConfidence" SG_ 976 IgnitionOn 2;
+BA_ "SignalConfidence" SG_ 976 TurnIndicatorA 2;
+BA_ "SignalConfidence" SG_ 976 TurnIndicatorB 2;
+BA_ "SignalConfidence" SG_ 977 DoorOpenSecond 2;
+BA_ "SignalConfidence" SG_ 977 DriverSeatbeltFastened 1;
+BA_ "SignalConfidence" SG_ 981 DoorOpen 2;
+BA_ "SignalConfidence" SG_ 952 HeadlampOffIndication 2;
+BA_ "SignalConfidence" SG_ 440 WheelSpeedRaw1 2;
+BA_ "SignalConfidence" SG_ 440 WheelSpeedRaw2 2;
+BA_ "SignalConfidence" SG_ 440 WheelSpeedRaw3 2;
+BA_ "SignalConfidence" SG_ 440 WheelSpeedRaw4 2;
+BA_ "SignalConfidence" SG_ 1120 Odometer 0;
+BA_ "SignalConfidence" SG_ 1280 VinBlockIndex 0;
+BA_ "SignalConfidence" SG_ 1280 VinChar1 0;
+BA_ "SignalConfidence" SG_ 1280 VinChar2 0;
+BA_ "SignalConfidence" SG_ 1280 VinChar3 0;
+BA_ "SignalConfidence" SG_ 1280 VinChar4 0;
+BA_ "SignalConfidence" SG_ 1280 VinChar5 0;
+BA_ "SignalConfidence" SG_ 1280 VinChar6 0;
+
+VAL_ 792 EngineThrottleState 2 "RunningThrottleApplied" 1 "RunningThrottleClosed" 0 "EngineOff" ;
+VAL_ 792 BrakePedal 1 "Pressed" 0 "NotPressed" ;
+VAL_ 784 EngineNotRunning 1 "Stopped" 0 "Running" ;
+VAL_ 976 HeadlampOn 1 "On" 0 "Off" ;
+VAL_ 976 AcCompressorOn 1 "On" 0 "Off" ;
+VAL_ 976 IgnitionOn 1 "On" 0 "Off" ;
+VAL_ 976 TurnIndicatorA 1 "On" 0 "Off" ;
+VAL_ 976 TurnIndicatorB 1 "On" 0 "Off" ;
+VAL_ 977 DoorOpenSecond 1 "Open" 0 "Closed" ;
+VAL_ 977 DriverSeatbeltFastened 1 "Fastened" 0 "Unfastened" ;
+VAL_ 981 DoorOpen 1 "Open" 0 "Closed" ;
+VAL_ 952 HeadlampOffIndication 1 "HeadlampOff" 0 "HeadlampOn" ;
